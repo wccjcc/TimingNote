@@ -1,0 +1,49 @@
+# OS / filesystems
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Flutter / Dart common outputs
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub/
+**/.pub-cache/
+**/doc/api/
+**/build/
+**/coverage/
+**/ios/Flutter/.last_build_id
+
+# Android local config and secrets
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/*.jks
+**/*.keystore
+
+# Apple platform generated artifacts
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/macos/Pods/
+**/macos/Flutter/ephemeral/
+
+# Linux / Windows Flutter ephemeral artifacts
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# Environment files
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
