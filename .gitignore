@@ -47,3 +47,6 @@ desktop.ini
 **/.env.*
 !**/.env.example
 !**/.env.sample
+
+# 정우주 개인 prd 문서
+**/documents/
