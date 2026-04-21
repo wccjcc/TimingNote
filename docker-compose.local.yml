@@ -1,0 +1,37 @@
+# 실행
+#  docker-compose -f docker-compose.local.yml up -d
+# 중지
+#  docker-compose -f docker-compose.local.yml down
+
+services:
+  # Redis Stack: Redis 서버 + Redis Insight UI (8001 포트) 포함
+  redis:
+    image: redis/redis-stack:latest
+    container_name: timingnote-redis
+    ports:
+      - "6379:6379" # Redis 서버 포트
+      - "8001:8001" # Redis Insight UI 포트
+    environment:
+      REDIS_ARGS: --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: always
+
+  # RabbitMQ Management: 메시지 브로커 + 관리자 UI (15672 포트) 포함
+  rabbitmq:
+    image: rabbitmq:4.0-management
+    container_name: timingnote-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP 프로토콜 포트
+      - "15672:15672" # 관리자 웹 UI 포트
+    environment:
+      # 초기 계정 설정 (로컬 환경이므로 기본값 사용 권장)
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    restart: always
+
+volumes:
+  redis-data:
+  rabbitmq-data:
