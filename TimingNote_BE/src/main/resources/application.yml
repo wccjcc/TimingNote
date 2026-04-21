@@ -12,3 +12,19 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+swagger:
+  server-url: ${SWAGGER_SERVER_URL:}
+
+springdoc:
+  default-consume-media-type: application/json
+  default-produce-media-type: application/json
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
