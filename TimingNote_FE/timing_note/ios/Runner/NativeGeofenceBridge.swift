@@ -39,7 +39,10 @@ final class NativeGeofenceBridge: NSObject, CLLocationManagerDelegate, FlutterSt
 
   /// Flutter 엔진이 준비되었을 때 채널 연결
   func attachChannels(pluginRegistry: FlutterPluginRegistry) {
-    let registrar = pluginRegistry.registrar(forPlugin: "NativeGeofenceBridge")
+    guard let registrar = pluginRegistry.registrar(forPlugin: "NativeGeofenceBridge") else {
+      assertionFailure("NativeGeofenceBridge registrar is unavailable")
+      return
+    }
 
     methodChannel = FlutterMethodChannel(
       name: methodChannelName,

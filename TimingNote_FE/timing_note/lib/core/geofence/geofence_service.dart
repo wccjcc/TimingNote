@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:permission_handler/permission_handler.dart';
-
 import '../location/location_permission_service.dart';
 import '../network/api_exception.dart';
 import 'geofence_event.dart';

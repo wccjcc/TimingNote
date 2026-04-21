@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 
 import '../location/location_permission_service.dart';
+import '../notification/local_notification_service.dart';
 import 'geofence_event.dart';
 import 'geofence_event_publisher.dart';
 import 'geofence_hardcoded_regions.dart';
@@ -22,13 +23,16 @@ class GeofenceRuntime {
     required GeofenceService geofenceService,
     required GeofenceEventPublisher publisher,
     required GeofenceRegionStore regionStore,
+    required LocalNotificationService localNotificationService,
   })  : _geofenceService = geofenceService,
         _publisher = publisher,
-        _regionStore = regionStore;
+        _regionStore = regionStore,
+        _localNotificationService = localNotificationService;
 
   final GeofenceService _geofenceService;
   final GeofenceEventPublisher _publisher;
   final GeofenceRegionStore _regionStore;
+  final LocalNotificationService _localNotificationService;
   final Logger _logger = Logger();
 
   bool _started = false;
@@ -66,6 +70,12 @@ class GeofenceRuntime {
         );
 
         try {
+          await _localNotificationService.showGeofenceNotification(
+            geofenceId: event.geofenceId,
+            transition: event.transition.name.toUpperCase(),
+            occurredAt: event.occurredAt.toLocal().toIso8601String(),
+          );
+
           await _publisher.publish(event);
           _logger.i(
             '[GEOFENCE_PUBLISHED] '
@@ -108,6 +118,10 @@ final geofenceRegionStoreProvider = Provider<GeofenceRegionStore>((ref) {
   return GeofenceRegionStore();
 });
 
+final localNotificationServiceProvider = Provider<LocalNotificationService>((ref) {
+  return LocalNotificationService();
+});
+
 final geofenceServiceProvider = Provider<GeofenceService>((ref) {
   return GeofenceService(
     permissionService: ref.read(locationPermissionServiceProvider),
@@ -120,5 +134,6 @@ final geofenceRuntimeProvider = Provider<GeofenceRuntime>((ref) {
     geofenceService: ref.read(geofenceServiceProvider),
     publisher: ref.read(geofenceEventPublisherProvider),
     regionStore: ref.read(geofenceRegionStoreProvider),
+    localNotificationService: ref.read(localNotificationServiceProvider),
   );
 });

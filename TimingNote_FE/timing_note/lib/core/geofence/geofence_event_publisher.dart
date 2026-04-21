@@ -15,7 +15,7 @@ class GeofenceEventPublisher {
     await _apiClient.post<void>(
       ApiEndpoints.geofenceEvents,
       data: event.toJson(),
-      dataParser: (_) => null,
+      dataParser: (_) {},
     );
   }
 }
