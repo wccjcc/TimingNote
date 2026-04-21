@@ -66,5 +66,15 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>현재 위치 기반 할 일 추천과 알림을 위해 위치 권한이 필요합니다.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>백그라운드에서도 위치 기반 알림을 제공하기 위해 항상 위치 권한이 필요합니다.</string>
+
+	<key>NSUserNotificationUsageDescription</key>
+	<string>할 일 리마인더 알림을 보내기 위해 알림 권한이 필요합니다.</string>
+
 </dict>
 </plist>
