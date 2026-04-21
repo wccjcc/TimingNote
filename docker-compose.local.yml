@@ -31,7 +31,24 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     restart: always
+  # PostgreSQL 17 (pgvector 포함) + PostGIS 설치 환경
+  db:
+    build: ./infra/postgres  # Dockerfile이 있는 경로로 수정
+    container_name: timingnote-db
+    ports:
+      - "${DB_PORT}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      # 현재 폴더(루트) 기준 infra/postgres/data 폴더에 저장
+      - ./infra/postgres/data:/var/lib/postgresql/data
+      - ./infra/postgres/initdb.d:/docker-entrypoint-initdb.d
+    restart: always
 
 volumes:
   redis-data:
   rabbitmq-data:
+  postgres-data:
+
