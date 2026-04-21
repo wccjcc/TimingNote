@@ -43,6 +43,7 @@ desktop.ini
 **/windows/flutter/ephemeral/
 
 # Environment files
+**/.venv
 **/.env
 **/.env.*
 !**/.env.example
@@ -50,3 +51,7 @@ desktop.ini
 
 # 정우주 개인 prd 문서
 **/documents/
+
+# Python
+__pycache__/
+*.py[cod]
