@@ -1,0 +1,16 @@
+### TimingNote AI API Test
+
+# 1. 헬스 체크 (서버가 살아있는지 확인)
+GET http://localhost:8000/health
+    Accept: application/json
+
+###
+# 2. 자연어 구조화 API 테스트 (Mock 데이터 응답)
+POST http://localhost:8000/internal/structure
+Content-Type: application/json
+
+{
+    "todoId": 100,
+    "inputType": "TEXT",
+    "originalText": "마트에서 우유 사기"
+}
