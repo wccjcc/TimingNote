@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 
 # 1. 행동 중심 카테고리 (사용자 경험의 핵심)
 class TodoCategory(str, Enum):
@@ -53,8 +53,14 @@ class TodoStructureOutput(BaseModel):
     time_hint: Optional[str] = None # 예: "저녁에", "내일 3시" 등 시간 맥락
 
 class StructureResponse(TodoStructureOutput):
-    """최종 API 응답 모델 (시스템 메타데이터 포함)"""
+    """최종 API 응답 모델 (로그 및 통계 데이터 포함)"""
+    todo_id: int = Field(..., alias="todoId") # BE 스펙에 맞춰 camelCase 지원
     todo_type: TodoType
     category_label: str # 사용자 노출용 한글 카테고리명
     model_used: str
-    request_id: str
+    request_id: str # 로그 추적용 UUID
+    raw_result_json: Dict[str, Any] # 토큰 사용량, 응답 시간 등 통계 데이터
+
+    model_config = {
+        "populate_by_name": True # alias와 field name 모두 사용 가능하게 설정
+    }
