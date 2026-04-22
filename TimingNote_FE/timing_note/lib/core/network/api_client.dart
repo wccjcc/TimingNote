@@ -9,8 +9,8 @@ import 'api_exception.dart';
 class ApiClient {
   ApiClient({
     required String baseUrl,
-    required String deviceSecret,
-  })  : _deviceSecret = deviceSecret,
+    required Future<String?> Function() deviceSecretResolver,
+  })  : _deviceSecretResolver = deviceSecretResolver,
         // 앱 전체 공통 Dio 설정
         // - baseUrl: 모든 API 요청 prefix
         // - timeout: 무한 대기 방지
@@ -28,15 +28,15 @@ class ApiClient {
         ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
-        onRequest: (options, handler) {
-          // SYS-01처럼 헤더 제외가 필요한 경우만 skipDeviceSecret=true 전달
-          final bool skip = options.extra['skipDeviceSecret'] == true;
-
-          // 기본 정책: 모든 요청에 X-Device-Secret 자동 주입
+        // onRequest 내부
+        onRequest: (options, handler) async {
+          final skip = options.extra['skipDeviceSecret'] == true;
           if (!skip) {
-            options.headers['X-Device-Secret'] = _deviceSecret;
+            final secret = await _deviceSecretResolver();
+            if (secret != null && secret.isNotEmpty) {
+              options.headers['X-Device-Secret'] = secret;
+            }
           }
-
           // 전역 로깅 규칙: 네트워크 로그는 interceptor에서만 출력
           _logger.i('[REQ] ${options.method} ${options.uri}');
           handler.next(options);
@@ -61,7 +61,7 @@ class ApiClient {
   }
 
   final Dio _dio;
-  final String _deviceSecret;
+  final Future<String?> Function() _deviceSecretResolver;
   final Logger _logger = Logger();
 
   // 이제 모든 메서드는 data만이 아니라 msg까지 살리기 위해
