@@ -3,6 +3,7 @@ package com.timingnote.api.domain.settings.service;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.settings.dto.request.UserSettingsRegisterRequestDto;
+import com.timingnote.api.domain.settings.dto.response.UserSettingsGetResponseDto;
 import com.timingnote.api.domain.settings.dto.response.UserSettingsRegisterResponseDto;
 import com.timingnote.api.domain.settings.entity.UserSettings;
 import com.timingnote.api.domain.settings.repository.UserSettingsRepository;
@@ -23,15 +24,32 @@ public class UserSettingsServiceImpl implements UserSettingsService {
     private final UserSettingsRepository userSettingsRepository;
 
     /**
+     * SETTINGS-01 설정 조회: 인증 사용자 기준 최신 설정을 조회한다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public UserSettingsGetResponseDto getSettings(Long userId) {
+        ensureUserExists(userId);
+
+        UserSettings userSettings = userSettingsRepository.findTopByUserIdOrderByUpdatedAtDesc(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        return UserSettingsGetResponseDto.builder()
+                .locationAlertEnabled(userSettings.getLocationAlertEnabled())
+                .pushAlertEnabled(userSettings.getPushAlertEnabled())
+                .radiusM(userSettings.getRadiusM())
+                .updatedAt(userSettings.getUpdatedAt().toInstant().toString())
+                .build();
+    }
+
+    /**
      * SETTINGS-03 설정 등록:
      * 최초 등록이면 생성하고, 기존 설정이 있으면 최신 값으로 재등록한다.
      */
     @Override
     @Transactional
     public UserSettingsRegisterResponseDto registerSettings(Long userId, UserSettingsRegisterRequestDto requestDto) {
-        if (!userRepository.existsById(userId)) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED);
-        }
+        ensureUserExists(userId);
 
         boolean locationAlertEnabled = resolveLocationAlertEnabled(requestDto);
         boolean pushAlertEnabled = resolvePushAlertEnabled(requestDto);
@@ -70,6 +88,11 @@ public class UserSettingsServiceImpl implements UserSettingsService {
                     String.format("radiusM는 %d 이상 %d 이하여야 합니다.", MIN_RADIUS_M, MAX_RADIUS_M),
                     ErrorCode.VALIDATION_ERROR
             );
+        }
+    }
+    private void ensureUserExists(Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
     }
 }
