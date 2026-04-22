@@ -4,8 +4,10 @@ import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.common.response.ApiResponseDto;
 import com.timingnote.api.domain.settings.dto.request.UserSettingsRegisterRequestDto;
+import com.timingnote.api.domain.settings.dto.request.UserSettingsUpdateRequestDto;
 import com.timingnote.api.domain.settings.dto.response.UserSettingsGetResponseDto;
 import com.timingnote.api.domain.settings.dto.response.UserSettingsRegisterResponseDto;
+import com.timingnote.api.domain.settings.dto.response.UserSettingsUpdateResponseDto;
 import com.timingnote.api.domain.settings.service.UserSettingsService;
 import com.timingnote.api.infra.security.DeviceSecretAuthInterceptor;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +20,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,10 +40,7 @@ public class UserSettingsController {
     /**
      * SETTINGS-01: 사용자 알림 기본 설정 조회
      */
-    @Operation(
-            summary = "설정 조회",
-            description = "사용자의 최신 알림 기본 설정을 조회한다."
-    )
+    @Operation(summary = "설정 조회", description = "사용자의 최신 알림 기본 설정을 조회한다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "성공"),
             @ApiResponse(
@@ -61,12 +61,38 @@ public class UserSettingsController {
     }
 
     /**
+     * SETTINGS-02: 사용자 알림 기본 설정 수정
+     */
+    @Operation(summary = "설정 수정", description = "요청에 포함된 필드만 사용자 알림 기본값으로 수정한다.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "성공"),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "반경 범위 초과 또는 타입 오류",
+                    content = @Content(schema = @Schema(implementation = ApiResponseDto.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "유효하지 않은 Device Secret",
+                    content = @Content(schema = @Schema(implementation = ApiResponseDto.class))
+            )
+    })
+    @PatchMapping
+    public ApiResponseDto<UserSettingsUpdateResponseDto> updateSettings(
+            @Valid @RequestBody(required = false) UserSettingsUpdateRequestDto requestDto,
+            HttpServletRequest request
+    ) {
+        UserSettingsUpdateRequestDto effectiveRequestDto =
+                requestDto == null ? new UserSettingsUpdateRequestDto() : requestDto;
+
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(userSettingsService.updateSettings(userId, effectiveRequestDto));
+    }
+
+    /**
      * SETTINGS-03: 사용자 알림 기본 설정 등록
      */
-    @Operation(
-            summary = "설정 등록",
-            description = "사용자 알림 기본값(위치 알림, 푸시 알림, 반경)을 등록한다."
-    )
+    @Operation(summary = "설정 등록", description = "사용자 알림 기본값(위치 알림, 푸시 알림, 반경)을 등록한다.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "성공"),
             @ApiResponse(

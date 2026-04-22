@@ -3,8 +3,10 @@ package com.timingnote.api.domain.settings.service;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.settings.dto.request.UserSettingsRegisterRequestDto;
+import com.timingnote.api.domain.settings.dto.request.UserSettingsUpdateRequestDto;
 import com.timingnote.api.domain.settings.dto.response.UserSettingsGetResponseDto;
 import com.timingnote.api.domain.settings.dto.response.UserSettingsRegisterResponseDto;
+import com.timingnote.api.domain.settings.dto.response.UserSettingsUpdateResponseDto;
 import com.timingnote.api.domain.settings.entity.UserSettings;
 import com.timingnote.api.domain.settings.repository.UserSettingsRepository;
 import com.timingnote.api.domain.user.repository.UserRepository;
@@ -67,6 +69,43 @@ public class UserSettingsServiceImpl implements UserSettingsService {
                 .pushAlertEnabled(saved.getPushAlertEnabled())
                 .radiusM(saved.getRadiusM())
                 .createdAt(saved.getCreatedAt().toInstant().toString())
+                .build();
+    }
+
+    /**
+     * SETTINGS-02 설정 수정:
+     * 요청에 포함된 필드만 반영하고, 설정이 없으면 기본값으로 생성 후 수정한다.
+     */
+    @Override
+    @Transactional
+    public UserSettingsUpdateResponseDto updateSettings(Long userId, UserSettingsUpdateRequestDto requestDto) {
+        ensureUserExists(userId);
+
+        UserSettings userSettings = userSettingsRepository.findTopByUserIdOrderByUpdatedAtDesc(userId)
+                .orElseGet(() -> new UserSettings(userId, true, true, DEFAULT_RADIUS_M));
+
+        boolean locationAlertEnabled = requestDto.getLocationAlertEnabled() == null
+                ? userSettings.getLocationAlertEnabled()
+                : requestDto.getLocationAlertEnabled();
+
+        boolean pushAlertEnabled = requestDto.getPushAlertEnabled() == null
+                ? userSettings.getPushAlertEnabled()
+                : requestDto.getPushAlertEnabled();
+
+        int radiusM = requestDto.getRadiusM() == null
+                ? userSettings.getRadiusM()
+                : requestDto.getRadiusM();
+
+        validateRadius(radiusM);
+
+        userSettings.apply(locationAlertEnabled, pushAlertEnabled, radiusM);
+        UserSettings saved = userSettingsRepository.save(userSettings);
+
+        return UserSettingsUpdateResponseDto.builder()
+                .locationAlertEnabled(saved.getLocationAlertEnabled())
+                .pushAlertEnabled(saved.getPushAlertEnabled())
+                .radiusM(saved.getRadiusM())
+                .updatedAt(saved.getUpdatedAt().toInstant().toString())
                 .build();
     }
 
