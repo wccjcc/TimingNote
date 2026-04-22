@@ -39,3 +39,7 @@ springdoc:
     operations-sorter: alpha
   api-docs:
     path: /v3/api-docs
+
+security:
+  device-secret:
+    pepper: ${DEVICE_SECRET_PEPPER:local-dev-only-change-this-pepper}
