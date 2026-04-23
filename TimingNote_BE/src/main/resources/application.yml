@@ -24,6 +24,12 @@ spring:
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+ai:
+  server:
+    url: ${AI_SERVER_URL:http://localhost:8000}
+  internal:
+    secret: ${AI_INTERNAL_SECRET:dev-secret}
+
 server:
   port: ${SERVER_PORT:8080}
 
