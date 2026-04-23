@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -36,7 +37,11 @@ public class TodoServiceImpl implements TodoService {
     private final TodoTimeConditionRepository todoTimeConditionRepository;
     private final AiClient aiClient;
 
-    // @Lazy 자기 참조: doOnSuccess 콜백에서 @Transactional 프록시를 통해 호출하기 위함
+    // 요일 → 비트마스크 변환 테이블 (MON=1, TUE=2, WED=4, THU=8, FRI=16, SAT=32, SUN=64)
+    private static final Map<String, Integer> DAY_BITMASK = Map.of(
+            "MON", 1, "TUE", 2, "WED", 4, "THU", 8, "FRI", 16, "SAT", 32, "SUN", 64);
+
+    // @Lazy 자기 참조: subscribe() 콜백에서 @Transactional 프록시를 통해 호출하기 위함
     @Lazy
     @Autowired
     private TodoService self;
@@ -48,7 +53,7 @@ public class TodoServiceImpl implements TodoService {
                 .userId(userId)
                 .content(request.getContent())
                 .inputType(request.getInputType())
-                .todoType("MEMO")
+                .todoType("GENERAL")  // AI 구조화 전 기본값, saveStructure()에서 갱신
                 .status("ACTIVE")
                 .structureStatus("PENDING")
                 .alertEnabled(true)
@@ -71,19 +76,22 @@ public class TodoServiceImpl implements TodoService {
                 .todoId(todoId)
                 .inputType(inputType)
                 .originalText(content)
+                // TODO: user_places 구현 후 userId 기반으로 별칭 목록 조회하여 주입
+                // userPlaceAliases(userPlaceAliasRepository.findByUserId(userId))
                 .build();
 
         aiClient.structureMemo(aiRequest)
-                .doOnSuccess(response -> {
-                    if (response != null) {
-                        self.saveStructure(todoId, response);
-                    }
-                })
-                .doOnError(e -> {
-                    log.error("[AI] 구조화 실패 (todoId={}): {}", todoId, e.getMessage());
-                    self.markStructureFailed(todoId);
-                })
-                .subscribe();
+                .subscribe(
+                        response -> {
+                            if (response != null) {
+                                self.saveStructure(todoId, response);
+                            }
+                        },
+                        e -> {
+                            log.error("[AI] 구조화 실패 (todoId={}): {}", todoId, e.getMessage());
+                            self.markStructureFailed(todoId);
+                        }
+                );
     }
 
     @Override
@@ -92,8 +100,9 @@ public class TodoServiceImpl implements TodoService {
         Todo todo = todoRepository.findById(todoId)
                 .orElseThrow(() -> new IllegalStateException("Todo not found: " + todoId));
 
-        // 1. AiPlaceType 변환 (파싱 실패 시 NONE으로 fallback)
+        // 1. AiPlaceType 변환 (파싱 실패 시 GENERAL로 fallback)
         AiPlaceType placeType = parseEnum(AiPlaceType.class, response.getPlaceType(), AiPlaceType.GENERAL);
+        String todoType = placeType.name();
 
         // 2. TodoStructure 저장
         TodoStructure structure = TodoStructure.builder()
@@ -110,7 +119,7 @@ public class TodoServiceImpl implements TodoService {
 
         todoStructureRepository.save(structure);
 
-        // 4. 시간 조건 저장 (todo_time_conditions)
+        // 3. 시간 조건 저장 (todo_time_conditions)
         List<AiTimeCondition> timeConditions = response.getTimeConditions();
         if (timeConditions != null && !timeConditions.isEmpty()) {
             List<TodoTimeCondition> conditions = timeConditions.stream()
@@ -128,8 +137,7 @@ public class TodoServiceImpl implements TodoService {
             todoTimeConditionRepository.saveAll(conditions);
         }
 
-        // 5. Todo 업데이트: todoType(place_type 기반 도출), category, resolvedPlaceLabel, structureStatus
-        todo.updateTodoType(resolveTodoType(placeType));
+        todo.updateTodoType(todoType);
         if (StringUtils.hasText(response.getCategory())) {
             todo.updateCategory(response.getCategory());
         }
@@ -138,8 +146,7 @@ public class TodoServiceImpl implements TodoService {
         }
         todo.updateStructureStatus("READY");
 
-        log.info("[AI] 구조화 저장 완료 (todoId={}, todoType={}, placeType={})",
-                todoId, resolveTodoType(placeType), placeType);
+        log.info("[AI] 구조화 저장 완료 (todoId={}, todoType={}, placeType={})", todoId, todoType, placeType);
     }
 
     @Override
@@ -161,22 +168,10 @@ public class TodoServiceImpl implements TodoService {
         }
     }
 
-    private String resolveTodoType(AiPlaceType placeType) {
-        return switch (placeType) {
-            case SPECIFIC -> "SPECIFIC";
-            case GENERIC  -> "GENERIC";
-            case ALIAS    -> "ALIAS";
-            case GENERAL  -> "GENERAL";
-        };
-    }
-
     private Integer toDayBitmask(List<String> days) {
         if (days == null || days.isEmpty()) return null;
-        int[] bits = {0, 1, 2, 4, 8, 16, 32, 64}; // index unused, MON=1...SUN=64
-        java.util.Map<String, Integer> map = java.util.Map.of(
-                "MON", 1, "TUE", 2, "WED", 4, "THU", 8, "FRI", 16, "SAT", 32, "SUN", 64);
         return days.stream()
-                .map(d -> map.getOrDefault(d.toUpperCase(), 0))
+                .map(d -> DAY_BITMASK.getOrDefault(d.toUpperCase(), 0))
                 .reduce(0, (a, b) -> a | b);
     }
 

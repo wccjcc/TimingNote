@@ -5,7 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Entity
 @Getter
@@ -50,24 +50,24 @@ public class Todo {
     private boolean alertEnabled;
 
     @Column(name = "snoozed_until")
-    private LocalDateTime snoozedUntil;
+    private OffsetDateTime snoozedUntil;
 
     @Column(name = "cooldown_until")
-    private LocalDateTime cooldownUntil;
+    private OffsetDateTime cooldownUntil;
 
     @Column(name = "completed_at")
-    private LocalDateTime completedAt;
+    private OffsetDateTime completedAt;
 
     @Column(name = "deleted_at")
-    private LocalDateTime deletedAt;
+    private OffsetDateTime deletedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    private OffsetDateTime updatedAt;
 
     public void updateTodoType(String todoType) {
         this.todoType = todoType;
