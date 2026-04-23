@@ -15,13 +15,16 @@ else:
     load_dotenv()
 
 class Settings:
+    # 내부 통신 인증 (BE → AI)
+    AI_INTERNAL_SECRET: str = os.getenv("AI_INTERNAL_SECRET", "dev-secret")
+
     # GMS 공통 설정
     GMS_KEY: str = os.getenv("GMS_KEY", "")
     GMS_BASE_URL: str = os.getenv("GMS_BASE_URL", "https://gms.ssafy.io/gmsapi/api.openai.com/v1")
     
     # AI 전용 모델 설정 
     AI_MAIN_MODEL: str = os.getenv("AI_MAIN_MODEL", "gpt-4.1-mini")
-    AI_STT_MODEL: str = os.getenv("AI_STT_MODEL", "gpt-4o-mini-transcribe")
+    AI_STT_MODEL: str = os.getenv("AI_STT_MODEL", "gpt-4o-mini-transcribe")  # 음성 메모 분석용 (개발 예정)
 
 # 설정을 싱글턴 인스턴스로 관리
 settings = Settings()
