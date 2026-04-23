@@ -1,8 +1,10 @@
 import instructor
 from openai import AsyncOpenAI, OpenAIError
 from loguru import logger
+from datetime import datetime
+from typing import List
 from app.config import settings
-from app.models.todo import TodoStructureOutput
+from app.models.todo import TodoStructureOutput, UserPlaceAlias
 from app.providers.base import LlmProvider
 
 class OpenAiLlmProvider(LlmProvider):
@@ -15,10 +17,17 @@ class OpenAiLlmProvider(LlmProvider):
         )
         self._model = settings.AI_MAIN_MODEL
 
-    async def extract_structure(self, text: str) -> tuple[TodoStructureOutput, dict]:
-        """
-        OpenAI (GMS)를 통해 자연어 메모를 분석하고, 토큰 사용량을 포함한 메타데이터를 추출합니다.
-        """
+    async def extract_structure(self, text: str, aliases: List[UserPlaceAlias]) -> tuple[TodoStructureOutput, dict]:
+        today = datetime.now().strftime("%Y-%m-%d (%A)")
+
+        alias_section = ""
+        if aliases:
+            alias_names = ", ".join(a.alias for a in aliases)
+            alias_section = (
+                f"\n사용자 등록 별칭 목록: {alias_names}\n"
+                "메모에 위 별칭 중 하나가 장소로 사용된 경우 placeType=ALIAS, placeText=해당 별칭(원문 그대로)으로 설정하세요.\n"
+            )
+
         try:
             response, completion = await self._client.chat.completions.create_with_completion(
                 model=self._model,
@@ -28,21 +37,37 @@ class OpenAiLlmProvider(LlmProvider):
                     {
                         "role": "system",
                         "content": (
-                            "당신은 사용자의 자연어 메모를 분석하여 할 일(Todo)로 구조화하는 비서입니다.\n"
-                            "메모에서 핵심 행동(action), 카테고리(category), 장소 유형(place_type), "
-                            "장소 키워드(place_keyword), 시간 단서(time_hint)를 추출하세요.\n\n"
+                            f"오늘 날짜: {today}\n\n"
+                            "사용자의 자연어 메모를 분석하여 할 일(Todo)로 구조화하는 비서입니다.\n"
+                            "다음 필드를 추출하세요:\n"
+                            "- todoText: 수행할 핵심 행동 (간결하게)\n"
+                            "- category: 아래 가이드 참고\n"
+                            "- placeType: 아래 가이드 참고\n"
+                            "- placeText: 장소명 또는 업종 (없으면 null)\n"
+                            "- timeHintText: 시간 관련 원문 표현 (없으면 null, 예: '내일 오후 3시에', '매주 월요일')\n"
+                            "- timeConditions: 시간 표현을 구조화한 배열 (없으면 빈 배열)\n\n"
                             "카테고리 가이드:\n"
-                            "- DINE: 식사/카페 (예: 점심 먹기, 커피 마시기)\n"
-                            "- ACQUIRE: 쇼핑/수령 (예: 우유 사기, 택배 찾기)\n"
-                            "- HEALTH: 병원/약국/운동 (예: 감기약 사기, 헬스장 가기)\n"
-                            "- SERVICE: 은행/관공서/업무 (예: 등본 떼기, 입금하기)\n"
-                            "- MAINTENANCE: 세탁/주유/정비 (예: 세탁물 맡기기, 기름 넣기)\n"
-                            "- SOCIAL: 모임/방문/선물 (예: 친구 만나기, 선물 준비)\n"
-                            "- ETC: 기타 메모 (명확한 할 일이 아닌 경우)\n\n"
+                            "- DINE: 식사/카페\n"
+                            "- ACQUIRE: 쇼핑/수령\n"
+                            "- HEALTH: 병원/약국/운동\n"
+                            "- SERVICE: 은행/관공서/업무\n"
+                            "- MAINTENANCE: 세탁/주유/정비\n"
+                            "- SOCIAL: 모임/방문/선물\n"
+                            "- ETC: 기타\n\n"
                             "장소 유형 가이드:\n"
-                            "- SPECIFIC: 특정 지점이 명확한 경우 (예: 스타벅스 강남점)\n"
-                            "- GENERIC: 브랜드나 업종만 있는 경우 (예: 편의점, 다이소, 은행)\n"
-                            "- NONE: 장소 맥락이 없는 경우"
+                            "- SPECIFIC: 특정 지점 명확 (예: 스타벅스 강남점, 홈플러스 서면점)\n"
+                            "- GENERIC: 업종/브랜드만 (예: 편의점, 다이소, 약국)\n"
+                            "- ALIAS: 사용자 등록 별칭 목록에 있는 장소\n"
+                            "- GENERAL: 장소 맥락 없음\n\n"
+                            + alias_section +
+                            "timeConditions conditionType 가이드:\n"
+                            "- DATETIME: 날짜+시간 모두 (예: 내일 오후 3시 → startDate + startTime 동시 설정)\n"
+                            "- DATE: 날짜만 (예: 내일, 이번 주 금요일 → startDate만)\n"
+                            "- DATE_RANGE: 기간 (예: 이번 주 중 → startDate~endDate)\n"
+                            "- WEEKDAY: 요일 반복 (예: 매주 월~금 → daysOfWeek: ['MON','TUE','WED','THU','FRI'], 범위 표기 금지, 반드시 각 요일 개별 열거)\n"
+                            "- TIME_RANGE: 시간대만 (예: 저녁에 → startTime만)\n"
+                            "날짜/시간은 상대 표현을 오늘 날짜 기준으로 절대값으로 변환하세요.\n"
+                            "rawExpression에는 반드시 원문 시간 표현을 그대로 보존하세요."
                         )
                     },
                     {"role": "user", "content": f"분석할 메모: {text}"}
@@ -50,10 +75,9 @@ class OpenAiLlmProvider(LlmProvider):
                 temperature=0,
             )
 
-            # 토큰 정보 및 메타데이터 정제
             usage = completion.usage
             prompt_details = getattr(usage, "prompt_tokens_details", None)
-            
+
             compact_meta = {
                 "usage": {
                     "total_tokens": usage.total_tokens,
@@ -69,7 +93,7 @@ class OpenAiLlmProvider(LlmProvider):
                     "fingerprint": getattr(completion, "system_fingerprint", None)
                 }
             }
-            
+
             logger.info(f"LLM 분석 완료 | ID: {completion.id} | Tokens: {usage.total_tokens}")
             return response, compact_meta
 
