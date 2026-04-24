@@ -1,0 +1,14 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+  # Local development convenience mode:
+  # entity changes are reflected automatically without migration SQL.
+  flyway:
+    enabled: false

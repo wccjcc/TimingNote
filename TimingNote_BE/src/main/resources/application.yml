@@ -2,6 +2,9 @@ spring:
   application:
     name: TimingNote
 
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:${DB_PORT}/${DB_NAME}}
     username: ${DB_USERNAME:postgres}
@@ -9,9 +12,13 @@ spring:
     driver-class-name: org.postgresql.Driver
   
   jpa:
-    hibernate:
-      ddl-auto: create
-    show-sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: ${FLYWAY_BASELINE_VERSION:1}
 
   data:
     redis:
