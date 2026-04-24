@@ -153,7 +153,7 @@ CREATE TABLE todo_inputs (
     todo_id BIGINT NOT NULL,
     input_type VARCHAR(20) NOT NULL,
     original_text TEXT NULL,
-    image_url TEXT[] NULL,
+    image_url JSONB NULL,
     shared_url TEXT NULL,
     created_at TIMESTAMPTZ NOT NULL
 );
