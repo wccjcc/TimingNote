@@ -2,6 +2,9 @@ spring:
   application:
     name: TimingNote
 
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:${DB_PORT}/${DB_NAME}}
     username: ${DB_USERNAME:postgres}
@@ -9,9 +12,11 @@ spring:
     driver-class-name: org.postgresql.Driver
   
   jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
   data:
     redis:
@@ -23,6 +28,12 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+
+ai:
+  server:
+    url: ${AI_SERVER_URL:http://localhost:8000}
+  internal:
+    secret: ${AI_INTERNAL_SECRET:dev-secret}
 
 server:
   port: ${SERVER_PORT:8080}

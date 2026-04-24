@@ -1,0 +1,11 @@
+# Keep context minimal
+.git
+.gitignore
+.idea
+.vscode
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
