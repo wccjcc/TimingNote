@@ -35,6 +35,15 @@ ai:
   internal:
     secret: ${AI_INTERNAL_SECRET:dev-secret}
 
+kakao:
+  api:
+    key: ${KAKAO_API_KEY:}
+
+google:
+  places:
+    api:
+      key: ${GOOGLE_PLACES_API_KEY:}
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -42,8 +51,8 @@ swagger:
   server-url: ${SWAGGER_SERVER_URL:}
 
 springdoc:
-  default-consume-media-type: application/json
-  default-produce-media-type: application/json
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
   swagger-ui:
     path: /swagger-ui.html
     tags-sorter: alpha
