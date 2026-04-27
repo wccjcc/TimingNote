@@ -1,10 +1,16 @@
 package com.timingnote.api.domain.todo.service;
 
+import com.timingnote.api.domain.place.entity.Place;
+import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
+import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
+import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
 import com.timingnote.api.domain.todo.entity.Todo;
+import com.timingnote.api.domain.todo.entity.TodoInput;
 import com.timingnote.api.domain.todo.entity.TodoStructure;
 import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
+import com.timingnote.api.domain.todo.repository.TodoInputRepository;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoStructureRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
@@ -17,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import reactor.core.scheduler.Schedulers;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -33,13 +40,17 @@ import java.util.Map;
 public class TodoServiceImpl implements TodoService {
 
     private final TodoRepository todoRepository;
+    private final TodoInputRepository todoInputRepository;
     private final TodoStructureRepository todoStructureRepository;
     private final TodoTimeConditionRepository todoTimeConditionRepository;
+    private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
     private final AiClient aiClient;
+    private final PlaceService placeService;
 
     // 요일 → 비트마스크 변환 테이블 (MON=1, TUE=2, WED=4, THU=8, FRI=16, SAT=32, SUN=64)
     private static final Map<String, Integer> DAY_BITMASK = Map.of(
-            "MON", 1, "TUE", 2, "WED", 4, "THU", 8, "FRI", 16, "SAT", 32, "SUN", 64);
+            "MON", 1, "TUE", 2, "WED", 4,
+            "THU", 8, "FRI", 16, "SAT", 32, "SUN", 64);
 
     // @Lazy 자기 참조: subscribe() 콜백에서 @Transactional 프록시를 통해 호출하기 위함
     @Lazy
@@ -61,7 +72,15 @@ public class TodoServiceImpl implements TodoService {
 
         Todo savedTodo = todoRepository.save(todo);
 
-        triggerAiAnalysis(savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent());
+        // 원본 입력 보관 (inputType별 필드 분기 — VOICE/IMAGE/LINK는 추후 확장)
+        todoInputRepository.save(TodoInput.builder()
+                .todo(savedTodo)
+                .inputType(savedTodo.getInputType())
+                .originalText(savedTodo.getContent())
+                .build());
+
+        triggerAiAnalysis(savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
+                request.getLatitude(), request.getLongitude());
 
         return TodoCreateResponse.builder()
                 .todoId(savedTodo.getId())
@@ -71,32 +90,38 @@ public class TodoServiceImpl implements TodoService {
                 .build();
     }
 
-    private void triggerAiAnalysis(Long todoId, String inputType, String content) {
+    private void triggerAiAnalysis(Long todoId, String inputType, String content,
+                                   Double latitude, Double longitude) {
         AiStructureRequest aiRequest = AiStructureRequest.builder()
                 .todoId(todoId)
                 .inputType(inputType)
                 .originalText(content)
                 // TODO: user_places 구현 후 userId 기반으로 별칭 목록 조회하여 주입
-                // userPlaceAliases(userPlaceAliasRepository.findByUserId(userId))
                 .build();
 
         aiClient.structureMemo(aiRequest)
                 .subscribe(
                         response -> {
-                            if (response != null) {
-                                self.saveStructure(todoId, response);
-                            }
+                            if (response == null) return;
+                            // reactor-http-nio 스레드에서 .block() 금지 → boundedElastic 으로 직접 스케줄링
+                            // publishOn 은 WebClientAdapter 내부 operator fusion 으로 무력화될 수 있어
+                            // schedule() 은 확실하게 해당 스레드 풀에서 실행 보장
+                            Schedulers.boundedElastic().schedule(
+                                    () -> self.saveStructure(todoId, response, latitude, longitude)
+                            );
                         },
                         e -> {
                             log.error("[AI] 구조화 실패 (todoId={}): {}", todoId, e.getMessage());
-                            self.markStructureFailed(todoId);
+                            Schedulers.boundedElastic().schedule(
+                                    () -> self.markStructureFailed(todoId)
+                            );
                         }
                 );
     }
 
     @Override
     @Transactional
-    public void saveStructure(Long todoId, AiStructureResponse response) {
+    public void saveStructure(Long todoId, AiStructureResponse response, Double latitude, Double longitude) {
         Todo todo = todoRepository.findById(todoId)
                 .orElseThrow(() -> new IllegalStateException("Todo not found: " + todoId));
 
@@ -119,7 +144,7 @@ public class TodoServiceImpl implements TodoService {
 
         todoStructureRepository.save(structure);
 
-        // 3. 시간 조건 저장 (todo_time_conditions)
+        // 3. 시간 조건 저장
         List<AiTimeCondition> timeConditions = response.getTimeConditions();
         if (timeConditions != null && !timeConditions.isEmpty()) {
             List<TodoTimeCondition> conditions = timeConditions.stream()
@@ -137,12 +162,48 @@ public class TodoServiceImpl implements TodoService {
             todoTimeConditionRepository.saveAll(conditions);
         }
 
+        // 4. 장소 연동 (placeType에 따라 분기)
+        String placeText = response.getPlaceText();
+        if (placeType == AiPlaceType.SPECIFIC && StringUtils.hasText(placeText)) {
+            // SPECIFIC: 좌표 없어도 Kakao 전국 accuracy 검색 시도 (지점명 포함이라 정확도 충분)
+            // 위치 권한이 없어도 place 저장 → Geofence 등록은 알림 서버가 처리
+            // (진입 감지는 OS가 위치 권한 필요 → 알림 서버에서 권한 요청 메시지 발송)
+            placeService.resolveSpecificPlace(placeText, latitude, longitude)
+                    .ifPresent(place -> todo.updatePrimaryPlaceId(place.getId()));
+
+        } else if (placeType == AiPlaceType.GENERIC
+                && StringUtils.hasText(placeText)
+                && latitude != null && longitude != null) {
+            // GENERIC: 반경 검색이므로 좌표 필수. 위치 권한 없으면 스킵.
+            List<Place> candidates = placeService.resolveGenericCandidates(placeText, latitude, longitude);
+            if (!candidates.isEmpty()) {
+                java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
+                List<TodoCandidatePlace> candidatePlaces = candidates.stream()
+                        .map(place -> TodoCandidatePlace.builder()
+                                .todo(todo)
+                                .place(place)
+                                .distanceM(haversineMeters(
+                                        latitude, longitude,
+                                        place.getLatitude(), place.getLongitude()))
+                                .isMonitoringTarget(true)
+                                .calculatedAt(now)
+                                .build())
+                        .toList();
+                todoCandidatePlaceRepository.saveAll(candidatePlaces);
+                log.info("[Place] GENERIC 후보 {} 개 저장 (todoId={})", candidates.size(), todoId);
+            }
+
+        } else if (placeType == AiPlaceType.GENERIC && (latitude == null || longitude == null)) {
+            log.info("[Place] GENERIC — 위치 권한 없음, 장소 연동 스킵 (todoId={}, placeText={})", todoId, placeText);
+        }
+
+        // 5. Todo 상태 갱신
         todo.updateTodoType(todoType);
         if (StringUtils.hasText(response.getCategory())) {
             todo.updateCategory(response.getCategory());
         }
-        if (StringUtils.hasText(response.getPlaceText())) {
-            todo.updateResolvedPlaceLabel(response.getPlaceText());
+        if (StringUtils.hasText(placeText)) {
+            todo.updateResolvedPlaceLabel(placeText);
         }
         todo.updateStructureStatus("READY");
 
@@ -168,11 +229,12 @@ public class TodoServiceImpl implements TodoService {
         }
     }
 
-    private Integer toDayBitmask(List<String> days) {
+    private Short toDayBitmask(List<String> days) {
         if (days == null || days.isEmpty()) return null;
-        return days.stream()
+        int mask = days.stream()
                 .map(d -> DAY_BITMASK.getOrDefault(d.toUpperCase(), 0))
                 .reduce(0, (a, b) -> a | b);
+        return mask == 0 ? null : (short) mask;
     }
 
     private LocalDate parseDate(String value) {
@@ -193,5 +255,16 @@ public class TodoServiceImpl implements TodoService {
             log.warn("[AI] 시간 파싱 실패: {}", value);
             return null;
         }
+    }
+
+    /** Haversine 공식으로 두 좌표 간 거리(m) 계산 */
+    private static int haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+        final double R = 6_371_000.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return (int) Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 }
