@@ -10,6 +10,7 @@ pipeline {
     environment {
         APP_COMPOSE_FILE = "docker-compose.app.yml"
         APP_ENV_FILE = ".env.prod"
+        MATTERMOST_WEBHOOK_CRED_ID = "mattermost-webhook-url"
         ENV_STATUS = "SKIPPED"
         MIGRATION_STATUS = "SKIPPED"
         DEPLOY_STATUS = "SKIPPED"
@@ -143,9 +144,9 @@ pipeline {
         always {
             script {
                 def iconFor = { String s ->
-                    if (s == 'SUCCESS') return '[OK]'
-                    if (s == 'FAILED') return '[FAIL]'
-                    return '[SKIP]'
+                    if (s == 'SUCCESS') return '\u2705'
+                    if (s == 'FAILED') return '\u274C'
+                    return '\u23ED'
                 }
 
                 if (currentBuild.currentResult != 'SUCCESS') {
@@ -158,20 +159,22 @@ pipeline {
                     }
                 }
 
-                def envLine = "${iconFor(env.ENV_STATUS)} Env Inject : ${env.ENV_STATUS}"
-                def migrationLine = "${iconFor(env.MIGRATION_STATUS)} Flyway     : ${env.MIGRATION_STATUS}"
-                def deployLine = "${iconFor(env.DEPLOY_STATUS)} Deploy     : ${env.DEPLOY_STATUS}"
+                def envLine = "${iconFor(env.ENV_STATUS)} Env   : ${env.ENV_STATUS}"
+                def migrationLine = "${iconFor(env.MIGRATION_STATUS)} Flyway: ${env.MIGRATION_STATUS}"
+                def deployLine = "${iconFor(env.DEPLOY_STATUS)} Deploy: ${env.DEPLOY_STATUS}"
 
                 def overallOk = (currentBuild.currentResult == 'SUCCESS')
-                def title = overallOk ? 'CI/CD SUCCESS' : 'CI/CD FAILURE'
+                def title = overallOk ? '\u2705 CI/CD SUCCESS' : '\u274C CI/CD FAILURE'
                 def stageInfo = overallOk ? '' : "\\n- Failed Stage: ${env.FAILED_STAGE ?: 'unknown'}"
 
                 def branchName = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'unknown').replaceFirst('^origin/', '')
                 def text = "${title} (${branchName})\\n\\n" +
                         "${envLine}\\n${migrationLine}\\n${deployLine}" +
                         "${stageInfo}\\n\\n" +
+                        "- Commit: ${(env.GIT_COMMIT ?: 'unknown').take(8)}\\n" +
+                        "- Tag: ${env.BUILD_TAG}\\n" +
                         "- Build: #${env.BUILD_NUMBER}\\n" +
-                        "- URL: ${env.BUILD_URL}"
+                        "\\uD83D\\uDC49 ${env.BUILD_URL}"
 
                 def payload = groovy.json.JsonOutput.toJson([
                         username  : 'Jenkins',
@@ -179,7 +182,7 @@ pipeline {
                         text      : text
                 ])
 
-                withCredentials([string(credentialsId: "mattermost-webhook-url", variable: "MM_WEBHOOK_URL")]) {
+                withCredentials([string(credentialsId: "${env.MATTERMOST_WEBHOOK_CRED_ID}", variable: "MM_WEBHOOK_URL")]) {
                     sh """
                         set +e
                         curl -sS -X POST -H 'Content-Type: application/json' \\
