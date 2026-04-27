@@ -40,7 +40,7 @@ public class TodoTimeCondition {
     private LocalTime endTime;
 
     @Column(name = "days_of_week")
-    private Integer daysOfWeek; // 비트마스크: MON=1,TUE=2,WED=4,THU=8,FRI=16,SAT=32,SUN=64
+    private Short daysOfWeek; // 비트마스크: MON=1,TUE=2,WED=4,THU=8,FRI=16,SAT=32,SUN=64
 
     @Column(name = "raw_expression", length = 255)
     private String rawExpression;

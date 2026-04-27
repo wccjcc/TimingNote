@@ -168,11 +168,12 @@ public class TodoServiceImpl implements TodoService {
         }
     }
 
-    private Integer toDayBitmask(List<String> days) {
+    private Short toDayBitmask(List<String> days) {
         if (days == null || days.isEmpty()) return null;
-        return days.stream()
+        int bitmask = days.stream()
                 .map(d -> DAY_BITMASK.getOrDefault(d.toUpperCase(), 0))
                 .reduce(0, (a, b) -> a | b);
+        return (short) bitmask;
     }
 
     private LocalDate parseDate(String value) {
