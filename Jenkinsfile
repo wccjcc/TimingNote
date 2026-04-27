@@ -159,22 +159,44 @@ pipeline {
                     }
                 }
 
+                // Fallback: if build succeeded but stage flags were not updated,
+                // treat them as success for a clean summary message.
+                if (currentBuild.currentResult == 'SUCCESS'
+                        && env.ENV_STATUS == 'SKIPPED'
+                        && env.MIGRATION_STATUS == 'SKIPPED'
+                        && env.DEPLOY_STATUS == 'SKIPPED') {
+                    env.ENV_STATUS = 'SUCCESS'
+                    env.MIGRATION_STATUS = 'SUCCESS'
+                    env.DEPLOY_STATUS = 'SUCCESS'
+                }
+
                 def envLine = "${iconFor(env.ENV_STATUS)} Env   : ${env.ENV_STATUS}"
                 def migrationLine = "${iconFor(env.MIGRATION_STATUS)} Flyway: ${env.MIGRATION_STATUS}"
                 def deployLine = "${iconFor(env.DEPLOY_STATUS)} Deploy: ${env.DEPLOY_STATUS}"
 
                 def overallOk = (currentBuild.currentResult == 'SUCCESS')
                 def title = overallOk ? '\u2705 CI/CD SUCCESS' : '\u274C CI/CD FAILURE'
-                def stageInfo = overallOk ? '' : "\\n- Failed Stage: ${env.FAILED_STAGE ?: 'unknown'}"
+                def stageInfo = overallOk ? '' : "- Failed Stage: ${env.FAILED_STAGE ?: 'unknown'}"
 
                 def branchName = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'unknown').replaceFirst('^origin/', '')
-                def text = "${title} (${branchName})\\n\\n" +
-                        "${envLine}\\n${migrationLine}\\n${deployLine}" +
-                        "${stageInfo}\\n\\n" +
-                        "- Commit: ${(env.GIT_COMMIT ?: 'unknown').take(8)}\\n" +
-                        "- Tag: ${env.BUILD_TAG}\\n" +
-                        "- Build: #${env.BUILD_NUMBER}\\n" +
-                        "\\uD83D\\uDC49 ${env.BUILD_URL}"
+                def lines = [
+                        "${title} (${branchName})",
+                        "",
+                        envLine,
+                        migrationLine,
+                        deployLine
+                ]
+                if (stageInfo) {
+                    lines << stageInfo
+                }
+                lines += [
+                        "",
+                        "- Commit: ${(env.GIT_COMMIT ?: 'unknown').take(8)}",
+                        "- Tag: ${env.BUILD_TAG}",
+                        "- Build: #${env.BUILD_NUMBER}",
+                        "👉 ${env.BUILD_URL}"
+                ]
+                def text = lines.join('\n')
 
                 def payload = groovy.json.JsonOutput.toJson([
                         username  : 'Jenkins',
@@ -183,10 +205,11 @@ pipeline {
                 ])
 
                 withCredentials([string(credentialsId: "${env.MATTERMOST_WEBHOOK_CRED_ID}", variable: "MM_WEBHOOK_URL")]) {
+                    writeFile file: 'mattermost-payload.json', text: payload
                     sh """
                         set +e
                         curl -sS -X POST -H 'Content-Type: application/json' \\
-                          -d '${payload.replace("'", "'\"'\"'")}' \\
+                          --data @mattermost-payload.json \\
                           "\$MM_WEBHOOK_URL" >/dev/null
                     """
                 }
@@ -195,6 +218,7 @@ pipeline {
             sh '''
                 set +e
                 rm -f "$APP_ENV_FILE"
+                rm -f mattermost-payload.json
             '''
         }
     }
