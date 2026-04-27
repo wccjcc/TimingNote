@@ -1,0 +1,27 @@
+# VCS / IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Python cache / local env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+
+# Logs / runtime artifacts
+logs
+*.log
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+

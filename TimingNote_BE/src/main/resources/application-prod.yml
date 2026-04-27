@@ -1,0 +1,14 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+  # Production mode:
+  # schema changes are managed only by Flyway migrations.
+  flyway:
+    enabled: true
