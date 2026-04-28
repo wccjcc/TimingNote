@@ -69,6 +69,10 @@ public class Todo {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    public void updateContent(String content) {
+        this.content = content;
+    }
+
     public void updateTodoType(String todoType) {
         this.todoType = todoType;
     }
@@ -88,6 +92,14 @@ public class Todo {
     public void updatePrimaryPlaceId(Long primaryPlaceId) {
         this.primaryPlaceId = primaryPlaceId;
     }
+
+    public void updateAlertEnabled(boolean alertEnabled) {
+        this.alertEnabled = alertEnabled;
+    }
+
+    public void updateStatus(String status) {
+        this.status = status;
+        this.completedAt = "DONE".equals(status) ? OffsetDateTime.now() : null;
 
     public void updateCooldownUntil(OffsetDateTime cooldownUntil) {
         this.cooldownUntil = cooldownUntil;

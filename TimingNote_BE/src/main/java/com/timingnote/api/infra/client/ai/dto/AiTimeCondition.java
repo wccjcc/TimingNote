@@ -8,7 +8,7 @@ import java.util.List;
 @Getter
 @NoArgsConstructor
 public class AiTimeCondition {
-    private String conditionType;        // DATETIME | DATE | DATE_RANGE | WEEKDAY | TIME_RANGE
+    private String conditionType;        // DATETIME | DATE | DATE_RANGE | WEEK | TIME_RANGE
     private List<String> daysOfWeek;     // ["MON","TUE",...] → BE에서 비트마스크로 변환
     private String startDate;            // yyyy-MM-dd
     private String endDate;              // yyyy-MM-dd

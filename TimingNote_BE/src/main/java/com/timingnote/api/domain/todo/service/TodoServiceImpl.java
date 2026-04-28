@@ -8,6 +8,8 @@ import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoListItemResponse;
@@ -20,6 +22,11 @@ import com.timingnote.api.domain.todo.repository.TodoInputRepository;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoStructureRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
+import com.timingnote.api.domain.todo.enums.ConditionType;
+import com.timingnote.api.domain.todo.enums.InputType;
+import com.timingnote.api.domain.todo.enums.StructureStatus;
+import com.timingnote.api.domain.todo.enums.TodoStatus;
+import com.timingnote.api.domain.todo.enums.TodoType;
 import com.timingnote.api.infra.client.ai.AiPlaceType;
 import com.timingnote.api.infra.client.ai.AiClient;
 import com.timingnote.api.infra.client.ai.dto.AiStructureRequest;
@@ -74,9 +81,9 @@ public class TodoServiceImpl implements TodoService {
                 .userId(userId)
                 .content(request.getContent())
                 .inputType(request.getInputType())
-                .todoType("GENERAL")  // AI 구조화 전 기본값, saveStructure()에서 갱신
-                .status("ACTIVE")
-                .structureStatus("PENDING")
+                .todoType(TodoType.GENERAL.name())  // AI 구조화 전 기본값, saveStructure()에서 갱신
+                .status(TodoStatus.ACTIVE.name())
+                .structureStatus(StructureStatus.PENDING.name())
                 .alertEnabled(true)
                 .build();
 
@@ -85,7 +92,7 @@ public class TodoServiceImpl implements TodoService {
         // 원본 입력 보관 (inputType별 필드 분기 — VOICE/IMAGE/LINK는 추후 확장)
         todoInputRepository.save(TodoInput.builder()
                 .todo(savedTodo)
-                .inputType(savedTodo.getInputType())
+                .inputType(InputType.valueOf(savedTodo.getInputType()))
                 .originalText(savedTodo.getContent())
                 .build());
 
@@ -150,6 +157,92 @@ public class TodoServiceImpl implements TodoService {
                 .orElse(null);
 
         return TodoDetailResponse.of(todo, structure, timeConditions, primaryPlace, imageUrls, sharedUrl);
+    }
+
+    @Override
+    @Transactional
+    public TodoDetailResponse updateTodo(Long userId, Long todoId, TodoUpdateRequest request) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        if (StringUtils.hasText(request.getContent())) {
+            todo.updateContent(request.getContent());
+        }
+        if (request.getCategory() != null) {
+            todo.updateCategory(request.getCategory().isEmpty() ? null : request.getCategory());
+        }
+        if (request.getPlaceText() != null) {
+            todo.updateResolvedPlaceLabel(request.getPlaceText().isEmpty() ? null : request.getPlaceText());
+        }
+        if (request.getTimeConditions() != null) {
+            todoTimeConditionRepository.deleteAllByTodo_Id(todoId);
+            if (!request.getTimeConditions().isEmpty()) {
+                todoTimeConditionRepository.saveAll(
+                        request.getTimeConditions().stream()
+                                .map(tc -> buildTimeCondition(todo, tc))
+                                .toList());
+            }
+        }
+        if (request.getImageUrls() != null) {
+            todoInputRepository.deleteAllByTodo_IdAndImageUrlIsNotNull(todoId);
+            if (!request.getImageUrls().isEmpty()) {
+                todoInputRepository.save(TodoInput.builder()
+                        .todo(todo)
+                        .inputType(InputType.IMAGE)
+                        .imageUrl(request.getImageUrls())
+                        .build());
+            }
+        }
+        if (request.getSharedUrl() != null) {
+            todoInputRepository.deleteAllByTodo_IdAndSharedUrlIsNotNull(todoId);
+            if (!request.getSharedUrl().isEmpty()) {
+                todoInputRepository.save(TodoInput.builder()
+                        .todo(todo)
+                        .inputType(InputType.LINK)
+                        .sharedUrl(request.getSharedUrl())
+                        .build());
+            }
+        }
+
+        return getTodoDetail(userId, todoId);
+    }
+
+    @Override
+    @Transactional
+    public void updateAlert(Long userId, Long todoId, boolean alertEnabled) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        todo.updateAlertEnabled(alertEnabled);
+    }
+
+    @Override
+    @Transactional
+    public void updateStatus(Long userId, Long todoId, String status) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        todo.updateStatus(status);
+    }
+
+    private TodoTimeCondition buildTimeCondition(Todo todo, TodoTimeConditionRequest tc) {
+        return TodoTimeCondition.builder()
+                .todo(todo)
+                .conditionType(ConditionType.valueOf(tc.getConditionType()))
+                .startDate(parseDate(tc.getStartDate()))
+                .endDate(parseDate(tc.getEndDate()))
+                .startTime(parseTime(tc.getStartTime()))
+                .endTime(parseTime(tc.getEndTime()))
+                .daysOfWeek(toDayBitmask(tc.getDaysOfWeek()))
+                .rawExpression(tc.getRawExpression())
+                .build();
     }
 
     private Map<Long, String> fetchThumbnails(List<Long> todoIds) {
@@ -224,7 +317,7 @@ public class TodoServiceImpl implements TodoService {
             List<TodoTimeCondition> conditions = timeConditions.stream()
                     .map(tc -> TodoTimeCondition.builder()
                             .todo(todo)
-                            .conditionType(tc.getConditionType())
+                            .conditionType(parseConditionType(tc.getConditionType()))
                             .startDate(parseDate(tc.getStartDate()))
                             .endDate(parseDate(tc.getEndDate()))
                             .startTime(parseTime(tc.getStartTime()))
@@ -279,7 +372,7 @@ public class TodoServiceImpl implements TodoService {
         if (StringUtils.hasText(placeText)) {
             todo.updateResolvedPlaceLabel(placeText);
         }
-        todo.updateStructureStatus("READY");
+        todo.updateStructureStatus(StructureStatus.READY.name());
 
         log.info("[AI] 구조화 저장 완료 (todoId={}, todoType={}, placeType={})", todoId, todoType, placeType);
     }
@@ -288,9 +381,15 @@ public class TodoServiceImpl implements TodoService {
     @Transactional
     public void markStructureFailed(Long todoId) {
         todoRepository.findById(todoId).ifPresent(todo -> {
-            todo.updateStructureStatus("FAILED");
+            todo.updateStructureStatus(StructureStatus.FAILED.name());
             log.warn("[AI] 구조화 FAILED 처리 (todoId={})", todoId);
         });
+    }
+
+    private ConditionType parseConditionType(String value) {
+        if (!StringUtils.hasText(value)) return null;
+        if ("WEEKDAY".equalsIgnoreCase(value)) return ConditionType.WEEK;
+        return parseEnum(ConditionType.class, value, null);
     }
 
     private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, E fallback) {
