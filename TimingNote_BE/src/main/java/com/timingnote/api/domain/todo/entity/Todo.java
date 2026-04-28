@@ -88,4 +88,8 @@ public class Todo {
     public void updatePrimaryPlaceId(Long primaryPlaceId) {
         this.primaryPlaceId = primaryPlaceId;
     }
+
+    public void updateCooldownUntil(OffsetDateTime cooldownUntil) {
+        this.cooldownUntil = cooldownUntil;
+    }
 }
