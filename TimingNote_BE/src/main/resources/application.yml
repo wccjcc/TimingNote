@@ -77,3 +77,7 @@ app:
     resized-prefix: ${AWS_S3_RESIZED_PREFIX:uploads/resized}
     thumbnail-prefix: ${AWS_S3_THUMBNAIL_PREFIX:uploads/thumbnail}
 
+firebase:
+  admin-sdk-path: ${FIREBASE_ACCOUNT_PATH}
+
+

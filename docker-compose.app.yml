@@ -117,6 +117,8 @@ services:
       context: ./TimingNote_BE
       dockerfile: Dockerfile
     container_name: timingnote-springboot
+    volumes:
+      - /home/ubuntu/secrets/timingnote-service-account.json:/run/secrets/timingnote-service-account.json:ro
     environment:
       SERVER_PORT: ${SERVER_PORT:-8080}
       SWAGGER_SERVER_URL: ${SWAGGER_SERVER_URL:-}
@@ -134,6 +136,7 @@ services:
       DEVICE_SECRET_PEPPER: ${DEVICE_SECRET_PEPPER}
       ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
       ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+      FIREBASE_ACCOUNT_PATH: /run/secrets/timingnote-service-account.json
     ports:
       - "8080:8080"
     depends_on:
