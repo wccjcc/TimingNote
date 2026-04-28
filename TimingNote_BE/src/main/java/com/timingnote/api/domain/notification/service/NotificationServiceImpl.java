@@ -3,6 +3,7 @@ package com.timingnote.api.domain.notification.service;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.Notification;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.notification.dto.response.NotificationGeofenceSendResponseDto;
@@ -184,6 +185,11 @@ public class NotificationServiceImpl implements NotificationService {
 
         Message message = Message.builder()
                 .setToken(token)
+                // iOS 시스템 알림 배너가 표시되도록 notification payload를 함께 보낸다.
+                .setNotification(Notification.builder()
+                        .setTitle(title)
+                        .setBody(body)
+                        .build())
                 .putData("type", FCM_DATA_TYPE_GEOFENCE)
                 .putData("title", title)
                 .putData("body", body)
