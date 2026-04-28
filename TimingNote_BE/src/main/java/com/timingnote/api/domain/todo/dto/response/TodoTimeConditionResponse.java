@@ -13,7 +13,7 @@ import java.time.LocalTime;
 @Schema(description = "시간 조건")
 public class TodoTimeConditionResponse {
 
-    @Schema(description = "조건 유형", allowableValues = {"DATETIME", "DATE", "DATE_RANGE", "WEEKDAY", "TIME_RANGE"})
+    @Schema(description = "조건 유형", allowableValues = {"DATETIME", "DATE", "DATE_RANGE", "WEEK", "TIME_RANGE"})
     private String conditionType;
 
     @Schema(description = "시작 날짜")
@@ -36,7 +36,7 @@ public class TodoTimeConditionResponse {
 
     public static TodoTimeConditionResponse from(TodoTimeCondition tc) {
         return TodoTimeConditionResponse.builder()
-                .conditionType(tc.getConditionType())
+                .conditionType(tc.getConditionType() != null ? tc.getConditionType().name() : null)
                 .startDate(tc.getStartDate())
                 .endDate(tc.getEndDate())
                 .startTime(tc.getStartTime())
