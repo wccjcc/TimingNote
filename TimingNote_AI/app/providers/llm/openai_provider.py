@@ -64,7 +64,7 @@ class OpenAiLlmProvider(LlmProvider):
                             "- DATETIME: 날짜+시간 모두 (예: 내일 오후 3시 → startDate + startTime 동시 설정)\n"
                             "- DATE: 날짜만 (예: 내일, 이번 주 금요일 → startDate만)\n"
                             "- DATE_RANGE: 기간 (예: 이번 주 중 → startDate~endDate)\n"
-                            "- WEEKDAY: 요일 반복 (예: 매주 월~금 → daysOfWeek: ['MON','TUE','WED','THU','FRI'], 범위 표기 금지, 반드시 각 요일 개별 열거)\n"
+                            "- WEEK: 요일 반복 (예: 매주 월~금 → daysOfWeek: ['MON','TUE','WED','THU','FRI'], 범위 표기 금지, 반드시 각 요일 개별 열거)\n"
                             "- TIME_RANGE: 시간대만 (예: 저녁에 → startTime만)\n"
                             "날짜/시간은 상대 표현을 오늘 날짜 기준으로 절대값으로 변환하세요.\n"
                             "rawExpression에는 반드시 원문 시간 표현을 그대로 보존하세요."

@@ -21,7 +21,7 @@ class ConditionType(str, Enum):
     DATETIME = "DATETIME"     # 날짜+시간 (내일 오후 3시)
     DATE = "DATE"             # 날짜만 (내일, 이번 주 금요일)
     DATE_RANGE = "DATE_RANGE" # 기간 (이번 주 중, ~까지)
-    WEEKDAY = "WEEKDAY"       # 요일 반복 (매주 월요일)
+    WEEK = "WEEK"             # 요일 반복 (매주 월요일)
     TIME_RANGE = "TIME_RANGE" # 시간대만 (저녁에, 오전 중)
 
 class DayOfWeek(str, Enum):
@@ -40,7 +40,7 @@ class TimeCondition(BaseModel):
     startTime: Optional[str] = None        # HH:mm
     endTime: Optional[str] = None          # HH:mm
     daysOfWeek: Optional[List[DayOfWeek]] = None  # BE에서 비트마스크로 변환
-    rawExpression: str                     # 원문 시간 표현 보존
+    rawExpression: Optional[str] = None    # 원문 시간 표현 보존
 
 class UserPlaceAlias(BaseModel):
     alias: str  # 사용자 등록 별칭 (예: "집", "회사")
