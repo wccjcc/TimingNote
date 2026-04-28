@@ -16,6 +16,7 @@ import com.timingnote.api.domain.notification.repository.UserFcmTokenRepository;
 import com.timingnote.api.domain.notification.repository.UserNotificationRepository;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
+import com.timingnote.api.domain.todo.enums.ConditionType;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
 import java.time.DayOfWeek;
@@ -30,14 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * NOTI-05 위치 기반 알림 발송 서비스.
- *
- * <p>처리 순서:
- * 1) geofence slot 존재/소유자 검증
- * 2) slot에 연결된 todo 조회
- * 3) todo 기본 상태 + todo_time_conditions 검증
- * 4) FCM 토큰 확인 후 푸시 전송 시도
- * 5) notifications 이력 저장
- * 6) 전송 성공 시 cooldown_until 3시간 갱신
  */
 @Slf4j
 @Service
@@ -58,20 +51,17 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional
     public NotificationGeofenceSendResponseDto sendGeofenceNotification(Long userId, Long slotId) {
-        // 1) slot 존재 확인
         GeofenceSlot slot = geofenceSlotRepository.findById(slotId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
-        // 2) 본인 slot만 처리 허용
         if (!slot.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND);
         }
 
-        // 3) slot 연결 todo 조회
         Todo todo = todoRepository.findById(slot.getTodoId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
-        List<TodoTimeCondition> timeConditions = todoTimeConditionRepository.findByTodoId(todo.getId());
+        List<TodoTimeCondition> timeConditions = todoTimeConditionRepository.findAllByTodo_Id(todo.getId());
         if (!isSendableTodo(todo, timeConditions)) {
             return NotificationGeofenceSendResponseDto.builder()
                     .sent(false)
@@ -79,7 +69,6 @@ public class NotificationServiceImpl implements NotificationService {
                     .build();
         }
 
-        // 4) 활성 FCM 토큰 확인
         UserFcmToken fcmToken = userFcmTokenRepository.findByUserId(userId).orElse(null);
         if (fcmToken == null || !Boolean.TRUE.equals(fcmToken.getIsActive())) {
             saveNotificationHistory(userId, todo, null, todo.getContent(), false);
@@ -89,11 +78,9 @@ public class NotificationServiceImpl implements NotificationService {
                     .build();
         }
 
-        // 5) FCM 전송 + 이력 저장
         boolean sent = sendFcm(fcmToken.getFcmToken(), todo.getContent());
         saveNotificationHistory(userId, todo, null, todo.getContent(), sent);
 
-        // 6) 성공 시 3시간 쿨다운 부여
         if (sent) {
             todo.updateCooldownUntil(OffsetDateTime.now().plusHours(COOLDOWN_HOURS));
         }
@@ -120,7 +107,6 @@ public class NotificationServiceImpl implements NotificationService {
             return false;
         }
 
-        // 시간 조건은 모두 만족(AND)해야 발송 가능
         return matchesTimeConditions(timeConditions, now);
     }
 
@@ -137,18 +123,19 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     private boolean matchesSingleCondition(TodoTimeCondition condition, OffsetDateTime now) {
-        String type = condition.getConditionType();
-        if (type == null || type.isBlank()) {
+        ConditionType type = condition.getConditionType();
+        if (type == null) {
             return true;
         }
 
         LocalDate today = now.toLocalDate();
         LocalTime currentTime = now.toLocalTime();
+
         return switch (type) {
-            case "DATE" -> condition.getStartDate() == null || !today.isBefore(condition.getStartDate());
-            case "DATE_RANGE" -> isWithinDateRange(today, condition.getStartDate(), condition.getEndDate());
-            case "WEEK" -> matchesWeekBitmask(today.getDayOfWeek(), condition.getDaysOfWeek());
-            case "TIME_RANGE" -> isWithinTimeRange(currentTime, condition.getStartTime(), condition.getEndTime());
+            case DATE -> condition.getStartDate() == null || !today.isBefore(condition.getStartDate());
+            case DATE_RANGE -> isWithinDateRange(today, condition.getStartDate(), condition.getEndDate());
+            case WEEK -> matchesWeekBitmask(today.getDayOfWeek(), condition.getDaysOfWeek());
+            case TIME_RANGE -> isWithinTimeRange(currentTime, condition.getStartTime(), condition.getEndTime());
             default -> true;
         };
     }
@@ -160,10 +147,6 @@ public class NotificationServiceImpl implements NotificationService {
         return end == null || !target.isAfter(end);
     }
 
-    /**
-     * days_of_week 비트마스크 판정.
-     * MON=1, TUE=2, WED=4, THU=8, FRI=16, SAT=32, SUN=64
-     */
     private boolean matchesWeekBitmask(DayOfWeek dayOfWeek, Short daysOfWeekMask) {
         if (daysOfWeekMask == null) {
             return true;
@@ -184,7 +167,6 @@ public class NotificationServiceImpl implements NotificationService {
         if (start == null && end == null) {
             return true;
         }
-        // 자정 넘김 처리 (예: 22:00~02:00)
         if (start != null && end != null && end.isBefore(start)) {
             return !target.isBefore(start) || !target.isAfter(end);
         }
@@ -196,17 +178,17 @@ public class NotificationServiceImpl implements NotificationService {
 
     private boolean sendFcm(String token, String todoContent) {
         String title = "타이밍노트 알림";
-        String body = todoContent == null || todoContent.isBlank()
+        String body = (todoContent == null || todoContent.isBlank())
                 ? "위치 기반 알림이 도착했습니다."
                 : todoContent;
 
         Message message = Message.builder()
                 .setToken(token)
-                // 앱 라우팅 용도로 기존 payload type 유지
                 .putData("type", FCM_DATA_TYPE_GEOFENCE)
                 .putData("title", title)
                 .putData("body", body)
                 .build();
+
         try {
             firebaseMessaging.send(message);
             return true;
@@ -232,11 +214,6 @@ public class NotificationServiceImpl implements NotificationService {
         userNotificationRepository.save(notification);
     }
 
-    /**
-     * todo_type 매핑:
-     * SPECIFIC -> SPECIFIC
-     * GENERIC/ALIAS/GENERAL -> GENERIC
-     */
     private NotificationType resolveNotificationType(Todo todo) {
         String todoType = todo.getTodoType();
         if (todoType == null) {
