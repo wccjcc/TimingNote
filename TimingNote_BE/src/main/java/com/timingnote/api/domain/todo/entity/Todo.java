@@ -100,7 +100,7 @@ public class Todo {
     public void updateStatus(String status) {
         this.status = status;
         this.completedAt = "DONE".equals(status) ? OffsetDateTime.now() : null;
-
+    }
     public void updateCooldownUntil(OffsetDateTime cooldownUntil) {
         this.cooldownUntil = cooldownUntil;
     }
