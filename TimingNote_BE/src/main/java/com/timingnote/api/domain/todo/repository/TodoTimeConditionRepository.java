@@ -7,5 +7,5 @@ import java.util.List;
 
 public interface TodoTimeConditionRepository extends JpaRepository<TodoTimeCondition, Long> {
 
-    List<TodoTimeCondition> findByTodoId(Long todoId);
+    List<TodoTimeCondition> findAllByTodo_Id(Long todoId);
 }
