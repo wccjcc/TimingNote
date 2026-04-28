@@ -35,7 +35,7 @@ public class ExternalApiWebClientConfig {
         WebClient webClient = WebClient.builder()
                 .baseUrl("https://places.googleapis.com")
                 .defaultHeader("X-Goog-Api-Key", googleApiKey)
-                .defaultHeader("X-Goog-FieldMask", "places.id,places.displayName,places.location,places.regularOpeningHours,places.businessStatus,places.utcOffsetMinutes")
+                .defaultHeader("X-Goog-FieldMask", "places.id,places.displayName,places.location,places.regularOpeningHours,places.businessStatus,places.nationalPhoneNumber")
                 .build();
         HttpServiceProxyFactory factory = HttpServiceProxyFactory
                 .builderFor(WebClientAdapter.create(webClient))
