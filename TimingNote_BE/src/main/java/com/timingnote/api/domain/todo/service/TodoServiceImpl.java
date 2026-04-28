@@ -1,11 +1,17 @@
 package com.timingnote.api.domain.todo.service;
 
+import com.timingnote.api.common.exception.BusinessException;
+import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
+import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
+import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
+import com.timingnote.api.domain.todo.dto.response.TodoListItemResponse;
+import com.timingnote.api.domain.todo.dto.response.TodoListResponse;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.entity.TodoInput;
 import com.timingnote.api.domain.todo.entity.TodoStructure;
@@ -23,16 +29,19 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
-import reactor.core.scheduler.Schedulers;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -44,6 +53,7 @@ public class TodoServiceImpl implements TodoService {
     private final TodoStructureRepository todoStructureRepository;
     private final TodoTimeConditionRepository todoTimeConditionRepository;
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
+    private final PlaceRepository placeRepository;
     private final AiClient aiClient;
     private final PlaceService placeService;
 
@@ -88,6 +98,70 @@ public class TodoServiceImpl implements TodoService {
                 .structureStatus(savedTodo.getStructureStatus())
                 .createdAt(savedTodo.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TodoListResponse getTodoList(Long userId, String status, String tab, String placeType, Long cursor, int limit) {
+        List<Todo> fetched = todoRepository.findTodoPage(
+                userId, status, tab, placeType, cursor, PageRequest.of(0, limit + 1));
+
+        boolean hasNext = fetched.size() > limit;
+        List<Todo> page = hasNext ? fetched.subList(0, limit) : fetched;
+
+        List<Long> todoIds = page.stream().map(Todo::getId).toList();
+        Map<Long, String> thumbnailMap = fetchThumbnails(todoIds);
+
+        List<TodoListItemResponse> items = page.stream()
+                .map(todo -> TodoListItemResponse.from(todo, thumbnailMap.get(todo.getId())))
+                .toList();
+
+        return TodoListResponse.builder()
+                .items(items)
+                .nextCursor(hasNext ? page.get(page.size() - 1).getId() : null)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public TodoDetailResponse getTodoDetail(Long userId, Long todoId) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        TodoStructure structure = todoStructureRepository.findByTodo_Id(todoId).orElse(null);
+        List<TodoTimeCondition> timeConditions =
+                todoTimeConditionRepository.findAllByTodo_Id(todoId);
+        Place primaryPlace = (todo.getPrimaryPlaceId() != null)
+                ? placeRepository.findById(todo.getPrimaryPlaceId()).orElse(null)
+                : null;
+        List<String> imageUrls = todoInputRepository
+                .findAllByTodo_IdAndImageUrlIsNotNullOrderByIdAsc(todoId)
+                .stream()
+                .flatMap(input -> input.getImageUrl().stream())
+                .limit(3)
+                .toList();
+        String sharedUrl = todoInputRepository
+                .findFirstByTodo_IdAndSharedUrlIsNotNull(todoId)
+                .map(TodoInput::getSharedUrl)
+                .orElse(null);
+
+        return TodoDetailResponse.of(todo, structure, timeConditions, primaryPlace, imageUrls, sharedUrl);
+    }
+
+    private Map<Long, String> fetchThumbnails(List<Long> todoIds) {
+        if (todoIds.isEmpty()) return Map.of();
+        return todoInputRepository.findAllByTodo_IdInAndImageUrlIsNotNullOrderByIdAsc(todoIds)
+                .stream()
+                .filter(input -> !input.getImageUrl().isEmpty())
+                .collect(Collectors.toMap(
+                        input -> input.getTodo().getId(),
+                        input -> input.getImageUrl().get(0),
+                        (a, b) -> a  // 동일 todoId에 IMAGE input이 복수일 경우 첫 번째 유지
+                ));
     }
 
     private void triggerAiAnalysis(Long todoId, String inputType, String content,
