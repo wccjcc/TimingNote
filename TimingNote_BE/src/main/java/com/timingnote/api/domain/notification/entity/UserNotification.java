@@ -2,6 +2,8 @@ package com.timingnote.api.domain.notification.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -36,10 +38,12 @@ public class UserNotification {
     private Long candidatePlaceId;
 
     @Column(name = "notification_type", nullable = false, length = 20)
-    private String notificationType;
+    @Enumerated(EnumType.STRING)
+    private NotificationType notificationType;
 
     @Column(name = "status", nullable = false, length = 20)
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private NotificationStatus status;
 
     @Column(name = "title", length = 255)
     private String title;
@@ -58,8 +62,8 @@ public class UserNotification {
             Long userId,
             Long todoId,
             Long candidatePlaceId,
-            String notificationType,
-            String status,
+            NotificationType notificationType,
+            NotificationStatus status,
             String title,
             String body
     ) {
