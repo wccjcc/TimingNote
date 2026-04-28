@@ -35,6 +35,15 @@ ai:
   internal:
     secret: ${AI_INTERNAL_SECRET:dev-secret}
 
+kakao:
+  api:
+    key: ${KAKAO_API_KEY:}
+
+google:
+  places:
+    api:
+      key: ${GOOGLE_PLACES_API_KEY:}
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -42,8 +51,8 @@ swagger:
   server-url: ${SWAGGER_SERVER_URL:}
 
 springdoc:
-  default-consume-media-type: application/json
-  default-produce-media-type: application/json
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
   swagger-ui:
     path: /swagger-ui.html
     tags-sorter: alpha
@@ -54,3 +63,21 @@ springdoc:
 security:
   device-secret:
     pepper: ${DEVICE_SECRET_PEPPER:local-dev-only-change-this-pepper}
+
+
+cloud:
+  aws:
+    region: ${AWS_REGION:ap-northeast-2}
+
+app:
+  s3:
+    bucket: ${AWS_S3_BUCKET}
+    presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:10}
+    original-prefix: ${AWS_S3_ORIGINAL_PREFIX:uploads/original}
+    resized-prefix: ${AWS_S3_RESIZED_PREFIX:uploads/resized}
+    thumbnail-prefix: ${AWS_S3_THUMBNAIL_PREFIX:uploads/thumbnail}
+
+firebase:
+  admin-sdk-path: ${FIREBASE_ACCOUNT_PATH}
+
+

@@ -84,4 +84,8 @@ public class Todo {
     public void updateCategory(String category) {
         this.category = category;
     }
+
+    public void updatePrimaryPlaceId(Long primaryPlaceId) {
+        this.primaryPlaceId = primaryPlaceId;
+    }
 }
