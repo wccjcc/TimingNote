@@ -1,5 +1,6 @@
 package com.timingnote.api.domain.todo.entity;
 
+import com.timingnote.api.domain.todo.enums.ConditionType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -24,8 +25,9 @@ public class TodoTimeCondition {
     @JoinColumn(name = "todo_id", nullable = false)
     private Todo todo;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "condition_type", length = 30, nullable = false)
-    private String conditionType; // DATETIME | DATE | DATE_RANGE | WEEKDAY | TIME_RANGE
+    private ConditionType conditionType;
 
     @Column(name = "start_date")
     private LocalDate startDate;

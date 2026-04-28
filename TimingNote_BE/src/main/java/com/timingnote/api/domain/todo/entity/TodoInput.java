@@ -1,5 +1,6 @@
 package com.timingnote.api.domain.todo.entity;
 
+import com.timingnote.api.domain.todo.enums.InputType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -25,9 +26,9 @@ public class TodoInput {
     @JoinColumn(name = "todo_id", nullable = false)
     private Todo todo;
 
-    // TEXT | VOICE | IMAGE | LINK
+    @Enumerated(EnumType.STRING)
     @Column(name = "input_type", length = 20, nullable = false)
-    private String inputType;
+    private InputType inputType;
 
     // TEXT: 사용자 입력 원문 / VOICE: STT 변환 텍스트
     @Column(name = "original_text", columnDefinition = "TEXT")

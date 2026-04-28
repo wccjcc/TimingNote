@@ -3,7 +3,10 @@ package com.timingnote.api.domain.todo.controller;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.common.response.ApiResponseDto;
+import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoStatusUpdateRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoListResponse;
@@ -19,6 +22,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -93,6 +97,62 @@ public class TodoController {
             @PathVariable Long todoId) {
         Long userId = extractAuthenticatedUserId(request);
         return ApiResponseDto.success(todoService.getTodoDetail(userId, todoId));
+    }
+
+    @Operation(
+            summary = "할 일 수정",
+            description = "변경할 필드만 포함. null = 유지, 빈 문자열(\"\") = 제거, 빈 배열([]) = 전체 삭제."
+    )
+    @ApiResponse(responseCode = "200", description = "수정 성공")
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @PatchMapping("/{todoId}")
+    public ApiResponseDto<TodoDetailResponse> updateTodo(
+            HttpServletRequest request,
+            @PathVariable Long todoId,
+            @Valid @RequestBody TodoUpdateRequest body) {
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(todoService.updateTodo(userId, todoId, body));
+    }
+
+    @Operation(summary = "알림 설정 변경", description = "알림 on/off 토글. 목록/상세 페이지에서 사용.")
+    @ApiResponse(responseCode = "200", description = "변경 성공")
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @PatchMapping("/{todoId}/alert")
+    public ApiResponseDto<Void> updateAlert(
+            HttpServletRequest request,
+            @PathVariable Long todoId,
+            @Valid @RequestBody TodoAlertUpdateRequest body) {
+        Long userId = extractAuthenticatedUserId(request);
+        todoService.updateAlert(userId, todoId, body.getAlertEnabled());
+        return ApiResponseDto.success(null);
+    }
+
+    @Operation(summary = "완료 상태 변경", description = "ACTIVE ↔ DONE 토글. 목록/상세 페이지에서 사용.")
+    @ApiResponse(responseCode = "200", description = "변경 성공")
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @PatchMapping("/{todoId}/status")
+    public ApiResponseDto<Void> updateStatus(
+            HttpServletRequest request,
+            @PathVariable Long todoId,
+            @Valid @RequestBody TodoStatusUpdateRequest body) {
+        Long userId = extractAuthenticatedUserId(request);
+        todoService.updateStatus(userId, todoId, body.getStatus());
+        return ApiResponseDto.success(null);
     }
 
     private Long extractAuthenticatedUserId(HttpServletRequest request) {
