@@ -12,6 +12,7 @@ import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @Entity
 @Getter
@@ -43,6 +44,14 @@ public class Place {
     @Column(name = "category_name")
     private String categoryName;
 
+    // 카카오 대분류 코드 (예: "PM9", "CE7")
+    @Column(name = "category_group_code", length = 10)
+    private String categoryGroupCode;
+
+    // 카카오 대분류 이름 (예: "약국, 병원", "카페")
+    @Column(name = "category_group_name", length = 50)
+    private String categoryGroupName;
+
     // 지번 주소
     @Column(name = "address", columnDefinition = "TEXT")
     private String address;
@@ -63,12 +72,6 @@ public class Place {
 
     @Column(name = "business_status", length = 32)
     private String businessStatus;
-
-    @Column(name = "time_zone_id", length = 64)
-    private String timeZoneId;
-
-    @Column(name = "utc_offset_minutes")
-    private Integer utcOffsetMinutes;
 
     // Google Places regularOpeningHours JSON (raw)
     @JdbcTypeCode(SqlTypes.JSON)
@@ -105,12 +108,10 @@ public class Place {
 
     // ── 도메인 메서드 ─────────────────────────────────────────────────────────
 
-    public void enrichGoogleData(String googlePlaceId, String regularHoursRaw,
-                                 String businessStatus, Integer utcOffsetMinutes) {
+    public void enrichGoogleData(String googlePlaceId, String regularHoursRaw, String businessStatus) {
         this.googlePlaceId = googlePlaceId;
         this.regularHoursRaw = regularHoursRaw;
         this.businessStatus = businessStatus;
-        this.utcOffsetMinutes = utcOffsetMinutes;
-        this.hoursFetchedAt = OffsetDateTime.now(java.time.ZoneOffset.UTC);
+        this.hoursFetchedAt = OffsetDateTime.now(ZoneOffset.UTC);
     }
 }
