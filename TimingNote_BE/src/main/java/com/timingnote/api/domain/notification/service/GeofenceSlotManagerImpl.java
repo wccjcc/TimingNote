@@ -43,6 +43,7 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
     private final GeofenceSlotRepository geofenceSlotRepository;
     private final UserPlaceRepository userPlaceRepository;
+    private final GeofenceSlotSseService geofenceSlotSseService;
 
     @Override
     @Transactional
@@ -141,6 +142,7 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
         if (!toSave.isEmpty()) {
             geofenceSlotRepository.saveAll(toSave);
         }
+        geofenceSlotSseService.notifySlotsUpdated(event.userId(), now);
         log.info("Recalculated geofence slots. userId={} candidates={} active={}", event.userId(), scored.size(), activeCount);
     }
 
