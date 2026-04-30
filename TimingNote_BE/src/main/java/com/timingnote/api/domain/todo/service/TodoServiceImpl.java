@@ -2,12 +2,14 @@ package com.timingnote.api.domain.todo.service;
 
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
+import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
@@ -44,6 +46,8 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +73,8 @@ public class TodoServiceImpl implements TodoService {
             "MON", 1, "TUE", 2, "WED", 4,
             "THU", 8, "FRI", 16, "SAT", 32, "SUN", 64);
 
-    // @Lazy 자기 참조: subscribe() 콜백에서 @Transactional 프록시를 통해 호출하기 위함
+    // @Lazy 자기 참조: subscribe() 콜백 및 동일 빈 내 프록시 경유 호출을 위해 사용.
+    // 자기 자신을 주입받는 구조상 생성자 주입은 순환 참조로 불가능하므로 필드 주입을 허용한다.
     @Lazy
     @Autowired
     private TodoService self;
@@ -175,7 +180,7 @@ public class TodoServiceImpl implements TodoService {
             todo.updateCategory(request.getCategory().isEmpty() ? null : request.getCategory());
         }
         if (request.getPlaceText() != null) {
-            todo.updateResolvedPlaceLabel(request.getPlaceText().isEmpty() ? null : request.getPlaceText());
+            applyPlaceTextUpdate(todo, todoId, request);
         }
         if (request.getTimeConditions() != null) {
             todoTimeConditionRepository.deleteAllByTodo_Id(todoId);
@@ -207,7 +212,7 @@ public class TodoServiceImpl implements TodoService {
             }
         }
 
-        return getTodoDetail(userId, todoId);
+        return self.getTodoDetail(userId, todoId);
     }
 
     @Override
@@ -230,6 +235,135 @@ public class TodoServiceImpl implements TodoService {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
         todo.updateStatus(status);
+    }
+
+    @Override
+    @Transactional
+    public TodoDetailResponse setTodoPlace(Long userId, Long todoId, TodoPlaceSetRequest req) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        Place place = placeService.upsertFromFe(PlaceUpsertCommand.of(
+                req.getKakaoPlaceId(), req.getPlaceName(),
+                req.getAddressName(), req.getRoadAddressName(),
+                req.getCategoryGroupCode(), req.getCategoryGroupName(),
+                req.getPhone(), req.getPlaceUrl(),
+                req.getLongitude(), req.getLatitude()));
+
+        // 특정 장소로 변경: todoType=SPECIFIC, 기존 GENERIC 후보 제거
+        todo.updateTodoType(TodoType.SPECIFIC.name());
+        todo.updatePrimaryPlaceId(place.getId());
+        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+
+        // 표시 레이블: 도로명 주소 우선, 없으면 장소명
+        String label = StringUtils.hasText(req.getRoadAddressName())
+                ? req.getRoadAddressName()
+                : req.getPlaceName();
+        todo.updateResolvedPlaceLabel(label);
+
+        log.info("[Todo/Place] todoId={} → placeId={} label='{}'",
+                todoId, place.getId(), label);
+
+        return self.getTodoDetail(userId, todoId);
+    }
+
+    @Override
+    @Transactional
+    public void deleteTodo(Long userId, Long todoId) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+        todo.softDelete(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    @Override
+    @Transactional
+    public TodoDetailResponse removeTodoPlace(Long userId, Long todoId) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        // 장소 핀 해제: 특정 장소 없는 상태(GENERAL)로 복귀
+        todo.updateTodoType(TodoType.GENERAL.name());
+        todo.updatePrimaryPlaceId(null);
+        todo.updateResolvedPlaceLabel(null);
+        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+
+        log.info("[Todo/Place] todoId={} 장소 연결 해제", todoId);
+
+        return self.getTodoDetail(userId, todoId);
+    }
+
+    /**
+     * updateTodo에서 placeText 변경을 처리하는 로직을 분리한 메서드.
+     * Cognitive Complexity 감소를 위해 추출.
+     * - 빈 문자열("") → 장소 완전 제거 (GENERAL)
+     * - non-empty → 포괄 장소(GENERIC)로 전환 후 Kakao 후보 재검색
+     */
+    private void applyPlaceTextUpdate(Todo todo, Long todoId, TodoUpdateRequest request) {
+        if (request.getPlaceText().isEmpty()) {
+            // "" → 장소 완전 제거
+            todo.updateResolvedPlaceLabel(null);
+            todo.updatePrimaryPlaceId(null);
+            todo.updateTodoType(TodoType.GENERAL.name());
+            todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+            todoStructureRepository.findByTodo_Id(todoId)
+                    .ifPresent(s -> s.updatePlaceInfo(null, AiPlaceType.GENERAL));
+        } else {
+            // non-empty → 포괄 장소(GENERIC)로 변경
+            todo.updateResolvedPlaceLabel(request.getPlaceText());
+            todo.updatePrimaryPlaceId(null);
+            todo.updateTodoType(TodoType.GENERIC.name());
+            todoStructureRepository.findByTodo_Id(todoId)
+                    .ifPresent(s -> s.updatePlaceInfo(request.getPlaceText(), AiPlaceType.GENERIC));
+            // 기존 후보 제거 후 새 후보 조회·등록
+            todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+            resolveAndSaveGenericCandidates(todo, request.getPlaceText(),
+                    request.getLatitude(), request.getLongitude());
+        }
+    }
+
+    /**
+     * GENERIC 후보 장소를 Kakao에서 검색해 todo_candidate_places에 저장한다.
+     * 좌표가 없으면 후보 검색 자체를 건너뛴다 (PlaceService 내부에서 빈 리스트 반환).
+     */
+    private void resolveAndSaveGenericCandidates(Todo todo, String placeText,
+                                                  Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) {
+            log.info("[Todo/Generic] 좌표 없음 → 후보 검색 스킵: todoId={}", todo.getId());
+            return;
+        }
+
+        List<Place> candidates = placeService.resolveGenericCandidates(placeText, latitude, longitude);
+        if (candidates.isEmpty()) {
+            log.info("[Todo/Generic] 후보 없음: todoId={} placeText='{}'", todo.getId(), placeText);
+            return;
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        List<TodoCandidatePlace> records = candidates.stream()
+                .map(place -> {
+                    int distanceM = haversineMeters(latitude, longitude,
+                            place.getLatitude(), place.getLongitude());
+                    return TodoCandidatePlace.builder()
+                            .todo(todo)
+                            .place(place)
+                            .distanceM(distanceM)
+                            .isMonitoringTarget(true)
+                            .calculatedAt(now)
+                            .build();
+                })
+                .toList();
+
+        todoCandidatePlaceRepository.saveAll(records);
+        log.info("[Todo/Generic] todoId={} → 후보 {}개 저장", todo.getId(), records.size());
     }
 
     private TodoTimeCondition buildTimeCondition(Todo todo, TodoTimeConditionRequest tc) {

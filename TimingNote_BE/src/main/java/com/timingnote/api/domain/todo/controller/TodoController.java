@@ -5,6 +5,7 @@ import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.common.response.ApiResponseDto;
 import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoStatusUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
@@ -21,6 +22,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -153,6 +155,67 @@ public class TodoController {
         Long userId = extractAuthenticatedUserId(request);
         todoService.updateStatus(userId, todoId, body.getStatus());
         return ApiResponseDto.success(null);
+    }
+
+    @Operation(
+            summary = "할 일 삭제",
+            description = "소프트 삭제 — status를 DELETED로 변경한다. 목록 조회에서 자동으로 제외된다."
+    )
+    @ApiResponse(responseCode = "200", description = "삭제 성공")
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @DeleteMapping("/{todoId}")
+    public ApiResponseDto<Void> deleteTodo(
+            HttpServletRequest request,
+            @PathVariable Long todoId) {
+        Long userId = extractAuthenticatedUserId(request);
+        todoService.deleteTodo(userId, todoId);
+        return ApiResponseDto.success(null);
+    }
+
+    @Operation(
+            summary = "Todo 장소 지정",
+            description = "FE에서 Kakao 검색으로 선택한 장소를 Todo에 연결한다. places 테이블에 upsert 후 primaryPlaceId를 갱신한다."
+    )
+    @ApiResponse(responseCode = "200", description = "지정 성공")
+    @ApiResponse(responseCode = "400", description = "필수 필드 누락 (kakaoPlaceId, placeName, longitude, latitude)",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @PostMapping("/{todoId}/place")
+    public ApiResponseDto<TodoDetailResponse> setTodoPlace(
+            HttpServletRequest request,
+            @PathVariable Long todoId,
+            @Valid @RequestBody TodoPlaceSetRequest body) {
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(todoService.setTodoPlace(userId, todoId, body));
+    }
+
+    @Operation(
+            summary = "Todo 장소 연결 해제",
+            description = "Todo에 연결된 장소(primaryPlaceId)를 제거한다."
+    )
+    @ApiResponse(responseCode = "200", description = "해제 성공")
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @DeleteMapping("/{todoId}/place")
+    public ApiResponseDto<TodoDetailResponse> removeTodoPlace(
+            HttpServletRequest request,
+            @PathVariable Long todoId) {
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(todoService.removeTodoPlace(userId, todoId));
     }
 
     private Long extractAuthenticatedUserId(HttpServletRequest request) {
