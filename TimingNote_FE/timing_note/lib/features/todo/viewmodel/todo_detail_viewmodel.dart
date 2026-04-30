@@ -116,6 +116,64 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       state = state.copyWith(detail: current);
     }
   }
+
+  /// 소프트 삭제 — 완료 후 화면을 pop하는 것은 View 책임
+  Future<bool> deleteTodo() async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      await _service.delete(_todoId);
+      state = state.copyWith(isLoading: false);
+      return true;
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+      return false;
+    }
+  }
+
+  /// 장소 지정 — Kakao 검색 결과를 Todo에 연결
+  Future<void> setPlace({
+    required String kakaoPlaceId,
+    required String placeName,
+    String? addressName,
+    String? roadAddressName,
+    String? categoryGroupCode,
+    String? categoryGroupName,
+    String? phone,
+    String? placeUrl,
+    required double longitude,
+    required double latitude,
+  }) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final updated = await _service.setPlace(
+        _todoId,
+        kakaoPlaceId: kakaoPlaceId,
+        placeName: placeName,
+        addressName: addressName,
+        roadAddressName: roadAddressName,
+        categoryGroupCode: categoryGroupCode,
+        categoryGroupName: categoryGroupName,
+        phone: phone,
+        placeUrl: placeUrl,
+        longitude: longitude,
+        latitude: latitude,
+      );
+      state = state.copyWith(detail: updated, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  /// 장소 연결 해제
+  Future<void> removePlace() async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final updated = await _service.removePlace(_todoId);
+      state = state.copyWith(detail: updated, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
 }
 
 // ── Provider (todoId별 독립 인스턴스) ─────────────────────────────

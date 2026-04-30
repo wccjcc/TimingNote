@@ -5,7 +5,6 @@ class ApiEndpoints {
   static const String todos = '/todos';
 
   static const String recommendations = '/recommendations';
-  static const String placesSearch = '/places/search';
 
   /// FCM 토큰 최초 등록/갱신 endpoint
   static const String fcmTokens = '/fcm/tokens';
