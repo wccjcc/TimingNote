@@ -10,9 +10,6 @@ import java.time.OffsetDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * Geofence 감시 슬롯 엔티티.
- */
 @Getter
 @Entity
 @NoArgsConstructor
@@ -32,10 +29,32 @@ public class GeofenceSlot {
     @Column(name = "todo_id", nullable = false)
     private Long todoId;
 
-    // DB 스키마의 오탈자(caculated_at)를 그대로 매핑한다.
     @Column(name = "caculated_at", nullable = false)
     private OffsetDateTime calculatedAt;
 
     @Column(name = "is_active", nullable = false)
     private boolean active;
+
+    public static GeofenceSlot create(
+            Long userId,
+            Long placeId,
+            Long todoId,
+            OffsetDateTime calculatedAt,
+            boolean active
+    ) {
+        GeofenceSlot slot = new GeofenceSlot();
+        slot.userId = userId;
+        slot.placeId = placeId;
+        slot.todoId = todoId;
+        slot.calculatedAt = calculatedAt;
+        slot.active = active;
+        return slot;
+    }
+
+    public void refresh(Long placeId, Long todoId, OffsetDateTime calculatedAt, boolean active) {
+        this.placeId = placeId;
+        this.todoId = todoId;
+        this.calculatedAt = calculatedAt;
+        this.active = active;
+    }
 }
