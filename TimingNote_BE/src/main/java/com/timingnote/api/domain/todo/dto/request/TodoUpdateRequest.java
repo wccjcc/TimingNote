@@ -32,4 +32,10 @@ public class TodoUpdateRequest {
     @Valid
     @Schema(description = "시간 조건 목록 (null = 유지, [] = 전체 삭제)")
     private List<TodoTimeConditionRequest> timeConditions;
+
+    @Schema(description = "사용자 현재 위도 — placeText 변경 시 GENERIC 후보 검색에 사용 (선택)")
+    private Double latitude;
+
+    @Schema(description = "사용자 현재 경도 — placeText 변경 시 GENERIC 후보 검색에 사용 (선택)")
+    private Double longitude;
 }

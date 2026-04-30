@@ -63,5 +63,8 @@ __pycache__/
 .codex/
 .claude/
 
+# claude 스킬 관련 파일
+.claude/
+
 # google service account 관련
 TimingNote_BE/secrets/
