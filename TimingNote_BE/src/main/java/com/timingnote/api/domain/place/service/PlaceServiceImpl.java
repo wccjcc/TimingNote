@@ -2,6 +2,7 @@ package com.timingnote.api.domain.place.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.PlaceOpeningPeriod;
 import com.timingnote.api.domain.place.repository.PlaceOpeningPeriodRepository;
@@ -129,6 +130,31 @@ public class PlaceServiceImpl implements PlaceService {
 
         log.info("[GENERIC] 완료: placeText='{}' → 후보 {}개", placeText, places.size());
         return places;
+    }
+
+    // ── FE 장소 upsert ───────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public Place upsertFromFe(PlaceUpsertCommand cmd) {
+        log.info("[FE/Upsert] 시작: kakaoPlaceId='{}' name='{}'", cmd.kakaoPlaceId(), cmd.placeName());
+
+        return placeRepository.findByExternalPlaceId(cmd.kakaoPlaceId())
+                .orElseGet(() -> {
+                    Place saved = placeRepository.save(Place.builder()
+                            .externalPlaceId(cmd.kakaoPlaceId())
+                            .name(cmd.placeName())
+                            .address(cmd.addressName())
+                            .roadAddress(cmd.roadAddressName())
+                            .categoryGroupCode(cmd.categoryGroupCode())
+                            .categoryGroupName(cmd.categoryGroupName())
+                            .phone(cmd.phone())
+                            .placeUrl(cmd.placeUrl())
+                            .location(Place.toPoint(cmd.longitude(), cmd.latitude()))
+                            .build());
+                    log.info("[FE/Upsert] 신규 저장: placeId={}", saved.getId());
+                    return saved;
+                });
     }
 
     // ── Kakao 검색 헬퍼 ─────────────────────────────────────────────────────

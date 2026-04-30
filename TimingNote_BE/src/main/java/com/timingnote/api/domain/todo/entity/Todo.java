@@ -104,4 +104,9 @@ public class Todo {
     public void updateCooldownUntil(OffsetDateTime cooldownUntil) {
         this.cooldownUntil = cooldownUntil;
     }
+
+    public void softDelete(OffsetDateTime now) {
+        this.status = "DELETED";
+        this.deletedAt = now;
+    }
 }
