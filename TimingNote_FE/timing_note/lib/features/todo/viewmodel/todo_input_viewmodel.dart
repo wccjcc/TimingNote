@@ -1,0 +1,123 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../model/todo.dart';
+import '../service/todo_service.dart';
+
+// ── State ────────────────────────────────────────────────────────
+// pending 단계 제거: AI 구조화 대기는 목록 화면 카드 스피너에서 처리한다.
+enum InputSubmitPhase { idle, submitting, done, error }
+
+class TodoInputState {
+  const TodoInputState({
+    this.content = '',
+    this.inputType = InputType.text,
+    this.latitude,
+    this.longitude,
+    this.phase = InputSubmitPhase.idle,
+    this.createdTodoId,
+    this.structureStatus,
+    this.error,
+  });
+
+  final String content;
+  final String inputType;
+  final double? latitude;
+  final double? longitude;
+  final InputSubmitPhase phase;
+  final int? createdTodoId;
+  final String? structureStatus;
+  final String? error;
+
+  bool get isSubmitting => phase == InputSubmitPhase.submitting;
+  bool get isCompleted => phase == InputSubmitPhase.done;
+  bool get canSubmit =>
+      content.trim().isNotEmpty && phase == InputSubmitPhase.idle;
+
+  TodoInputState copyWith({
+    String? content,
+    String? inputType,
+    double? latitude,
+    double? longitude,
+    bool clearLocation = false,
+    InputSubmitPhase? phase,
+    int? createdTodoId,
+    String? structureStatus,
+    String? error,
+    bool clearError = false,
+  }) {
+    return TodoInputState(
+      content: content ?? this.content,
+      inputType: inputType ?? this.inputType,
+      latitude: clearLocation ? null : (latitude ?? this.latitude),
+      longitude: clearLocation ? null : (longitude ?? this.longitude),
+      phase: phase ?? this.phase,
+      createdTodoId: createdTodoId ?? this.createdTodoId,
+      structureStatus: structureStatus ?? this.structureStatus,
+      error: clearError ? null : (error ?? this.error),
+    );
+  }
+}
+
+// ── Notifier ─────────────────────────────────────────────────────
+class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
+  late final TodoService _service;
+
+  @override
+  TodoInputState build() {
+    _service = ref.read(todoServiceProvider);
+    return const TodoInputState();
+  }
+
+  // ── 폼 필드 업데이트 ─────────────────────────────────────────────
+
+  void setContent(String value) => state = state.copyWith(content: value);
+
+  void setInputType(String type) => state = state.copyWith(inputType: type);
+
+  void setLocation({required double latitude, required double longitude}) {
+    state = state.copyWith(latitude: latitude, longitude: longitude);
+  }
+
+  void clearLocation() => state = state.copyWith(clearLocation: true);
+
+  // ── 제출 ─────────────────────────────────────────────────────────
+
+  Future<void> submit() async {
+    if (!state.canSubmit) return;
+
+    state = state.copyWith(phase: InputSubmitPhase.submitting, clearError: true);
+
+    try {
+      final result = await _service.create(
+        content: state.content.trim(),
+        inputType: state.inputType,
+        latitude: state.latitude,
+        longitude: state.longitude,
+      );
+
+      // PENDING 여부와 무관하게 즉시 done 처리.
+      // AI 구조화 대기 스피너는 할 일 목록 카드에서 표시한다.
+      state = state.copyWith(
+        phase: InputSubmitPhase.done,
+        createdTodoId: result.todoId,
+        structureStatus: result.structureStatus,
+      );
+    } catch (e) {
+      state = state.copyWith(phase: InputSubmitPhase.error, error: e.toString());
+    }
+  }
+
+  void resetError() {
+    state = state.copyWith(phase: InputSubmitPhase.idle, clearError: true);
+  }
+
+  void reset() {
+    state = const TodoInputState();
+  }
+}
+
+// ── Provider ─────────────────────────────────────────────────────
+final todoInputProvider =
+    NotifierProvider.autoDispose<TodoInputNotifier, TodoInputState>(
+  TodoInputNotifier.new,
+);
