@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.google.firebase.messaging.FirebaseMessaging;
-import com.google.firebase.messaging.FirebaseMessagingException;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.notification.dto.response.NotificationGeofenceSendResponseDto;
@@ -21,6 +21,8 @@ import com.timingnote.api.domain.notification.entity.UserNotification;
 import com.timingnote.api.domain.notification.repository.GeofenceSlotRepository;
 import com.timingnote.api.domain.notification.repository.UserFcmTokenRepository;
 import com.timingnote.api.domain.notification.repository.UserNotificationRepository;
+import com.timingnote.api.domain.place.entity.Place;
+import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
 import com.timingnote.api.domain.todo.enums.ConditionType;
@@ -32,13 +34,14 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+
+import com.timingnote.api.infra.client.fcm.PushNotificationSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -56,7 +59,9 @@ class NotificationServiceImplTest {
     @Mock
     private UserNotificationRepository userNotificationRepository;
     @Mock
-    private FirebaseMessaging firebaseMessaging;
+    private PlaceRepository placeRepository;
+    @Mock
+    private PushNotificationSender pushNotificationSender;
 
     @InjectMocks
     private NotificationServiceImpl notificationService;
@@ -67,6 +72,7 @@ class NotificationServiceImplTest {
 
     private GeofenceSlot slot;
     private Todo todo;
+    private Place place;
 
     @BeforeEach
     void setUp() {
@@ -74,6 +80,7 @@ class NotificationServiceImplTest {
         ReflectionTestUtils.setField(slot, "id", SLOT_ID);
         ReflectionTestUtils.setField(slot, "userId", USER_ID);
         ReflectionTestUtils.setField(slot, "todoId", TODO_ID);
+        ReflectionTestUtils.setField(slot, "placeId", 100L);
 
         todo = Todo.builder()
                 .userId(USER_ID)
@@ -86,6 +93,15 @@ class NotificationServiceImplTest {
         ReflectionTestUtils.setField(todo, "id", TODO_ID);
         ReflectionTestUtils.setField(todo, "cooldownUntil", null);
         ReflectionTestUtils.setField(todo, "snoozedUntil", null);
+
+        place = Place.builder()
+                .externalPlaceId("ext-place")
+                .name("스타벅스")
+                .location(Place.toPoint(127.0, 37.0))
+                .build();
+        ReflectionTestUtils.setField(place, "id", 100L);
+
+        lenient().when(placeRepository.findById(100L)).thenReturn(Optional.of(place));
     }
 
     // Happy path: send + history + cooldown update
@@ -95,18 +111,21 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of());
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
 
         assertThat(result.isSent()).isTrue();
         assertThat(result.getReason()).isEqualTo("SENT");
         assertThat(todo.getCooldownUntil()).isNotNull();
+        verify(pushNotificationSender).send(eq("fcm-token"), eq("GEOFENCE"), eq("스타벅스근처에요"), eq("buy milk"));
 
         ArgumentCaptor<UserNotification> captor = ArgumentCaptor.forClass(UserNotification.class);
         verify(userNotificationRepository).save(captor.capture());
         assertThat(captor.getValue().getNotificationType()).isEqualTo(NotificationType.SPECIFIC);
         assertThat(captor.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
+        assertThat(captor.getValue().getTitle()).isEqualTo("스타벅스근처에요");
+        assertThat(captor.getValue().getBody()).isEqualTo("buy milk");
     }
 
     // slot not found => NOT_FOUND
@@ -201,7 +220,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(weekCondition));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -243,7 +262,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(date));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -272,7 +291,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(dateRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -288,7 +307,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(week));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -306,7 +325,7 @@ class NotificationServiceImplTest {
         boolean weekday = OffsetDateTime.now().getDayOfWeek().getValue() <= 5;
         if (weekday) {
             when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-            when(firebaseMessaging.send(any())).thenReturn("msg-id");
+            when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
         }
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
@@ -325,7 +344,7 @@ class NotificationServiceImplTest {
         boolean weekend = OffsetDateTime.now().getDayOfWeek().getValue() >= 6;
         if (weekend) {
             when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-            when(firebaseMessaging.send(any())).thenReturn("msg-id");
+            when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
         }
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
@@ -344,7 +363,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(week));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -362,7 +381,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(timeRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -380,7 +399,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(timeRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -404,7 +423,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(timeRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenReturn("msg-id");
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -445,7 +464,7 @@ class NotificationServiceImplTest {
     void send_false_when_fcmSendThrowsException() throws Exception {
         mockBaseForTodoValidation();
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(firebaseMessaging.send(any())).thenThrow(Mockito.mock(FirebaseMessagingException.class));
+        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(false);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isFalse();
@@ -475,7 +494,7 @@ class NotificationServiceImplTest {
             when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(caseTodo));
             when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of());
             when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-            when(firebaseMessaging.send(any())).thenReturn("msg-id");
+            when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
 
             notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
 
@@ -513,3 +532,4 @@ class NotificationServiceImplTest {
         };
     }
 }
+
