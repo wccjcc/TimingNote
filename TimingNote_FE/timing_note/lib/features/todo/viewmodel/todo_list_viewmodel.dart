@@ -226,6 +226,24 @@ class TodoListNotifier extends Notifier<TodoListState> {
     }
   }
 
+  /// 소프트 삭제 — 낙관적으로 목록에서 즉시 제거 후 API 호출
+  Future<void> deleteTodo(int todoId) async {
+    final index = state.items.indexWhere((e) => e.id == todoId);
+    if (index == -1) return;
+
+    final removed = state.items[index];
+    final updated = [...state.items]..removeAt(index);
+    state = state.copyWith(items: updated);
+
+    try {
+      await _service.delete(todoId);
+    } catch (_) {
+      // 실패 시 원래 위치에 복원
+      final restored = [...state.items]..insert(index, removed);
+      state = state.copyWith(items: restored);
+    }
+  }
+
   void _updateItem(int index, TodoItem item) {
     final updated = [...state.items];
     updated[index] = item;

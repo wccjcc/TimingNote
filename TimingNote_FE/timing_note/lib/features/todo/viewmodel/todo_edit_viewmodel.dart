@@ -13,6 +13,8 @@ class TodoEditState {
     this.content,
     this.category,
     this.placeText,
+    this.latitude,
+    this.longitude,
     this.imageUrls,
     this.sharedUrl,
     this.timeConditions,
@@ -26,6 +28,8 @@ class TodoEditState {
   final String? content;
   final String? category;
   final String? placeText;
+  final double? latitude;   // placeText GENERIC 전환 시 Kakao 후보 검색에 사용
+  final double? longitude;
   final List<String>? imageUrls;
   final String? sharedUrl;
   final List<TimeConditionRequest>? timeConditions;
@@ -42,6 +46,8 @@ class TodoEditState {
     String? content,
     String? category,
     String? placeText,
+    double? latitude,
+    double? longitude,
     List<String>? imageUrls,
     String? sharedUrl,
     List<TimeConditionRequest>? timeConditions,
@@ -56,6 +62,8 @@ class TodoEditState {
       content: content ?? this.content,
       category: category ?? this.category,
       placeText: placeText ?? this.placeText,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       imageUrls: imageUrls ?? this.imageUrls,
       sharedUrl: sharedUrl ?? this.sharedUrl,
       timeConditions: timeConditions ?? this.timeConditions,
@@ -109,6 +117,10 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
   void setCategory(String value) => state = state.copyWith(category: value);
   void setPlaceText(String value) => state = state.copyWith(placeText: value);
   void setSharedUrl(String value) => state = state.copyWith(sharedUrl: value);
+
+  /// placeText GENERIC 전환 시 Kakao 후보 검색을 위한 좌표 설정
+  void setLocation(double latitude, double longitude) =>
+      state = state.copyWith(latitude: latitude, longitude: longitude);
 
   // ── 이미지 URL 관리 ───────────────────────────────────────────────
 
@@ -197,6 +209,13 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
         content: contentToSend,
         category: categoryToSend,
         placeText: placeTextToSend,
+        // placeText가 non-empty일 때만 좌표 전달 (GENERIC 후보 검색용)
+        latitude: (placeTextToSend != null && placeTextToSend.isNotEmpty)
+            ? state.latitude
+            : null,
+        longitude: (placeTextToSend != null && placeTextToSend.isNotEmpty)
+            ? state.longitude
+            : null,
         sharedUrl: sharedUrlToSend,
         imageUrls: imageUrlsToSend,
         timeConditions: timeConditionsToSend,
