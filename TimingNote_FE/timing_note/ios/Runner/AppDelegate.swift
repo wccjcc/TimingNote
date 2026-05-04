@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import KakaoMapsSDK
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -7,6 +8,10 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Kakao Maps SDK 초기화 — Info.plist > Generated.xcconfig > .env 순으로 값 주입
+    let kakaoKey = Bundle.main.infoDictionary?["KAKAO_NATIVE_APP_KEY"] as? String ?? ""
+    SDKInitializer.InitSDK(appKey: kakaoKey)
+
     // geofence 네이티브 브리지 초기 준비
     NativeGeofenceBridge.shared.prepare()
 
