@@ -32,6 +32,11 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- Kakao Maps SDK 네이티브 앱 키 — build.gradle.kts의 manifestPlaceholders에서 주입 -->
+        <meta-data
+            android:name="com.kakao.sdk.AppKey"
+            android:value="${kakaoNativeAppKey}" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
