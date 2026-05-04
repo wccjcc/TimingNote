@@ -76,6 +76,26 @@ app:
     original-prefix: ${AWS_S3_ORIGINAL_PREFIX:uploads/original}
     resized-prefix: ${AWS_S3_RESIZED_PREFIX:uploads/resized}
     thumbnail-prefix: ${AWS_S3_THUMBNAIL_PREFIX:uploads/thumbnail}
+  rabbitmq:
+    geofence-slot-exchange: geofence.slot.exchange
+    geofence-slot-recalculate-queue: geofence.slot.recalculate
+    geofence-slot-routing-key: geofence.slot.recalculate
+    geofence-slot-dlq: geofence.slot.recalculate.dlq
+    geofence-slot-dlq-routing-key: geofence.slot.recalculate.dlq
+    geofence-slot-concurrency: 2
+    geofence-slot-max-concurrency: 6
+    geofence-slot-prefetch: 20
+    geofence-slot-retry-max-attempts: 3
+    geofence-slot-retry-initial-interval-ms: 1000
+    geofence-slot-retry-max-interval-ms: 10000
+    geofence-slot-retry-multiplier: 2.0
+  outbox:
+    geofence:
+      relay-fixed-delay-ms: 5000
+      batch-size: 100
+      default-max-retry-count: 5
+      retry-base-seconds: 5
+      retry-max-seconds: 300
 
 firebase:
   admin-sdk-path: ${FIREBASE_ACCOUNT_PATH}
