@@ -21,9 +21,15 @@ class _AppState extends ConsumerState<App> {
     super.initState();
 
     // 앱 진입 전에 deviceSecret 등록과 FCM 초기화를 끝내서 인증 흐름을 안정화한다.
+    // FCM은 google-services.json 미설정 환경(개발 초기)에서 크래시가 발생할 수 있으므로
+    // try-catch로 감싸 앱 자체가 죽지 않도록 한다.
     _bootstrapFuture = Future<void>.microtask(() async {
-      await ref.read(deviceAuthServiceProvider).initialize();
-      await ref.read(fcmTokenServiceProvider).initialize();
+      try {
+        await ref.read(deviceAuthServiceProvider).initialize();
+        await ref.read(fcmTokenServiceProvider).initialize();
+      } catch (e) {
+        debugPrint('Bootstrap skipped: $e');
+      }
     });
   }
 
