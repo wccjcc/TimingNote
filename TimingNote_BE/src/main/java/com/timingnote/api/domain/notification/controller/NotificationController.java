@@ -4,10 +4,13 @@ import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.common.response.ApiResponseDto;
 import com.timingnote.api.domain.notification.dto.request.NotificationActionRequestDto;
+import com.timingnote.api.domain.notification.dto.request.NotificationReadUpdateRequestDto;
 import com.timingnote.api.domain.notification.dto.response.GeofenceSlotsResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationActionResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationDeleteResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationHistoryResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationGeofenceSendResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationReadUpdateResponseDto;
 import com.timingnote.api.domain.notification.service.GeofenceSlotQueryService;
 import com.timingnote.api.domain.notification.service.GeofenceSlotSseService;
 import com.timingnote.api.domain.notification.service.NotificationService;
@@ -25,7 +28,9 @@ import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,11 +56,8 @@ public class NotificationController {
     @Operation(summary = "알림 이력 조회", description = "알림함에서 알림 이력을 페이지네이션으로 조회합니다.")
     @GetMapping
     public ApiResponseDto<NotificationHistoryResponseDto> getNotificationHistory(
-            @Parameter(description = "Todo ID 필터(선택)")
             @RequestParam(required = false) @Positive Long todoId,
-            @Parameter(description = "페이지 번호(0-base, 기본값 0)")
             @RequestParam(required = false) @Min(0) Integer page,
-            @Parameter(description = "페이지 크기(기본값 20)")
             @RequestParam(required = false) @Min(1) @Max(100) Integer size,
             HttpServletRequest request
     ) {
@@ -81,6 +83,35 @@ public class NotificationController {
         return ApiResponseDto.success(
                 notificationService.applyNotificationAction(userId, notificationId, requestDto)
         );
+    }
+
+    /**
+     * NOTI-03 알림 읽음 처리 API.
+     */
+    @Operation(summary = "알림 읽음 처리", description = "알림의 읽음 상태를 true로 처리합니다.")
+    @PatchMapping("/{notificationId}")
+    public ApiResponseDto<NotificationReadUpdateResponseDto> updateNotificationRead(
+            @PathVariable @Positive Long notificationId,
+            @Valid @RequestBody NotificationReadUpdateRequestDto requestDto,
+            HttpServletRequest request
+    ) {
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(
+                notificationService.updateNotificationRead(userId, notificationId, requestDto)
+        );
+    }
+
+    /**
+     * NOTI-04 알림 삭제 처리 API.
+     */
+    @Operation(summary = "알림 삭제 처리", description = "알림을 삭제 처리합니다.")
+    @DeleteMapping("/{notificationId}")
+    public ApiResponseDto<NotificationDeleteResponseDto> deleteNotification(
+            @PathVariable @Positive Long notificationId,
+            HttpServletRequest request
+    ) {
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(notificationService.deleteNotification(userId, notificationId));
     }
 
     @Operation(summary = "위치 기반 알림 발송", description = "Geofence 슬롯 ID 기반으로 위치 알림 발송을 처리한다.")

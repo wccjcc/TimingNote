@@ -4,10 +4,13 @@ import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.notification.dto.request.NotificationActionRequestDto;
 import com.timingnote.api.domain.notification.dto.request.NotificationActionType;
+import com.timingnote.api.domain.notification.dto.request.NotificationReadUpdateRequestDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationActionResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationDeleteResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationHistoryItemResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationHistoryResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationGeofenceSendResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationReadUpdateResponseDto;
 import com.timingnote.api.domain.notification.entity.GeofenceSlot;
 import com.timingnote.api.domain.notification.entity.NotificationStatus;
 import com.timingnote.api.domain.notification.entity.NotificationType;
@@ -198,6 +201,49 @@ public class NotificationServiceImpl implements NotificationService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR);
         }
         return snoozeMinutes;
+    }
+
+    /**
+     * NOTI-03 알림 읽음 처리.
+     */
+    @Override
+    @Transactional
+    public NotificationReadUpdateResponseDto updateNotificationRead(
+            Long userId,
+            Long notificationId,
+            NotificationReadUpdateRequestDto requestDto
+    ) {
+        if (!Boolean.TRUE.equals(requestDto.getIsRead())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        UserNotification notification = userNotificationRepository.findByIdAndUserId(notificationId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        OffsetDateTime openedAt = OffsetDateTime.now();
+        notification.markOpened(openedAt);
+
+        return NotificationReadUpdateResponseDto.builder()
+                .notificationId(notification.getId())
+                .openedAt(openedAt)
+                .build();
+    }
+
+    /**
+     * NOTI-04 알림 삭제 처리.
+     */
+    @Override
+    @Transactional
+    public NotificationDeleteResponseDto deleteNotification(Long userId, Long notificationId) {
+        UserNotification notification = userNotificationRepository.findByIdAndUserId(notificationId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        userNotificationRepository.delete(notification);
+
+        return NotificationDeleteResponseDto.builder()
+                .notificationId(notificationId)
+                .deletedAt(OffsetDateTime.now())
+                .build();
     }
 
     private boolean isSendableTodo(Todo todo, List<TodoTimeCondition> conditions) {
