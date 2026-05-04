@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../model/time_condition.dart';
+import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../service/todo_service.dart';
 import 'todo_detail_viewmodel.dart';
@@ -98,7 +99,7 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
         original: detail,
         isLoading: false,
         content: detail.content,
-        category: detail.category ?? '',
+        category: detail.category ?? TodoCategory.etc,
         placeText: detail.structure?.placeText ?? '',
         imageUrls: List<String>.from(detail.imageUrls),
         sharedUrl: detail.sharedUrl ?? '',

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../service/todo_service.dart';
+import 'todo_list_viewmodel.dart';
 
 // ── State ────────────────────────────────────────────────────────
 class TodoDetailState {
@@ -122,6 +123,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       await _service.delete(_todoId);
+      ref.invalidate(todoListProvider);
       state = state.copyWith(isLoading: false);
       return true;
     } catch (e) {
