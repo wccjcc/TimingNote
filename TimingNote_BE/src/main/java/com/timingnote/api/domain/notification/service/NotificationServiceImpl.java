@@ -2,6 +2,11 @@ package com.timingnote.api.domain.notification.service;
 
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
+import com.timingnote.api.domain.notification.dto.request.NotificationActionRequestDto;
+import com.timingnote.api.domain.notification.dto.request.NotificationActionType;
+import com.timingnote.api.domain.notification.dto.response.NotificationActionResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationHistoryItemResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationHistoryResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationGeofenceSendResponseDto;
 import com.timingnote.api.domain.notification.entity.GeofenceSlot;
 import com.timingnote.api.domain.notification.entity.NotificationStatus;
@@ -16,6 +21,7 @@ import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
 import com.timingnote.api.domain.todo.enums.ConditionType;
+import com.timingnote.api.domain.todo.enums.TodoStatus;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
 import java.time.DayOfWeek;
@@ -27,6 +33,10 @@ import java.util.List;
 import com.timingnote.api.infra.client.fcm.PushNotificationSender;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -97,6 +107,97 @@ public class NotificationServiceImpl implements NotificationService {
                 .sent(sent)
                 .reason(sent ? "SENT" : "FCM_SEND_FAILED")
                 .build();
+    }
+
+    /**
+     * NOTI-01 알림 이력 목록 조회.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public NotificationHistoryResponseDto getNotificationHistory(Long userId, Long todoId, int page, int size) {
+        // 파라미터 예외 처리: 잘못된 요청은 400으로 응답
+        if (page < 0 || size < 1 || size > 100) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"))
+        );
+
+        Page<UserNotification> notifications = (todoId == null)
+                ? userNotificationRepository.findByUserId(userId, pageable)
+                : userNotificationRepository.findByUserIdAndTodoId(userId, todoId, pageable);
+
+        Page<NotificationHistoryItemResponseDto> mapped = notifications.map(NotificationHistoryItemResponseDto::from);
+        return NotificationHistoryResponseDto.from(mapped);
+    }
+
+    /**
+     * NOTI-02 알림 액션 처리.
+     */
+    @Override
+    @Transactional
+    public NotificationActionResponseDto applyNotificationAction(
+            Long userId,
+            Long notificationId,
+            NotificationActionRequestDto requestDto
+    ) {
+        UserNotification notification = userNotificationRepository.findByIdAndUserId(notificationId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        Todo todo = todoRepository.findById(notification.getTodoId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        NotificationActionType actionType = requestDto.getActionType();
+        OffsetDateTime now = OffsetDateTime.now();
+
+        return switch (actionType) {
+            case OPEN -> {
+                notification.markOpened(now);
+                yield NotificationActionResponseDto.builder()
+                        .actionType(actionType.name())
+                        .todoStatus(null)
+                        .snoozedUntil(null)
+                        .build();
+            }
+            case COMPLETE -> {
+                notification.markOpened(now);
+                todo.updateStatus(TodoStatus.DONE.name());
+                yield NotificationActionResponseDto.builder()
+                        .actionType(actionType.name())
+                        .todoStatus(todo.getStatus())
+                        .snoozedUntil(null)
+                        .build();
+            }
+            case SNOOZE -> {
+                int snoozeMinutes = resolveSnoozeMinutes(requestDto.getSnoozeMinutes());
+                notification.markOpened(now);
+                OffsetDateTime snoozedUntil = now.plusMinutes(snoozeMinutes);
+                todo.updateSnoozedUntil(snoozedUntil);
+                yield NotificationActionResponseDto.builder()
+                        .actionType(actionType.name())
+                        .todoStatus(null)
+                        .snoozedUntil(snoozedUntil)
+                        .build();
+            }
+            case DISMISS -> {
+                notification.markOpened(now);
+                yield NotificationActionResponseDto.builder()
+                        .actionType(actionType.name())
+                        .todoStatus(null)
+                        .snoozedUntil(null)
+                        .build();
+            }
+        };
+    }
+
+    // SNOOZE 동작은 양수 분(minute) 입력이 필수다.
+    private int resolveSnoozeMinutes(Integer snoozeMinutes) {
+        if (snoozeMinutes == null || snoozeMinutes <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+        return snoozeMinutes;
     }
 
     private boolean isSendableTodo(Todo todo, List<TodoTimeCondition> conditions) {
