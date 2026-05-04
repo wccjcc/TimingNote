@@ -4,9 +4,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
+import '../viewmodel/todo_detail_viewmodel.dart';
 import '../viewmodel/todo_edit_viewmodel.dart';
 
 // -- 디자인 상수 (우주 테마) ------------------------------------------
@@ -26,14 +29,12 @@ class TodoEditScreen extends ConsumerStatefulWidget {
 
 class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
   final _contentController = TextEditingController();
-  final _placeTextController = TextEditingController();
   final _sharedUrlController = TextEditingController();
   bool _controllersInitialized = false;
 
   @override
   void dispose() {
     _contentController.dispose();
-    _placeTextController.dispose();
     _sharedUrlController.dispose();
     super.dispose();
   }
@@ -41,7 +42,6 @@ class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
   void _initControllers(TodoEditState state) {
     if (_controllersInitialized || !state.isReady) return;
     _contentController.text = state.content ?? '';
-    _placeTextController.text = state.placeText ?? '';
     _sharedUrlController.text = state.sharedUrl ?? '';
     _controllersInitialized = true;
   }
@@ -104,14 +104,14 @@ class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
         const _SectionTitle(title: '카테고리'),
         _GlassInputCard(child: DropdownButtonHideUnderline(child: DropdownButton<String>(value: state.category, dropdownColor: _kSurfaceDark, isExpanded: true, icon: const Icon(Icons.keyboard_arrow_down, color: _kPurpleAccent), items: TodoCategory.labels.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(color: Colors.white, fontSize: 15)))).toList(), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setCategory(v!)))),
         const SizedBox(height: 24),
-        const _SectionTitle(title: '장소 힌트'),
-        _GlassInputCard(child: TextField(controller: _placeTextController, style: const TextStyle(color: Colors.white, fontSize: 15), decoration: const InputDecoration(hintText: '장소 이름을 입력하세요', hintStyle: TextStyle(color: Colors.white24), border: InputBorder.none, prefixIcon: Icon(Icons.location_on_outlined, color: _kPurpleAccent, size: 20)), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setPlaceText(v))),
+        const _SectionTitle(title: '장소'),
+        _PlaceTile(todoId: widget.todoId),
         const SizedBox(height: 24),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const _SectionTitle(title: '시간 조건'), TextButton.icon(onPressed: () => _showAddTimeConditionSheet(context), icon: const Icon(Icons.add, size: 16, color: Colors.cyanAccent), label: const Text('추가', style: TextStyle(color: Colors.cyanAccent, fontSize: 13)))]),
         _TimeConditionList(todoId: widget.todoId, conditions: state.timeConditions ?? []),
         const SizedBox(height: 24),
         const _SectionTitle(title: '이미지'),
-        _ImageEditorSection(urls: state.original?.imageUrls ?? [], onDelete: (index) {}, onAdd: () {}),
+        _ImageSection(todoId: widget.todoId),
         const SizedBox(height: 24),
         const _SectionTitle(title: '참조 링크'),
         _GlassInputCard(child: TextField(controller: _sharedUrlController, style: const TextStyle(color: Colors.cyan, fontSize: 14), decoration: const InputDecoration(hintText: 'https://...', hintStyle: TextStyle(color: Colors.white24), border: InputBorder.none, prefixIcon: Icon(Icons.link, color: Colors.cyan, size: 20)), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setSharedUrl(v))),
@@ -316,13 +316,140 @@ class _TimeConditionList extends ConsumerWidget {
   }
 }
 
-class _ImageEditorSection extends StatelessWidget {
-  const _ImageEditorSection({required this.urls, required this.onDelete, required this.onAdd});
-  final List<String> urls;
-  final ValueChanged<int> onDelete;
-  final VoidCallback onAdd;
+const _kMaxImages = 3;
+
+class _ImageSection extends ConsumerWidget {
+  const _ImageSection({required this.todoId});
+  final int todoId;
+
   @override
-  Widget build(BuildContext context) => SizedBox(height: 100, child: ListView(scrollDirection: Axis.horizontal, children: [GestureDetector(onTap: onAdd, child: Container(width: 100, decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)), child: const Icon(Icons.add_a_photo_outlined, color: Colors.white38))), const SizedBox(width: 12), ...List.generate(urls.length, (index) => Padding(padding: const EdgeInsets.only(right: 12), child: Stack(children: [Container(width: 100, decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), image: DecorationImage(image: NetworkImage(urls[index]), fit: BoxFit.cover))), Positioned(right: 4, top: 4, child: GestureDetector(onTap: () => onDelete(index), child: Container(padding: const EdgeInsets.all(4), decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle), child: const Icon(Icons.close, size: 14, color: Colors.white))))])))]));
+  Widget build(BuildContext context, WidgetRef ref) {
+    final urls = ref.watch(
+      todoEditProvider(todoId).select((s) => s.imageUrls ?? []),
+    );
+    final canAdd = urls.length < _kMaxImages;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 104,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              // 추가 버튼
+              if (canAdd)
+                GestureDetector(
+                  onTap: () => _pickImage(context, ref),
+                  child: Container(
+                    width: 100,
+                    margin: const EdgeInsets.only(right: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    ),
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_a_photo_outlined, color: Colors.white38, size: 28),
+                        SizedBox(height: 6),
+                        Text('사진 추가', style: TextStyle(color: Colors.white24, fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                ),
+              // 기존 이미지 목록
+              ...urls.map((url) => _ImageTile(
+                url: url,
+                onDelete: () => ref
+                    .read(todoEditProvider(todoId).notifier)
+                    .removeImageUrl(url),
+              )),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6, left: 4),
+          child: Text(
+            '${urls.length} / $_kMaxImages',
+            style: const TextStyle(color: Colors.white24, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickImage(BuildContext context, WidgetRef ref) async {
+    // presigned URL BE 엔드포인트 연결 후 실제 업로드 구현 예정
+    // 현재는 갤러리 접근만 확인
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1920,
+    );
+    if (picked == null || !context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('이미지 업로드 기능 준비 중입니다'),
+        duration: Duration(seconds: 2),
+        backgroundColor: Color(0xFF1A1A2E),
+      ),
+    );
+  }
+}
+
+class _ImageTile extends StatelessWidget {
+  const _ImageTile({required this.url, required this.onDelete});
+  final String url;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 100,
+      margin: const EdgeInsets.only(right: 12),
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.network(
+              url,
+              width: 100,
+              height: 104,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 100,
+                height: 104,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 4,
+            top: 4,
+            child: GestureDetector(
+              onTap: onDelete,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, size: 14, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ErrorBanner extends StatelessWidget {
@@ -362,4 +489,90 @@ class _EditStarPainter extends CustomPainter {
 class _Star {
   const _Star({required this.x, required this.y, required this.radius, required this.opacity});
   final double x, y, radius, opacity;
+}
+
+/// 장소 선택 타일 — 탭하면 PlaceSearchScreen으로 이동하고,
+/// 결과가 오면 todoDetailProvider.setPlace() 즉시 호출.
+class _PlaceTile extends ConsumerWidget {
+  const _PlaceTile({required this.todoId});
+
+  final int todoId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final detailState = ref.watch(todoDetailProvider(todoId));
+    final place = detailState.detail?.primaryPlace;
+    final label = detailState.detail?.resolvedPlaceLabel;
+
+    final hasPlace = label != null && label.isNotEmpty && label != '장소 미정';
+
+    return GestureDetector(
+      onTap: () => _openPlaceSearch(context, ref, label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              hasPlace ? Icons.location_on : Icons.location_on_outlined,
+              color: hasPlace ? _kPurpleAccent : Colors.white24,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasPlace ? label! : '장소를 선택하세요',
+                    style: TextStyle(
+                      color: hasPlace ? Colors.white : Colors.white24,
+                      fontSize: 15,
+                    ),
+                  ),
+                  if (hasPlace && place?.roadAddress != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      place!.roadAddress!,
+                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white24, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPlaceSearch(BuildContext context, WidgetRef ref, String? currentLabel) async {
+    final keyword = currentLabel != null && currentLabel != '장소 미정' ? currentLabel : '';
+    final uri = keyword.isNotEmpty
+        ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
+        : '/place-search';
+
+    final result = await context.push<SelectedKakaoPlace>(uri);
+    if (result == null || !context.mounted) return;
+
+    await ref.read(todoDetailProvider(todoId).notifier).setPlace(
+          kakaoPlaceId: result.kakaoPlaceId,
+          placeName: result.name,
+          addressName: result.address,
+          roadAddressName: result.roadAddress,
+          categoryGroupCode: result.categoryGroupCode,
+          categoryGroupName: result.categoryGroupName,
+          phone: result.phone,
+          placeUrl: result.placeUrl,
+          longitude: result.longitude,
+          latitude: result.latitude,
+        );
+  }
 }
