@@ -49,11 +49,6 @@ public class NotificationController {
      * NOTI-01 알림 이력 조회 API.
      */
     @Operation(summary = "알림 이력 조회", description = "알림함에서 알림 이력을 페이지네이션으로 조회합니다.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "조회 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 파라미터 검증 실패"),
-            @ApiResponse(responseCode = "401", description = "인증 실패")
-    })
     @GetMapping
     public ApiResponseDto<NotificationHistoryResponseDto> getNotificationHistory(
             @Parameter(description = "Todo ID 필터(선택)")
@@ -76,12 +71,6 @@ public class NotificationController {
      * NOTI-02 알림 액션 처리 API.
      */
     @Operation(summary = "알림 액션 처리", description = "알림에 대해 OPEN/COMPLETE/SNOOZE/DISMISS 액션을 처리합니다.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "처리 성공"),
-            @ApiResponse(responseCode = "400", description = "요청 본문 또는 파라미터 검증 실패"),
-            @ApiResponse(responseCode = "401", description = "인증 실패"),
-            @ApiResponse(responseCode = "404", description = "알림 또는 연결 Todo 없음")
-    })
     @PostMapping("/{notificationId}/actions")
     public ApiResponseDto<NotificationActionResponseDto> applyNotificationAction(
             @PathVariable @Positive Long notificationId,
