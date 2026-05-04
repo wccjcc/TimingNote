@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
@@ -71,8 +72,8 @@ class TodoDetailScreen extends ConsumerWidget {
 
     return Column(
       children: [
-        // 1. 헤더 (뒤로가기, 타이틀, 수정)
-        _buildHeader(context, detail),
+        // 1. 헤더 (뒤로가기, 타이틀, 수정, 삭제)
+        _buildHeader(context, ref, detail),
 
         Expanded(
           child: RefreshIndicator(
@@ -122,7 +123,7 @@ class TodoDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 32),
 
                 // 5. 조건 정보 섹션 (장소, 시간)
-                _buildInfoSection(detail, themeColor),
+                _buildInfoSection(context, ref, detail, themeColor),
 
                 const SizedBox(height: 24),
 
@@ -158,7 +159,7 @@ class TodoDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, TodoDetail? detail) {
+  Widget _buildHeader(BuildContext context, WidgetRef ref, TodoDetail? detail) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
@@ -177,16 +178,57 @@ class TodoDetailScreen extends ConsumerWidget {
               fontFamily: 'Galmuri11',
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined, color: Colors.white),
-            onPressed: () => context.push('/todos/$todoId/edit'),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                onPressed: () => context.push('/todos/$todoId/edit'),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: Colors.white54),
+                onPressed: () => _confirmDelete(context, ref),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoSection(TodoDetail detail, Color color) {
+  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F0F1A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: _kBorderWhite),
+        ),
+        title: const Text('할 일 삭제', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text(
+          '이 할 일을 삭제할까요?\n삭제된 항목은 복구할 수 없습니다.',
+          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소', style: TextStyle(color: Colors.white38)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제', style: TextStyle(color: _kPinkAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+    final ok = await ref.read(todoDetailProvider(todoId).notifier).deleteTodo();
+    if (ok && context.mounted) context.pop();
+  }
+
+  Widget _buildInfoSection(BuildContext context, WidgetRef ref, TodoDetail detail, Color color) {
     return _GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,6 +249,19 @@ class TodoDetailScreen extends ConsumerWidget {
                       style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ],
+                ),
+              ),
+              // 장소 빠른 수정 버튼
+              GestureDetector(
+                onTap: () => _onEditPlaceTap(context, ref, detail),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _kBorderWhite),
+                  ),
+                  child: const Icon(Icons.edit_location_alt_outlined, color: _kPurpleAccent, size: 16),
                 ),
               ),
             ],
@@ -348,6 +403,29 @@ class TodoDetailScreen extends ConsumerWidget {
   }
 
   String _formatDate(DateTime dt) => '${dt.year}.${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')}';
+
+  Future<void> _onEditPlaceTap(BuildContext context, WidgetRef ref, TodoDetail detail) async {
+    final keyword = detail.primaryPlace?.name ?? detail.resolvedPlaceLabel ?? '';
+    final uri = keyword.isNotEmpty
+        ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
+        : '/place-search';
+
+    final result = await context.push<SelectedKakaoPlace>(uri);
+    if (result == null || !context.mounted) return;
+
+    await ref.read(todoDetailProvider(todoId).notifier).setPlace(
+          kakaoPlaceId: result.kakaoPlaceId,
+          placeName: result.name,
+          addressName: result.address,
+          roadAddressName: result.roadAddress,
+          categoryGroupCode: result.categoryGroupCode,
+          categoryGroupName: result.categoryGroupName,
+          phone: result.phone,
+          placeUrl: result.placeUrl,
+          longitude: result.longitude,
+          latitude: result.latitude,
+        );
+  }
 }
 
 // -- 하위 컴포넌트 --------------------------------------------------

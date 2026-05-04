@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../features/home/view/home_screen.dart';
 import '../features/map/view/map_screen.dart';
 import '../features/mypage/view/mypage_screen.dart';
+import '../features/todo/model/selected_kakao_place.dart';
+import '../features/todo/view/place_search_screen.dart';
 import '../features/todo/view/todo_detail_screen.dart';
 import '../features/todo/view/todo_edit_screen.dart';
 import '../features/todo/view/todo_input_screen.dart';
@@ -79,6 +81,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final todoId = int.parse(state.pathParameters['id']!);
           return TodoEditScreen(todoId: todoId);
+        },
+      ),
+      // 장소 검색/지도 선택 — push<SelectedKakaoPlace>('/place-search?keyword=xxx')
+      GoRoute(
+        path: '/place-search',
+        builder: (context, state) {
+          final keyword = state.uri.queryParameters['keyword'];
+          return PlaceSearchScreen(initialKeyword: keyword);
         },
       ),
     ],
