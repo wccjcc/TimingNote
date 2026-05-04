@@ -112,10 +112,7 @@ pipeline {
                 timeout(time: 10, unit: 'MINUTES') {
                     sh '''
                         set -eu
-                        docker compose --env-file "$APP_ENV_FILE" -f "$APP_COMPOSE_FILE" run --rm \
-                          -e SPRING_PROFILES_ACTIVE=prod \
-                          -e SPRING_MAIN_WEB_APPLICATION_TYPE=none \
-                          springboot
+                        docker compose --env-file "$APP_ENV_FILE" -f "$APP_COMPOSE_FILE" run --rm flyway
                     '''
                 }
                 script {

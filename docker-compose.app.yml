@@ -154,6 +154,25 @@ services:
     networks:
       - tn-network
 
+  flyway:
+    image: flyway/flyway:10.17.3
+    container_name: timingnote-flyway
+    command:
+      - -url=jdbc:postgresql://postgres:5432/${DB_NAME}
+      - -user=${DB_USERNAME}
+      - -password=${DB_PASSWORD}
+      - -locations=filesystem:/flyway/sql
+      - -baselineOnMigrate=true
+      - migrate
+    volumes:
+      - ./TimingNote_BE/src/main/resources/db/migration:/flyway/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - tn-network
+
 volumes:
   postgres-data:
   redis-data:
