@@ -82,4 +82,10 @@ public class UserNotification {
             createdAt = OffsetDateTime.now(ZoneOffset.UTC);
         }
     }
+
+    // 알림 읽음(OPEN/DISMISS) 처리 시 상태와 시각을 함께 갱신한다.
+    public void markOpened(OffsetDateTime openedAt) {
+        this.status = NotificationStatus.OPENED;
+        this.openedAt = openedAt;
+    }
 }
