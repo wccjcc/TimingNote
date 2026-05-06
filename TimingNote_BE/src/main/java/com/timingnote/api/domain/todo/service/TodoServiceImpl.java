@@ -10,7 +10,6 @@ import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
-import com.timingnote.api.domain.todo.dto.request.TodoAliasPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
@@ -244,62 +243,56 @@ public class TodoServiceImpl implements TodoService {
     @Override
     @Transactional
     public TodoDetailResponse setTodoPlace(Long userId, Long todoId, TodoPlaceSetRequest req) {
+        // 상호 배타 검증
+        boolean hasAlias = req.getUserPlaceId() != null;
+        boolean hasExternal = req.getExternalPlace() != null;
+        if (hasAlias == hasExternal) {   // 둘 다 있거나 둘 다 없음
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
         Todo todo = todoRepository.findById(todoId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
 
-        Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
-                req.getKakaoPlaceId(), req.getPlaceName(),
-                req.getAddressName(), req.getRoadAddressName(),
-                req.getCategoryGroupCode(), req.getCategoryGroupName(),
-                req.getPhone(), req.getPlaceUrl(),
-                req.getLongitude(), req.getLatitude()));
-
-        // 특정 장소로 변경: todoType=SPECIFIC, 기존 후보 제거 후 단건 등록
-        todo.updateTodoType(TodoType.SPECIFIC.name());
-        todo.updatePrimaryPlaceId(place.getId());
         todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
-        saveSingleCandidate(todo, place);
 
-        // 표시 레이블: 도로명 주소 우선, 없으면 장소명
-        String label = StringUtils.hasText(req.getRoadAddressName())
-                ? req.getRoadAddressName()
-                : req.getPlaceName();
-        todo.updateResolvedPlaceLabel(label);
+        if (hasAlias) {
+            // ── ALIAS: 내 장소 목록에서 선택 ──
+            UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(req.getUserPlaceId(), userId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+            Place place = userPlace.getPlace();
 
-        log.info("[Todo/Place] todoId={} → placeId={} label='{}'",
-                todoId, place.getId(), label);
+            todo.updateTodoType(TodoType.ALIAS.name());
+            todo.updatePrimaryPlaceId(place.getId());
+            todo.updateResolvedPlaceLabel(userPlace.getAliasName());
+            saveSingleCandidate(todo, place);
 
-        return self.getTodoDetail(userId, todoId);
-    }
+            log.info("[Todo/Place] todoId={} → ALIAS placeId={} alias='{}'",
+                    todoId, place.getId(), userPlace.getAliasName());
 
-    @Override
-    @Transactional
-    public TodoDetailResponse setTodoPlaceFromAlias(Long userId, Long todoId, TodoAliasPlaceSetRequest req) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+        } else {
+            // ── SPECIFIC: Kakao 키워드/주소 검색 또는 지도 마커 핀 ──
+            TodoPlaceSetRequest.ExternalPlaceInfo ext = req.getExternalPlace();
+            Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
+                    ext.getKakaoPlaceId(), ext.getPlaceName(),
+                    ext.getAddressName(), ext.getRoadAddressName(),
+                    ext.getCategoryGroupCode(), ext.getCategoryGroupName(),
+                    ext.getPhone(), ext.getPlaceUrl(),
+                    ext.getLongitude(), ext.getLatitude()));
+
+            String label = StringUtils.hasText(ext.getRoadAddressName())
+                    ? ext.getRoadAddressName() : ext.getPlaceName();
+
+            todo.updateTodoType(TodoType.SPECIFIC.name());
+            todo.updatePrimaryPlaceId(place.getId());
+            todo.updateResolvedPlaceLabel(label);
+            saveSingleCandidate(todo, place);
+
+            log.info("[Todo/Place] todoId={} → SPECIFIC placeId={} label='{}'",
+                    todoId, place.getId(), label);
         }
-
-        UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(req.getUserPlaceId(), userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-
-        Place place = userPlace.getPlace();
-
-        // 내 장소로 변경: todoType=ALIAS, 기존 후보 제거 후 단건 등록
-        todo.updateTodoType(TodoType.ALIAS.name());
-        todo.updatePrimaryPlaceId(place.getId());
-        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
-        saveSingleCandidate(todo, place);
-
-        // 표시 레이블: 별칭 사용 (예: "집", "회사")
-        todo.updateResolvedPlaceLabel(userPlace.getAliasName());
-
-        log.info("[Todo/Place] todoId={} → ALIAS placeId={} alias='{}'",
-                todoId, place.getId(), userPlace.getAliasName());
 
         return self.getTodoDetail(userId, todoId);
     }
@@ -320,13 +313,18 @@ public class TodoServiceImpl implements TodoService {
 
     @Override
     @Transactional
-    public void deleteTodo(Long userId, Long todoId) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
+    public void deleteTodos(Long userId, List<Long> ids) {
+        if (ids.isEmpty()) return;
+
+        int affected = todoRepository.softDeleteByIdsAndUserId(ids, userId, OffsetDateTime.now(ZoneOffset.UTC));
+        if (affected != ids.size()) {
+            // 일부 ID가 타인 소유이거나 존재하지 않음 → 전체 롤백
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        todo.softDelete(OffsetDateTime.now(ZoneOffset.UTC));
+
+        // 연결된 후보지 정리 (고아 레코드 방지)
+        todoCandidatePlaceRepository.deleteAllByTodoIdIn(ids);
+        log.info("[Todo/Delete] userId={} todoIds={} 소프트 삭제 완료", userId, ids);
     }
 
     @Override
