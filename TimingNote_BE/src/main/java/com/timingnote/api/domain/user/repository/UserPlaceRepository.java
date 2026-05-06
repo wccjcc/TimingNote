@@ -10,6 +10,8 @@ public interface UserPlaceRepository extends JpaRepository<UserPlace, Long> {
 
     List<UserPlace> findByUser_Id(Long userId);
 
+    java.util.Optional<UserPlace> findByIdAndUser_Id(Long id, Long userId);
+
     @Query("""
             SELECT up
             FROM UserPlace up
