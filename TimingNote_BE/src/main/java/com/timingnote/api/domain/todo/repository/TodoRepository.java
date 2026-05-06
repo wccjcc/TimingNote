@@ -30,5 +30,14 @@ public interface TodoRepository extends JpaRepository<Todo, Long> {
             @Param("cursor") Long cursor,
             Pageable pageable
     );
+
+    @Query("""
+            SELECT t FROM Todo t
+            WHERE t.userId = :userId
+              AND t.status = 'ACTIVE'
+              AND t.todoType = 'GENERIC'
+              AND t.resolvedPlaceLabel IS NOT NULL
+            """)
+    List<Todo> findActiveGenericTodosByUserId(@Param("userId") Long userId);
 }
 

@@ -45,6 +45,25 @@ public class TodoCandidatePlace {
     private OffsetDateTime calculatedAt;
 
     // 후보 만료 시각 (BE-017 재계산 기준, nullable)
+    // null = 유효, not null = 만료 (슬롯 계산 대상에서 제외)
     @Column(name = "expires_at")
     private OffsetDateTime expiresAt;
+
+    /**
+     * 유의미한 이동 후 동일 장소가 새 검색 결과에 다시 포함된 경우 재활성화한다.
+     * 새 위치 기준 거리로 갱신하고 만료를 해제한다 (expiresAt = null).
+     */
+    public void reactivate(int distanceM, OffsetDateTime calculatedAt) {
+        this.distanceM = distanceM;
+        this.calculatedAt = calculatedAt;
+        this.expiresAt = null;
+    }
+
+    /**
+     * 유의미한 이동 후 새 검색 결과에 포함되지 않은 장소를 만료 처리한다.
+     * 슬롯 계산 시 expiresAt 필터에 의해 자동 제외된다.
+     */
+    public void expire(OffsetDateTime now) {
+        this.expiresAt = now;
+    }
 }

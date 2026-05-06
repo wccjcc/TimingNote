@@ -61,11 +61,4 @@ public class TodoStructure {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
-    // ── 도메인 메서드 ─────────────────────────────────────────────────────────
-
-    /** 사용자가 장소를 직접 수정할 때 placeText와 placeType을 갱신한다. */
-    public void updatePlaceInfo(String placeText, AiPlaceType placeType) {
-        this.placeText = placeText;
-        this.placeType = placeType;
-    }
 }
