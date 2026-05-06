@@ -1,6 +1,7 @@
 package com.timingnote.api.domain.todo.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
@@ -8,40 +9,52 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @NoArgsConstructor
-@Schema(description = "Todo 장소 지정 요청 — FE가 Kakao 검색 결과를 그대로 전달")
+@Schema(description = "Todo 장소 지정 요청. userPlaceId(ALIAS) 또는 externalPlace(SPECIFIC) 중 하나만 포함해야 한다.")
 public class TodoPlaceSetRequest {
 
-    @NotBlank
-    @Schema(description = "카카오 장소 ID", example = "26338954")
-    private String kakaoPlaceId;
+    @Schema(description = "내 장소 ID — 내 장소 목록에서 선택 시 사용 (ALIAS)", example = "1")
+    private Long userPlaceId;
 
-    @NotBlank
-    @Schema(description = "장소명", example = "다이소 명동본점")
-    private String placeName;
+    @Valid
+    @Schema(description = "외부 장소 정보 — Kakao 키워드/주소 검색 또는 지도 마커 핀 선택 시 사용 (SPECIFIC)")
+    private ExternalPlaceInfo externalPlace;
 
-    @Schema(description = "지번 주소")
-    private String addressName;
+    @Getter
+    @NoArgsConstructor
+    @Schema(description = "외부 장소 상세 정보")
+    public static class ExternalPlaceInfo {
 
-    @Schema(description = "도로명 주소")
-    private String roadAddressName;
+        @Schema(description = "카카오 장소 ID (키워드 검색 결과만 존재, 주소 검색·마커 핀은 null)", example = "26338954")
+        private String kakaoPlaceId;    // nullable — null 이면 새 Place 레코드 생성
 
-    @Schema(description = "카카오 대분류 코드 (예: MT1, CE7, PM9)")
-    private String categoryGroupCode;
+        @NotBlank
+        @Schema(description = "장소명", example = "스타벅스 을지로점")
+        private String placeName;
 
-    @Schema(description = "카카오 대분류 이름 (예: 대형마트, 카페, 약국)")
-    private String categoryGroupName;
+        @NotNull
+        @Schema(description = "위도", example = "37.5660")
+        private Double latitude;
 
-    @Schema(description = "전화번호")
-    private String phone;
+        @NotNull
+        @Schema(description = "경도", example = "126.9815")
+        private Double longitude;
 
-    @Schema(description = "카카오 장소 상세 URL")
-    private String placeUrl;
+        @Schema(description = "지번 주소")
+        private String addressName;
 
-    @NotNull
-    @Schema(description = "경도 (longitude)", example = "126.9827")
-    private Double longitude;
+        @Schema(description = "도로명 주소")
+        private String roadAddressName;
 
-    @NotNull
-    @Schema(description = "위도 (latitude)", example = "37.5637")
-    private Double latitude;
+        @Schema(description = "카카오 대분류 코드 (예: CE7, PM9)")
+        private String categoryGroupCode;
+
+        @Schema(description = "카카오 대분류 이름 (예: 카페, 약국)")
+        private String categoryGroupName;
+
+        @Schema(description = "전화번호")
+        private String phone;
+
+        @Schema(description = "카카오 장소 상세 URL")
+        private String placeUrl;
+    }
 }

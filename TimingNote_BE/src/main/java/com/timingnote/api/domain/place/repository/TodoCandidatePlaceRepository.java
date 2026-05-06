@@ -24,6 +24,10 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
     @Query("DELETE FROM TodoCandidatePlace tcp WHERE tcp.todo.id = :todoId")
     void deleteAllByTodo_Id(@Param("todoId") Long todoId);
 
+    @Modifying
+    @Query("DELETE FROM TodoCandidatePlace tcp WHERE tcp.todo.id IN :todoIds")
+    void deleteAllByTodoIdIn(@Param("todoIds") List<Long> todoIds);
+
     @Query("""
             SELECT tcp
             FROM TodoCandidatePlace tcp
