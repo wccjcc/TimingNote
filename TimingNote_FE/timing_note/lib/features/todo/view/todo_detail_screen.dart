@@ -5,19 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../shared/theme/colors.dart';
+import '../../../shared/theme/typography.dart';
+import '../../../shared/widgets/cosmic_background.dart';
+import '../../../shared/widgets/neon_button.dart';
+import '../../../shared/widgets/space_card.dart';
+import '../../../shared/widgets/status_badge.dart';
 import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../viewmodel/todo_detail_viewmodel.dart';
-
-// -- 디자인 상수 (우주 테마) ------------------------------------------
-const _kBgDark = Color(0xFF050510);
-const _kBgDeep = Color(0xFF110B1F);
-const _kPurpleAccent = Color(0xFFA78BFA);
-const _kPinkAccent = Color(0xFFF472B6);
-const _kSurfaceDark = Color(0xE50F0F1A);
-const _kBorderWhite = Color(0x1AFFFFFF);
 
 class TodoDetailScreen extends ConsumerWidget {
   const TodoDetailScreen({super.key, required this.todoId});
@@ -29,22 +27,14 @@ class TodoDetailScreen extends ConsumerWidget {
     final state = ref.watch(todoDetailProvider(todoId));
 
     return Scaffold(
-      backgroundColor: _kBgDark,
-      body: Stack(
-        children: [
-          // LAYER 1: 우주 배경
-          const _DetailRadialBackground(),
-          const _DetailStarField(),
-
-          // LAYER 2: 콘텐츠
-          SafeArea(
-            child: state.detail == null && state.isLoading
-                ? const Center(child: CircularProgressIndicator(color: _kPurpleAccent))
-                : state.error != null
-                    ? _buildErrorView(ref, state.error!)
-                    : _buildMainContent(context, ref, state.detail!),
-          ),
-        ],
+      body: CosmicBackground(
+        child: SafeArea(
+          child: state.detail == null && state.isLoading
+              ? const Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple))
+              : state.error != null
+                  ? _buildErrorView(ref, state.error!)
+                  : _buildMainContent(context, ref, state.detail!),
+        ),
       ),
     );
   }
@@ -54,12 +44,11 @@ class TodoDetailScreen extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('오류 발생: $error', style: const TextStyle(color: Colors.white70)),
+          Text('오류 발생: $error', style: const TextStyle(color: SpaceColors.white50)),
           const SizedBox(height: 16),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _kPurpleAccent),
-            onPressed: () => ref.read(todoDetailProvider(todoId).notifier).load(),
-            child: const Text('다시 시도'),
+          NeonButton(
+            label: '다시 시도',
+            onTap: () => ref.read(todoDetailProvider(todoId).notifier).load(),
           ),
         ],
       ),
@@ -78,8 +67,8 @@ class TodoDetailScreen extends ConsumerWidget {
         Expanded(
           child: RefreshIndicator(
             onRefresh: () => ref.read(todoDetailProvider(todoId).notifier).load(),
-            color: _kPurpleAccent,
-            backgroundColor: _kSurfaceDark,
+            color: SpaceColors.neonPurple,
+            backgroundColor: SpaceColors.space900,
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
               children: [
@@ -89,14 +78,14 @@ class TodoDetailScreen extends ConsumerWidget {
                 // 3. 상단 요약 정보 (카테고리, 상태)
                 Row(
                   children: [
-                    _CategoryBadge(category: categoryKey, color: themeColor),
+                    StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: themeColor),
                     const SizedBox(width: 12),
                     Text(
                       detail.isDone ? '완료됨' : '진행 중',
                       style: TextStyle(
-                        color: detail.isDone ? Colors.green : _kPurpleAccent,
+                        color: detail.isDone ? SpaceColors.success : SpaceColors.neonPurple,
                         fontSize: 12,
-                        fontFamily: 'Galmuri11',
+                        fontFamily: SpaceTypography.pixelFontFamily,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -117,7 +106,7 @@ class TodoDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Text(
                   '등록일: ${_formatDate(detail.createdAt)}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 13),
+                  style: const TextStyle(color: SpaceColors.white50, fontSize: 13),
                 ),
 
                 const SizedBox(height: 32),
@@ -175,7 +164,7 @@ class TodoDetailScreen extends ConsumerWidget {
               color: Colors.white,
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              fontFamily: 'Galmuri11',
+              fontFamily: SpaceTypography.pixelFontFamily,
             ),
           ),
           Row(
@@ -186,7 +175,7 @@ class TodoDetailScreen extends ConsumerWidget {
                 onPressed: () => context.push('/todos/$todoId/edit'),
               ),
               IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.white54),
+                icon: const Icon(Icons.delete_outline, color: SpaceColors.white50),
                 onPressed: () => _confirmDelete(context, ref),
               ),
             ],
@@ -200,24 +189,24 @@ class TodoDetailScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF0F0F1A),
+        backgroundColor: SpaceColors.space900,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: _kBorderWhite),
+          side: const BorderSide(color: SpaceColors.white10),
         ),
         title: const Text('할 일 삭제', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: const Text(
           '이 할 일을 삭제할까요?\n삭제된 항목은 복구할 수 없습니다.',
-          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+          style: TextStyle(color: SpaceColors.white50, fontSize: 14, height: 1.5),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소', style: TextStyle(color: Colors.white38)),
+            child: const Text('취소', style: TextStyle(color: SpaceColors.white50)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('삭제', style: TextStyle(color: _kPinkAccent, fontWeight: FontWeight.bold)),
+            child: const Text('삭제', style: TextStyle(color: SpaceColors.neonPink, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -229,7 +218,7 @@ class TodoDetailScreen extends ConsumerWidget {
   }
 
   Widget _buildInfoSection(BuildContext context, WidgetRef ref, TodoDetail detail, Color color) {
-    return _GlassCard(
+    return SpaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -242,7 +231,7 @@ class TodoDetailScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('실행 장소', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                    const Text('실행 장소', style: TextStyle(color: SpaceColors.white50, fontSize: 11)),
                     const SizedBox(height: 2),
                     Text(
                       detail.resolvedPlaceLabel ?? '장소 미정',
@@ -257,18 +246,18 @@ class TodoDetailScreen extends ConsumerWidget {
                 child: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
+                    color: SpaceColors.white.withOpacity(0.06),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _kBorderWhite),
+                    border: Border.all(color: SpaceColors.white10),
                   ),
-                  child: const Icon(Icons.edit_location_alt_outlined, color: _kPurpleAccent, size: 16),
+                  child: const Icon(Icons.edit_location_alt_outlined, color: SpaceColors.neonPurple, size: 16),
                 ),
               ),
             ],
           ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 16),
-            child: Divider(color: _kBorderWhite, height: 1),
+            child: Divider(color: SpaceColors.white10, height: 1),
           ),
           // 시간 정보
           Row(
@@ -279,10 +268,10 @@ class TodoDetailScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('실행 시간', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                    const Text('실행 시간', style: TextStyle(color: SpaceColors.white50, fontSize: 11)),
                     const SizedBox(height: 2),
                     detail.timeConditions.isEmpty
-                        ? const Text('시간 조건 없음', style: TextStyle(color: Colors.white70, fontSize: 15))
+                        ? Text('시간 조건 없음', style: TextStyle(color: SpaceColors.white.withOpacity(0.7), fontSize: 15))
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: detail.timeConditions
@@ -306,20 +295,20 @@ class TodoDetailScreen extends ConsumerWidget {
   }
 
   Widget _buildPlaceDetailCard(TodoPlace place) {
-    return _GlassCard(
+    return SpaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('상세 장소 정보', style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
+          const Text('상세 장소 정보', style: TextStyle(color: SpaceColors.white50, fontSize: 11, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           Text(place.name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           if (place.roadAddress != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Icons.map_outlined, size: 14, color: Colors.white54),
+                const Icon(Icons.map_outlined, size: 14, color: SpaceColors.white50),
                 const SizedBox(width: 8),
-                Expanded(child: Text(place.roadAddress!, style: const TextStyle(color: Colors.white70, fontSize: 13))),
+                Expanded(child: Text(place.roadAddress!, style: TextStyle(color: SpaceColors.white.withOpacity(0.7), fontSize: 13))),
               ],
             ),
           ],
@@ -327,9 +316,9 @@ class TodoDetailScreen extends ConsumerWidget {
             const SizedBox(height: 6),
             Row(
               children: [
-                const Icon(Icons.phone_outlined, size: 14, color: Colors.white54),
+                const Icon(Icons.phone_outlined, size: 14, color: SpaceColors.white50),
                 const SizedBox(width: 8),
-                Text(place.phone!, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                Text(place.phone!, style: TextStyle(color: SpaceColors.white.withOpacity(0.7), fontSize: 13)),
               ],
             ),
           ],
@@ -342,8 +331,8 @@ class TodoDetailScreen extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
       decoration: const BoxDecoration(
-        color: _kSurfaceDark,
-        border: Border(top: BorderSide(color: _kBorderWhite)),
+        color: SpaceColors.space900,
+        border: Border(top: BorderSide(color: SpaceColors.white10)),
       ),
       child: Row(
         children: [
@@ -354,11 +343,11 @@ class TodoDetailScreen extends ConsumerWidget {
           ),
           const SizedBox(width: 16),
           Expanded(
-            child: _MainActionButton(
+            child: NeonButton(
               label: detail.isDone ? '다시 시작' : '작업 완료',
               icon: detail.isDone ? Icons.replay : Icons.check_circle_outline,
               onTap: () => ref.read(todoDetailProvider(todoId).notifier).toggleStatus(),
-              isDone: detail.isDone,
+              isPrimary: !detail.isDone,
             ),
           ),
         ],
@@ -389,16 +378,16 @@ class TodoDetailScreen extends ConsumerWidget {
     switch (category) {
       case TodoCategory.dine:
       case TodoCategory.acquire:
-        return _kPurpleAccent;
+        return SpaceColors.neonPurple;
       case TodoCategory.health:
       case TodoCategory.service:
-        return const Color(0xFF8B5CF6);
+        return SpaceColors.neonViolet;
       case TodoCategory.maintenance:
         return const Color(0xFFFDBA74);
       case TodoCategory.social:
-        return _kPinkAccent;
+        return SpaceColors.neonPink;
       default:
-        return _kPurpleAccent;
+        return SpaceColors.neonPurple;
     }
   }
 
@@ -430,53 +419,6 @@ class TodoDetailScreen extends ConsumerWidget {
 
 // -- 하위 컴포넌트 --------------------------------------------------
 
-class _GlassCard extends StatelessWidget {
-  const _GlassCard({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.06),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.12), width: 1.5),
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class _CategoryBadge extends StatelessWidget {
-  const _CategoryBadge({required this.category, required this.color});
-  final String category;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = TodoCategory.labels[category] ?? category;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.6)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11'),
-      ),
-    );
-  }
-}
-
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title});
   final String title;
@@ -487,7 +429,7 @@ class _SectionTitle extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4, bottom: 12, top: 12),
       child: Text(
         title,
-        style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1),
+        style: const TextStyle(color: SpaceColors.white50, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1),
       ),
     );
   }
@@ -503,7 +445,7 @@ class _ImageThumbnail extends StatelessWidget {
       width: 160,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorderWhite),
+        border: Border.all(color: SpaceColors.white10),
         image: DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
       ),
     );
@@ -525,45 +467,12 @@ class _CircleActionButton extends StatelessWidget {
         width: 54,
         height: 54,
         decoration: BoxDecoration(
-          color: active ? _kPurpleAccent.withOpacity(0.2) : const Color(0xFF2A2A4A),
+          color: active ? SpaceColors.neonPurple.withOpacity(0.2) : const Color(0xFF2A2A4A),
           shape: BoxShape.circle,
-          border: Border.all(color: active ? _kPurpleAccent : const Color(0x4CA78BFA)),
-          boxShadow: active ? [BoxShadow(color: _kPurpleAccent.withOpacity(0.3), blurRadius: 10)] : null,
+          border: Border.all(color: active ? SpaceColors.neonPurple : const Color(0x4CA78BFA)),
+          boxShadow: active ? [BoxShadow(color: SpaceColors.neonPurple.withOpacity(0.3), blurRadius: 10)] : null,
         ),
-        child: Icon(icon, color: active ? Colors.white : Colors.white70, size: 24),
-      ),
-    );
-  }
-}
-
-class _MainActionButton extends StatelessWidget {
-  const _MainActionButton({required this.label, required this.icon, required this.onTap, required this.isDone});
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool isDone;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        height: 54,
-        decoration: BoxDecoration(
-          color: isDone ? Colors.transparent : _kPurpleAccent,
-          borderRadius: BorderRadius.circular(16),
-          border: isDone ? Border.all(color: Colors.white24) : null,
-          boxShadow: isDone ? null : [BoxShadow(color: _kPurpleAccent.withOpacity(0.4), blurRadius: 12, offset: const Offset(0, 4))],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 10),
-            Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-          ],
-        ),
+        child: Icon(icon, color: active ? Colors.white : SpaceColors.white.withOpacity(0.7), size: 24),
       ),
     );
   }
@@ -576,88 +485,17 @@ class _SpacePendingBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _kPurpleAccent.withOpacity(0.1),
+        color: SpaceColors.neonPurple.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kPurpleAccent.withOpacity(0.3)),
+        border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3)),
       ),
       child: const Row(
         children: [
-          SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5, color: _kPurpleAccent)),
+          SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5, color: SpaceColors.neonPurple)),
           SizedBox(width: 14),
-          Text('AI가 내용을 분석 중입니다...', style: TextStyle(color: _kPurpleAccent, fontSize: 14, fontWeight: FontWeight.w500)),
+          Text('AI가 내용을 분석 중입니다...', style: TextStyle(color: SpaceColors.neonPurple, fontSize: 14, fontWeight: FontWeight.w500)),
         ],
       ),
     );
   }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.icon, required this.label, required this.value, required this.color});
-  final IconData icon;
-  final String label, value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 8),
-        Text('$label: ', style: TextStyle(color: color, fontSize: 13)),
-        Expanded(child: Text(value, style: const TextStyle(color: Colors.white70, fontSize: 13))),
-      ],
-    );
-  }
-}
-
-class _InsightRow extends StatelessWidget {
-  const _InsightRow({required this.label, required this.value, required this.color});
-  final String label, value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('• $label: ', style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold)),
-          Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13))),
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailRadialBackground extends StatelessWidget {
-  const _DetailRadialBackground();
-  @override
-  Widget build(BuildContext context) => Container(decoration: const BoxDecoration(gradient: RadialGradient(center: Alignment.topRight, radius: 1.5, colors: [_kBgDeep, _kBgDark])));
-}
-
-class _DetailStarField extends StatelessWidget {
-  const _DetailStarField();
-  @override
-  Widget build(BuildContext context) => CustomPaint(painter: _DetailStarPainter(), size: ui.Size.infinite);
-}
-
-class _DetailStarPainter extends CustomPainter {
-  static final _rng = math.Random(101);
-  static final List<_Star> _stars = List.generate(40, (_) => _Star(x: _rng.nextDouble(), y: _rng.nextDouble(), radius: _rng.nextDouble() * 1.5 + 0.5, opacity: _rng.nextDouble() * 0.3 + 0.1));
-  @override
-  void paint(ui.Canvas canvas, ui.Size size) {
-    final paint = Paint();
-    for (final star in _stars) {
-      paint.color = (star.x > 0.5 ? _kPurpleAccent : Colors.white).withOpacity(star.opacity);
-      canvas.drawCircle(Offset(star.x * size.width, star.y * size.height), star.radius, paint);
-    }
-  }
-  @override
-  bool shouldRepaint(CustomPainter old) => false;
-}
-
-class _Star {
-  const _Star({required this.x, required this.y, required this.radius, required this.opacity});
-  final double x, y, radius, opacity;
 }

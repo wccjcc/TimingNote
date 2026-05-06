@@ -5,16 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../shared/theme/colors.dart';
+import '../../../../shared/widgets/cosmic_background.dart';
+import '../../../../shared/widgets/status_badge.dart';
 import '../model/todo.dart';
 import '../viewmodel/todo_list_viewmodel.dart';
-
-// -- 디자인 상수 (우주 테마) ------------------------------------------
-const _kBgDark = Color(0xFF050510);
-const _kBgDeep = Color(0xFF110B1F);
-const _kPurpleAccent = Color(0xFFA78BFA);
-const _kPinkAccent = Color(0xFFF472B6);
-const _kSurfaceDark = Color(0xE50F0F1A);
-const _kBorderWhite = Color(0x1AFFFFFF);
 
 // -- 카테고리 탭 정의 ----------------------------------------------
 const _kCategoryTabs = [
@@ -87,22 +82,17 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     final state = ref.watch(todoListProvider);
 
     return Scaffold(
-      backgroundColor: _kBgDark,
-      body: Stack(
-        children: [
-          const _ListRadialBackground(),
-          const _ListStarField(),
-          SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(state.items.length),
-                _buildMissionChips(),
-                Expanded(child: _buildBody(state)),
-              ],
-            ),
+      body: CosmicBackground(
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(state.items.length),
+              _buildMissionChips(),
+              Expanded(child: _buildBody(state)),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -120,7 +110,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
               Text(
                 'TOTAL: $totalCount',
                 style: const TextStyle(
-                  color: _kPurpleAccent,
+                  color: SpaceColors.neonPurple,
                   fontSize: 10,
                   fontFamily: 'Galmuri11',
                   letterSpacing: 1,
@@ -152,7 +142,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     showMenu<String?>(
       context: context,
       position: const RelativeRect.fromLTRB(100, 100, 24, 0),
-      color: _kSurfaceDark,
+      color: SpaceColors.space900,
       items: const [
         PopupMenuItem(value: null, child: Text('모든 할 일', style: TextStyle(color: Colors.white))),
         PopupMenuItem(value: TodoType.specific, child: Text('특정 장소', style: TextStyle(color: Colors.white))),
@@ -191,7 +181,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   color: isSelected ? const Color(0x26A78BFA) : const Color(0x992A2A4A),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: isSelected ? _kPurpleAccent : const Color(0x33A78BFA),
+                    color: isSelected ? SpaceColors.neonPurple : const Color(0x33A78BFA),
                     width: 1,
                   ),
                   boxShadow: isSelected
@@ -209,7 +199,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                       fontSize: 11,
                       fontFamily: 'Galmuri11',
                       shadows: isSelected
-                          ? [Shadow(offset: const Offset(0, 0), blurRadius: 5, color: _kPurpleAccent.withOpacity(0.8))]
+                          ? [Shadow(offset: const Offset(0, 0), blurRadius: 5, color: SpaceColors.neonPurple.withOpacity(0.8))]
                           : null,
                     ),
                   ),
@@ -224,7 +214,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
 
   Widget _buildBody(TodoListState state) {
     if (state.isLoading && state.items.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: _kPurpleAccent));
+      return const Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple));
     }
 
     if (state.isEmpty) {
@@ -245,8 +235,8 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
 
     return RefreshIndicator(
       onRefresh: () => ref.read(todoListProvider.notifier).load(),
-      color: _kPurpleAccent,
-      backgroundColor: _kSurfaceDark,
+      color: SpaceColors.neonPurple,
+      backgroundColor: SpaceColors.space900,
       child: ListView(
         controller: _scrollController,
         padding: const EdgeInsets.all(16),
@@ -268,7 +258,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
               padding: EdgeInsets.symmetric(vertical: 24),
               child: Row(
                 children: [
-                  Expanded(child: Divider(color: _kBorderWhite)),
+                  Expanded(child: Divider(color: SpaceColors.white10)),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 16),
                     child: Text(
@@ -280,7 +270,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                       ),
                     ),
                   ),
-                  Expanded(child: Divider(color: _kBorderWhite)),
+                  Expanded(child: Divider(color: SpaceColors.white10)),
                 ],
               ),
             ),
@@ -325,7 +315,6 @@ class _TodoSpaceTile extends StatelessWidget {
     final isDone = item.isDone;
     final categoryKey = item.category ?? TodoCategory.etc;
     final badgeColor = _getCategoryColor(categoryKey);
-    final categoryLabel = TodoCategory.labels[categoryKey] ?? categoryKey;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -359,14 +348,14 @@ class _TodoSpaceTile extends StatelessWidget {
                         width: 26,
                         height: 26,
                         decoration: BoxDecoration(
-                          color: _kBgDark,
+                          color: SpaceColors.space950,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: isDone ? Colors.green : _kPurpleAccent.withOpacity(0.5),
+                            color: isDone ? Colors.green : SpaceColors.neonPurple.withOpacity(0.5),
                             width: 2,
                           ),
-                          boxShadow: [
-                            BoxShadow(color: _kBgDeep, offset: const Offset(0, 3)),
+                          boxShadow: const [
+                            BoxShadow(color: SpaceColors.space900, offset: Offset(0, 3)),
                           ],
                         ),
                         child: isDone
@@ -380,23 +369,8 @@ class _TodoSpaceTile extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (showCategory)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              margin: const EdgeInsets.only(bottom: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.4),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: badgeColor, width: 1),
-                              ),
-                              child: Text(
-                                categoryLabel,
-                                style: TextStyle(
-                                  color: badgeColor,
-                                  fontSize: 9,
-                                  fontFamily: 'Galmuri11',
-                                ),
-                              ),
-                            ),
+                            StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                          const SizedBox(height: 8),
                           Text(
                             item.content,
                             style: TextStyle(
@@ -448,16 +422,16 @@ class _TodoSpaceTile extends StatelessWidget {
     switch (category) {
       case TodoCategory.dine:
       case TodoCategory.acquire:
-        return _kPurpleAccent;
+        return SpaceColors.neonPurple;
       case TodoCategory.health:
       case TodoCategory.service:
-        return const Color(0xFF8B5CF6);
+        return SpaceColors.neonViolet;
       case TodoCategory.maintenance:
         return const Color(0xFFFDBA74);
       case TodoCategory.social:
-        return _kPinkAccent;
+        return SpaceColors.neonPink;
       default:
-        return _kPurpleAccent;
+        return SpaceColors.neonPurple;
     }
   }
 
@@ -472,14 +446,14 @@ class _TodoSpaceTile extends StatelessWidget {
       height: 48,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _kPurpleAccent.withOpacity(0.3)),
+        border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3)),
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: isDone ? [Colors.transparent, Colors.transparent] : [Colors.white24, Colors.white10],
+          colors: isDone ? [Colors.transparent, Colors.transparent] : [SpaceColors.white20, SpaceColors.white10],
         ),
       ),
-      child: Icon(Icons.image_outlined, size: 20, color: isDone ? Colors.white10 : Colors.white24),
+      child: Icon(Icons.image_outlined, size: 20, color: isDone ? SpaceColors.white10 : SpaceColors.white20),
     );
   }
 }
@@ -505,52 +479,4 @@ class _ListIconButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _ListRadialBackground extends StatelessWidget {
-  const _ListRadialBackground();
-  @override
-  Widget build(BuildContext context) => Container(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.topLeft,
-            radius: 1.5,
-            colors: [_kBgDeep, _kBgDark],
-          ),
-        ),
-      );
-}
-
-class _ListStarField extends StatelessWidget {
-  const _ListStarField();
-  @override
-  Widget build(BuildContext context) => CustomPaint(painter: _ListStarPainter(), size: ui.Size.infinite);
-}
-
-class _ListStarPainter extends CustomPainter {
-  static final _rng = math.Random(77);
-  static final List<_ListStarData> _stars = List.generate(
-      30,
-      (_) => _ListStarData(
-          x: _rng.nextDouble(),
-          y: _rng.nextDouble(),
-          radius: _rng.nextDouble() * 1.2 + 0.3,
-          opacity: _rng.nextDouble() * 0.2 + 0.1));
-
-  @override
-  void paint(ui.Canvas canvas, ui.Size size) {
-    final paint = Paint();
-    for (final star in _stars) {
-      paint.color = Colors.white.withOpacity(star.opacity);
-      canvas.drawCircle(Offset(star.x * size.width, star.y * size.height), star.radius, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter old) => false;
-}
-
-class _ListStarData {
-  const _ListStarData({required this.x, required this.y, required this.radius, required this.opacity});
-  final double x, y, radius, opacity;
 }
