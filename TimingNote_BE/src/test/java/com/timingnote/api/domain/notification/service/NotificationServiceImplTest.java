@@ -12,7 +12,13 @@ import static org.mockito.Mockito.when;
 
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
+import com.timingnote.api.domain.notification.dto.request.NotificationActionRequestDto;
+import com.timingnote.api.domain.notification.dto.request.NotificationReadUpdateRequestDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationActionResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationDeleteResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationHistoryResponseDto;
 import com.timingnote.api.domain.notification.dto.response.NotificationGeofenceSendResponseDto;
+import com.timingnote.api.domain.notification.dto.response.NotificationReadUpdateResponseDto;
 import com.timingnote.api.domain.notification.entity.GeofenceSlot;
 import com.timingnote.api.domain.notification.entity.NotificationStatus;
 import com.timingnote.api.domain.notification.entity.NotificationType;
@@ -43,6 +49,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -504,6 +513,182 @@ class NotificationServiceImplTest {
         }
     }
 
+    // NOTI-01: userId 기준 페이지 조회 결과를 응답 DTO로 매핑한다.
+    @Test
+    void get_history_success_withoutTodoFilter() {
+        UserNotification n1 = notification(101L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        UserNotification n2 = notification(102L, USER_ID, TODO_ID, NotificationStatus.OPENED);
+        Page<UserNotification> page = new PageImpl<>(List.of(n1, n2), PageRequest.of(0, 20), 2);
+        when(userNotificationRepository.findByUserId(eq(USER_ID), any())).thenReturn(page);
+
+        NotificationHistoryResponseDto result = notificationService.getNotificationHistory(USER_ID, null, 0, 20);
+
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getTotalElements()).isEqualTo(2);
+        assertThat(result.getPage()).isEqualTo(0);
+        assertThat(result.getSize()).isEqualTo(20);
+        verify(userNotificationRepository).findByUserId(eq(USER_ID), any());
+    }
+
+    // NOTI-01: todoId 필터가 있을 때 필터 메서드가 호출된다.
+    @Test
+    void get_history_success_withTodoFilter() {
+        Page<UserNotification> page = new PageImpl<>(List.of(notification(101L, USER_ID, TODO_ID, NotificationStatus.SENT)));
+        when(userNotificationRepository.findByUserIdAndTodoId(eq(USER_ID), eq(TODO_ID), any())).thenReturn(page);
+
+        NotificationHistoryResponseDto result = notificationService.getNotificationHistory(USER_ID, TODO_ID, 0, 20);
+
+        assertThat(result.getContent()).hasSize(1);
+        verify(userNotificationRepository).findByUserIdAndTodoId(eq(USER_ID), eq(TODO_ID), any());
+    }
+
+    // NOTI-01: page/size 검증 실패 시 VALIDATION_ERROR를 던진다.
+    @Test
+    void get_history_fail_validation_when_pageOrSizeInvalid() {
+        assertThatThrownBy(() -> notificationService.getNotificationHistory(USER_ID, null, -1, 20))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+
+        assertThatThrownBy(() -> notificationService.getNotificationHistory(USER_ID, null, 0, 0))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+    }
+
+    // NOTI-02: OPEN 액션은 알림을 OPENED로 바꾸고 openedAt을 기록한다.
+    @Test
+    void action_open_success() {
+        UserNotification notification = notification(201L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        when(userNotificationRepository.findByIdAndUserId(201L, USER_ID)).thenReturn(Optional.of(notification));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+
+        NotificationActionResponseDto result = notificationService.applyNotificationAction(
+                USER_ID, 201L, actionRequest("OPEN", null)
+        );
+
+        assertThat(result.getActionType()).isEqualTo("OPEN");
+        assertThat(notification.getStatus()).isEqualTo(NotificationStatus.OPENED);
+        assertThat(notification.getOpenedAt()).isNotNull();
+    }
+
+    // NOTI-02: COMPLETE 액션은 Todo를 DONE으로 변경한다.
+    @Test
+    void action_complete_success() {
+        UserNotification notification = notification(202L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        when(userNotificationRepository.findByIdAndUserId(202L, USER_ID)).thenReturn(Optional.of(notification));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+
+        NotificationActionResponseDto result = notificationService.applyNotificationAction(
+                USER_ID, 202L, actionRequest("COMPLETE", null)
+        );
+
+        assertThat(result.getActionType()).isEqualTo("COMPLETE");
+        assertThat(result.getTodoStatus()).isEqualTo("DONE");
+        assertThat(todo.getStatus()).isEqualTo("DONE");
+    }
+
+    // NOTI-02: SNOOZE 액션은 snoozedUntil을 설정한다.
+    @Test
+    void action_snooze_success() {
+        UserNotification notification = notification(203L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        when(userNotificationRepository.findByIdAndUserId(203L, USER_ID)).thenReturn(Optional.of(notification));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+
+        NotificationActionResponseDto result = notificationService.applyNotificationAction(
+                USER_ID, 203L, actionRequest("SNOOZE", 60)
+        );
+
+        assertThat(result.getActionType()).isEqualTo("SNOOZE");
+        assertThat(result.getSnoozedUntil()).isNotNull();
+        assertThat(todo.getSnoozedUntil()).isNotNull();
+    }
+
+    // NOTI-02: SNOOZE에서 분(minute)이 비정상이면 VALIDATION_ERROR다.
+    @Test
+    void action_snooze_fail_validation_when_minutesInvalid() {
+        UserNotification notification = notification(204L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        when(userNotificationRepository.findByIdAndUserId(204L, USER_ID)).thenReturn(Optional.of(notification));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+
+        assertThatThrownBy(() -> notificationService.applyNotificationAction(
+                USER_ID, 204L, actionRequest("SNOOZE", null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+    }
+
+    // NOTI-02: 알림 또는 Todo가 없으면 NOT_FOUND를 반환한다.
+    @Test
+    void action_fail_notFound_when_notificationOrTodoMissing() {
+        when(userNotificationRepository.findByIdAndUserId(205L, USER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> notificationService.applyNotificationAction(
+                USER_ID, 205L, actionRequest("OPEN", null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+    }
+
+    // NOTI-03: isRead=true면 읽음 처리(openedAt 갱신)된다.
+    @Test
+    void read_update_success() {
+        UserNotification notification = notification(301L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        when(userNotificationRepository.findByIdAndUserId(301L, USER_ID)).thenReturn(Optional.of(notification));
+
+        NotificationReadUpdateResponseDto result = notificationService.updateNotificationRead(
+                USER_ID, 301L, readRequest(true)
+        );
+
+        assertThat(result.getNotificationId()).isEqualTo(301L);
+        assertThat(result.getOpenedAt()).isNotNull();
+        assertThat(notification.getStatus()).isEqualTo(NotificationStatus.OPENED);
+    }
+
+    // NOTI-03: isRead=false면 VALIDATION_ERROR다.
+    @Test
+    void read_update_fail_validation_when_isReadFalse() {
+        assertThatThrownBy(() -> notificationService.updateNotificationRead(USER_ID, 301L, readRequest(false)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+    }
+
+    // NOTI-03: 대상 알림이 없으면 NOT_FOUND다.
+    @Test
+    void read_update_fail_notFound() {
+        when(userNotificationRepository.findByIdAndUserId(302L, USER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> notificationService.updateNotificationRead(USER_ID, 302L, readRequest(true)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+    }
+
+    // NOTI-04: 알림 삭제 성공 시 delete 호출 및 응답값을 확인한다.
+    @Test
+    void delete_success() {
+        UserNotification notification = notification(401L, USER_ID, TODO_ID, NotificationStatus.SENT);
+        when(userNotificationRepository.findByIdAndUserId(401L, USER_ID)).thenReturn(Optional.of(notification));
+
+        NotificationDeleteResponseDto result = notificationService.deleteNotification(USER_ID, 401L);
+
+        assertThat(result.getNotificationId()).isEqualTo(401L);
+        assertThat(result.getDeletedAt()).isNotNull();
+        verify(userNotificationRepository).delete(notification);
+    }
+
+    // NOTI-04: 대상 알림이 없으면 NOT_FOUND다.
+    @Test
+    void delete_fail_notFound() {
+        when(userNotificationRepository.findByIdAndUserId(402L, USER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> notificationService.deleteNotification(USER_ID, 402L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.NOT_FOUND);
+    }
+
     private void mockBaseForTodoValidation() {
         when(geofenceSlotRepository.findById(SLOT_ID)).thenReturn(Optional.of(slot));
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
@@ -530,6 +715,35 @@ class NotificationServiceImplTest {
             case SATURDAY -> 32;
             case SUNDAY -> 64;
         };
+    }
+
+    private UserNotification notification(Long id, Long userId, Long todoId, NotificationStatus status) {
+        UserNotification notification = UserNotification.builder()
+                .userId(userId)
+                .todoId(todoId)
+                .notificationType(NotificationType.GENERIC)
+                .status(status)
+                .title("test")
+                .body("test-body")
+                .build();
+        ReflectionTestUtils.setField(notification, "id", id);
+        ReflectionTestUtils.setField(notification, "createdAt", OffsetDateTime.now());
+        return notification;
+    }
+
+    private NotificationActionRequestDto actionRequest(String actionType, Integer snoozeMinutes) {
+        NotificationActionRequestDto requestDto = new NotificationActionRequestDto();
+        ReflectionTestUtils.setField(requestDto, "actionType", Enum.valueOf(
+                com.timingnote.api.domain.notification.dto.request.NotificationActionType.class, actionType
+        ));
+        ReflectionTestUtils.setField(requestDto, "snoozeMinutes", snoozeMinutes);
+        return requestDto;
+    }
+
+    private NotificationReadUpdateRequestDto readRequest(boolean isRead) {
+        NotificationReadUpdateRequestDto requestDto = new NotificationReadUpdateRequestDto();
+        ReflectionTestUtils.setField(requestDto, "isRead", isRead);
+        return requestDto;
     }
 }
 
