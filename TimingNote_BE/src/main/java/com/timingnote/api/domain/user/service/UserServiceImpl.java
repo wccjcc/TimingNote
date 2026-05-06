@@ -7,10 +7,15 @@ import com.timingnote.api.domain.user.dto.response.UserRegisterResponseDto;
 import com.timingnote.api.domain.user.entity.User;
 import com.timingnote.api.domain.user.repository.UserRepository;
 import com.timingnote.api.infra.security.DeviceSecretManager;
+
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import software.amazon.awssdk.services.s3.endpoints.internal.Value;
 
 @Service
 @RequiredArgsConstructor
@@ -22,7 +27,7 @@ public class UserServiceImpl implements UserService {
     /**
      * SYS-01 디바이스 등록:
      * installationUuid 기준으로 사용자를 생성한다.
-     * 이미 등록된 installationUuid는 기존 deviceSecret을 계속 사용해야 하므로 재발급하지 않고 충돌을 반환한다.
+     * 이미 등록된 installationUuid의 경우 deviceSecret을 재발급 한 뒤 저장한다.
      */
     @Override
     @Transactional
@@ -30,22 +35,33 @@ public class UserServiceImpl implements UserService {
         //request에서 uuid 추출
         UUID installationUuid = parseInstallationUuid(requestDto.getInstallationUuid());
 
-        //이미 있는 uuid라면, UUID_CONFLICT 에러 응답
-        if (userRepository.findByInstallationUuid(installationUuid).isPresent()) {
-            throw new BusinessException(ErrorCode.UUID_CONFLICT);
-        }
-
+        //항상 새 device secret 발급
         //DeviceSecret 생성
         String rawDeviceSecret = deviceSecretManager.generateRawSecret();
         //DeviceSecret 해시
         String hashedDeviceSecret = deviceSecretManager.hash(rawDeviceSecret);
-        //User에 저장
-        User user = userRepository.save(new User(installationUuid, hashedDeviceSecret));
+
+        Optional<User> existingUserOpt = userRepository.findByInstallationUuid(installationUuid);
+
+        final boolean isNewUser;
+        final User user;
+
+        if (existingUserOpt.isPresent()) {
+            User existing = existingUserOpt.get();
+            existing.updateDeviceSecret(hashedDeviceSecret);
+            user = userRepository.save(existing);
+            isNewUser = false;
+        } else {
+            User newUser = new User(installationUuid, hashedDeviceSecret);
+            user = userRepository.save(newUser);
+            isNewUser = true;
+        }
 
         return UserRegisterResponseDto.builder()
                 .userId(user.getId())
                 .deviceSecret(rawDeviceSecret)
                 .createdAt(user.getCreatedAt().toInstant().toString())
+                .isNewUser(isNewUser)
                 .build();
     }
 
