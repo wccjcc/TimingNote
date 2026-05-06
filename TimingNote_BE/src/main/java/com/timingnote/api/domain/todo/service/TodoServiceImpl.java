@@ -246,7 +246,7 @@ public class TodoServiceImpl implements TodoService {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
 
-        Place place = placeService.upsertFromFe(PlaceUpsertCommand.of(
+        Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
                 req.getKakaoPlaceId(), req.getPlaceName(),
                 req.getAddressName(), req.getRoadAddressName(),
                 req.getCategoryGroupCode(), req.getCategoryGroupName(),
@@ -314,15 +314,11 @@ public class TodoServiceImpl implements TodoService {
             todo.updatePrimaryPlaceId(null);
             todo.updateTodoType(TodoType.GENERAL.name());
             todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
-            todoStructureRepository.findByTodo_Id(todoId)
-                    .ifPresent(s -> s.updatePlaceInfo(null, AiPlaceType.GENERAL));
         } else {
             // non-empty → 포괄 장소(GENERIC)로 변경
             todo.updateResolvedPlaceLabel(request.getPlaceText());
             todo.updatePrimaryPlaceId(null);
             todo.updateTodoType(TodoType.GENERIC.name());
-            todoStructureRepository.findByTodo_Id(todoId)
-                    .ifPresent(s -> s.updatePlaceInfo(request.getPlaceText(), AiPlaceType.GENERIC));
             // 기존 후보 제거 후 새 후보 조회·등록
             todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
             resolveAndSaveGenericCandidates(todo, request.getPlaceText(),

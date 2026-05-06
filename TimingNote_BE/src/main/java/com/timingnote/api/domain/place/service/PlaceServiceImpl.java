@@ -132,13 +132,26 @@ public class PlaceServiceImpl implements PlaceService {
         return places;
     }
 
-    // ── FE 장소 upsert ───────────────────────────────────────────────────────
+    // ── 사용자 선택 장소 저장 ─────────────────────────────────────────────────
 
     @Override
     @Transactional
-    public Place upsertFromFe(PlaceUpsertCommand cmd) {
-        log.info("[FE/Upsert] 시작: kakaoPlaceId='{}' name='{}'", cmd.kakaoPlaceId(), cmd.placeName());
+    public Place saveUserSelectedPlace(PlaceUpsertCommand cmd) {
+        log.info("[Place/UserSelected] 시작: kakaoPlaceId='{}' name='{}'", cmd.kakaoPlaceId(), cmd.placeName());
 
+        // 지도 마커(핀) - kakaoPlaceId 없음 → 항상 신규 저장 (dedup 없음)
+        if (cmd.kakaoPlaceId() == null) {
+            Place saved = placeRepository.save(Place.builder()
+                    .name(cmd.placeName())
+                    .address(cmd.addressName())
+                    .roadAddress(cmd.roadAddressName())
+                    .location(Place.toPoint(cmd.longitude(), cmd.latitude()))
+                    .build());
+            log.info("[Place/UserSelected] 지도 마커 신규 저장: placeId={}", saved.getId());
+            return saved;
+        }
+
+        // Kakao 검색 결과 - externalPlaceId로 dedup
         return placeRepository.findByExternalPlaceId(cmd.kakaoPlaceId())
                 .orElseGet(() -> {
                     Place saved = placeRepository.save(Place.builder()
@@ -152,7 +165,7 @@ public class PlaceServiceImpl implements PlaceService {
                             .placeUrl(cmd.placeUrl())
                             .location(Place.toPoint(cmd.longitude(), cmd.latitude()))
                             .build());
-                    log.info("[FE/Upsert] 신규 저장: placeId={}", saved.getId());
+                    log.info("[Place/UserSelected] Kakao 장소 신규 저장: placeId={}", saved.getId());
                     return saved;
                 });
     }
