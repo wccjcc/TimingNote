@@ -73,7 +73,7 @@ class _AppState extends ConsumerState<App> {
         return MaterialApp.router(
           title: 'Timing Note',
           debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
+          theme: AppTheme.dark,
           routerConfig: router,
         );
       },
