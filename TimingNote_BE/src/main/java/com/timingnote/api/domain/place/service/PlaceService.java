@@ -21,9 +21,10 @@ public interface PlaceService {
     List<Place> resolveGenericCandidates(String placeText, Double latitude, Double longitude);
 
     /**
-     * FE가 Kakao 검색 결과로 직접 전달한 장소를 places 테이블에 upsert.
-     * 이미 externalPlaceId가 존재하면 기존 레코드를 반환하고, 없으면 새로 저장한다.
+     * FE가 직접 선택하거나 지도 마커로 찍은 장소를 places 테이블에 저장.
+     * - kakaoPlaceId 있음 (Kakao 검색 결과): externalPlaceId로 dedup 후 저장
+     * - kakaoPlaceId 없음 (지도 마커 핀): 항상 신규 저장 (dedup 없음)
      * Google 영업시간 보강은 하지 않는다 (AI structuring 경로에서만 수행).
      */
-    Place upsertFromFe(PlaceUpsertCommand command);
+    Place saveUserSelectedPlace(PlaceUpsertCommand command);
 }
