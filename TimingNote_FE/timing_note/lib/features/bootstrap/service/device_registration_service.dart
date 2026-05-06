@@ -35,7 +35,7 @@ class DeviceRegistrationService {
     required String installationUuid,
   }) async {
     final envelope = await _apiClient.post<DeviceRegistrationResponse>(
-      ApiEndpoints.sys01,
+      ApiEndpoints.users,
       data: {
         'installationUuid': installationUuid,
       },
