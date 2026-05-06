@@ -1,11 +1,14 @@
 class ApiEndpoints {
+  /// SYS-01 디바이스 등록 endpoint
+  static const String users = '/users';
+
   static const String todos = '/todos';
+
   static const String recommendations = '/recommendations';
-  static const String placesSearch = '/places/search';
 
-  /// geofence enter/exit 이벤트 업로드 endpoint
-  static const String geofenceEvents = '/geofences/events';
+  /// FCM 토큰 최초 등록/갱신 endpoint
+  static const String fcmTokens = '/fcm/tokens';
 
-  /// X-Device-Secret 헤더 제외 endpoint (device_secret)
-  static const String sys01 = '/v1/users';
+  /// Geofence 이벤트 전송 endpoint
+  static const String geofenceEvents = '/geofence/events';
 }

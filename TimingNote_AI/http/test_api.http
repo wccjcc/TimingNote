@@ -1,16 +1,50 @@
 ### TimingNote AI API Test
 
-# 1. 헬스 체크 (서버가 살아있는지 확인)
+# 1. 헬스 체크
 GET http://localhost:8000/health
-    Accept: application/json
+Accept: application/json
 
 ###
-# 2. 자연어 구조화 API 테스트 (Mock 데이터 응답)
+# 2. 정상 구조화 테스트
 POST http://localhost:8000/internal/structure
 Content-Type: application/json
 
 {
-    "todoId": 100,
+    "todoId": 101,
     "inputType": "TEXT",
-    "originalText": "마트에서 우유 사기"
+    "originalText": "내일 다이소 가서 멀티탭 사기"
+}
+
+###
+# 3. [에러 테스트] 필수 필드 누락 (422 Unprocessable Entity 확인)
+# originalText 필드를 고의로 누락시킵니다.
+POST http://localhost:8000/internal/structure
+Content-Type: application/json
+
+{
+    "todoId": 102,
+    "inputType": "TEXT"
+}
+
+###
+# 4. [에러 테스트] 빈 문자열 분석 (LLM 파싱 에러 유도)
+# LLM이 구조를 뽑아낼 수 없는 무의미한 데이터를 보냅니다.
+POST http://localhost:8000/internal/structure
+Content-Type: application/json
+
+{
+    "todoId": 103,
+    "inputType": "TEXT",
+    "originalText": ""
+}
+
+###
+# 5. [에러 테스트] 잘못된 데이터 타입 (todoId에 문자열 전송)
+POST http://localhost:8000/internal/structure
+Content-Type: application/json
+
+{
+    "todoId": "not-an-id",
+    "inputType": "TEXT",
+    "originalText": "데이터 타입 에러 테스트"
 }

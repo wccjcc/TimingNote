@@ -2,6 +2,9 @@ spring:
   application:
     name: TimingNote
 
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:${DB_PORT}/${DB_NAME}}
     username: ${DB_USERNAME:postgres}
@@ -9,9 +12,11 @@ spring:
     driver-class-name: org.postgresql.Driver
   
   jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
   data:
     redis:
@@ -24,6 +29,21 @@ spring:
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+ai:
+  server:
+    url: ${AI_SERVER_URL:http://localhost:8000}
+  internal:
+    secret: ${AI_INTERNAL_SECRET:dev-secret}
+
+kakao:
+  api:
+    key: ${KAKAO_API_KEY:}
+
+google:
+  places:
+    api:
+      key: ${GOOGLE_PLACES_API_KEY:}
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -31,11 +51,53 @@ swagger:
   server-url: ${SWAGGER_SERVER_URL:}
 
 springdoc:
-  default-consume-media-type: application/json
-  default-produce-media-type: application/json
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
   swagger-ui:
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
   api-docs:
     path: /v3/api-docs
+
+security:
+  device-secret:
+    pepper: ${DEVICE_SECRET_PEPPER:local-dev-only-change-this-pepper}
+
+
+cloud:
+  aws:
+    region: ${AWS_REGION:ap-northeast-2}
+
+app:
+  s3:
+    bucket: ${AWS_S3_BUCKET}
+    presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:10}
+    original-prefix: ${AWS_S3_ORIGINAL_PREFIX:uploads/original}
+    resized-prefix: ${AWS_S3_RESIZED_PREFIX:uploads/resized}
+    thumbnail-prefix: ${AWS_S3_THUMBNAIL_PREFIX:uploads/thumbnail}
+  rabbitmq:
+    geofence-slot-exchange: geofence.slot.exchange
+    geofence-slot-recalculate-queue: geofence.slot.recalculate
+    geofence-slot-routing-key: geofence.slot.recalculate
+    geofence-slot-dlq: geofence.slot.recalculate.dlq
+    geofence-slot-dlq-routing-key: geofence.slot.recalculate.dlq
+    geofence-slot-concurrency: 2
+    geofence-slot-max-concurrency: 6
+    geofence-slot-prefetch: 20
+    geofence-slot-retry-max-attempts: 3
+    geofence-slot-retry-initial-interval-ms: 1000
+    geofence-slot-retry-max-interval-ms: 10000
+    geofence-slot-retry-multiplier: 2.0
+  outbox:
+    geofence:
+      relay-fixed-delay-ms: 5000
+      batch-size: 100
+      default-max-retry-count: 5
+      retry-base-seconds: 5
+      retry-max-seconds: 300
+
+firebase:
+  admin-sdk-path: ${FIREBASE_ACCOUNT_PATH}
+
+

@@ -1,60 +1,66 @@
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
-# 1. 행동 중심 카테고리 (사용자 경험의 핵심)
 class TodoCategory(str, Enum):
-    DINE = "DINE"             # 식사/카페
-    ACQUIRE = "ACQUIRE"       # 쇼핑/수령
-    HEALTH = "HEALTH"         # 병원/약국/운동
-    SERVICE = "SERVICE"       # 은행/관공서/업무
-    MAINTENANCE = "MAINTENANCE" # 세탁/주유/정비
-    SOCIAL = "SOCIAL"         # 모임/방문/선물
-    ETC = "ETC"               # 기타 메모
+    DINE = "DINE"
+    ACQUIRE = "ACQUIRE"
+    HEALTH = "HEALTH"
+    SERVICE = "SERVICE"
+    MAINTENANCE = "MAINTENANCE"
+    SOCIAL = "SOCIAL"
+    ETC = "ETC"
 
-    @property
-    def label(self) -> str:
-        """사용자에게 보여줄 한글 명칭 매핑"""
-        mapping = {
-            TodoCategory.DINE: "식사/카페",
-            TodoCategory.ACQUIRE: "쇼핑/수령",
-            TodoCategory.HEALTH: "병원/약국/운동",
-            TodoCategory.SERVICE: "은행/관공서/업무",
-            TodoCategory.MAINTENANCE: "세탁/주유/정비",
-            TodoCategory.SOCIAL: "모임/방문/선물",
-            TodoCategory.ETC: "기타 메모",
-        }
-        return mapping.get(self, "기타 메모")
-
-# 2. 분석 결과 타입 (비즈니스 로직 분기점)
-class TodoType(str, Enum):
-    STRUCTURED_TODO = "STRUCTURED_TODO" # 알림 등록 가능
-    MEMO = "MEMO"                       # 단순 메모 (모호한 입력 시)
-
-# 3. 장소 예측 정보
 class PlaceType(str, Enum):
-    SPECIFIC = "SPECIFIC" # 특정 장소 (예: 스타벅스 강남점)
-    GENERIC = "GENERIC"   # 포괄적 장소 (예: 카페, 편의점)
-    NONE = "NONE"
+    SPECIFIC = "SPECIFIC"
+    GENERIC = "GENERIC"
+    ALIAS = "ALIAS"
+    GENERAL = "GENERAL"
 
-# --- Request/Response Schemas ---
+class ConditionType(str, Enum):
+    DATETIME = "DATETIME"     # 날짜+시간 (내일 오후 3시)
+    DATE = "DATE"             # 날짜만 (내일, 이번 주 금요일)
+    DATE_RANGE = "DATE_RANGE" # 기간 (이번 주 중, ~까지)
+    WEEK = "WEEK"             # 요일 반복 (매주 월요일)
+    TIME_RANGE = "TIME_RANGE" # 시간대만 (저녁에, 오전 중)
+
+class DayOfWeek(str, Enum):
+    MON = "MON"
+    TUE = "TUE"
+    WED = "WED"
+    THU = "THU"
+    FRI = "FRI"
+    SAT = "SAT"
+    SUN = "SUN"
+
+class TimeCondition(BaseModel):
+    conditionType: ConditionType
+    startDate: Optional[str] = None        # yyyy-MM-dd
+    endDate: Optional[str] = None          # yyyy-MM-dd
+    startTime: Optional[str] = None        # HH:mm
+    endTime: Optional[str] = None          # HH:mm
+    daysOfWeek: Optional[List[DayOfWeek]] = None  # BE에서 비트마스크로 변환
+    rawExpression: Optional[str] = None    # 원문 시간 표현 보존
+
+class UserPlaceAlias(BaseModel):
+    alias: str  # 사용자 등록 별칭 (예: "집", "회사")
 
 class StructureRequest(BaseModel):
     todoId: int
-    inputType: str = Field(..., description="TEXT or VOICE")
+    inputType: str
     originalText: str
+    userPlaceAliases: List[UserPlaceAlias] = Field(default_factory=list)
 
 class TodoStructureOutput(BaseModel):
-    """AI 엔진(LLM)이 추출하는 순수 데이터 모델"""
-    action: str = Field(..., description="수행할 핵심 행동")
+    todoText: str
     category: TodoCategory
-    place_type: PlaceType
-    place_keyword: Optional[str] = None
-    time_hint: Optional[str] = None # 예: "저녁에", "내일 3시" 등 시간 맥락
+    placeType: PlaceType
+    placeText: Optional[str] = None
+    timeHintText: Optional[str] = None
+    timeConditions: List[TimeCondition] = Field(default_factory=list)
 
 class StructureResponse(TodoStructureOutput):
-    """최종 API 응답 모델 (시스템 메타데이터 포함)"""
-    todo_type: TodoType
-    category_label: str # 사용자 노출용 한글 카테고리명
-    model_used: str
-    request_id: str
+    todoId: int
+    modelUsed: str
+    requestId: str
+    rawResultJson: Dict[str, Any]

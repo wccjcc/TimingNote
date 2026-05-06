@@ -1,0 +1,184 @@
+services:
+  postgres:
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+    container_name: timingnote-postgres
+    ports:
+      - "127.0.0.1:5434:5432" #DB 원격 접속을 위해
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - tn-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: timingnote-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - tn-network
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: timingnote-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - tn-network
+
+  elasticsearch:
+    build:
+      context: ./infra/elasticsearch
+      dockerfile: Dockerfile
+    container_name: timingnote-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - tn-network
+
+  fastapi:
+    build:
+      context: ./TimingNote_AI
+      dockerfile: Dockerfile
+    container_name: timingnote-fastapi
+    environment:
+      GMS_KEY: ${GMS_KEY}
+      GMS_BASE_URL: ${GMS_BASE_URL}
+      MAIN_MODEL: ${MAIN_MODEL}
+      STT_MODEL: ${STT_MODEL}
+      AI_INTERNAL_SECRET: ${AI_INTERNAL_SECRET}
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tn-network
+
+  springboot:
+    build:
+      context: ./TimingNote_BE
+      dockerfile: Dockerfile
+    container_name: timingnote-springboot
+    volumes:
+      - /home/ubuntu/timingnote/secrets/timingnote-service-account.json:/run/secrets/timingnote-service-account.json:ro
+    environment:
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      SWAGGER_SERVER_URL: ${SWAGGER_SERVER_URL:-}
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      AI_SERVER_URL: ${AI_SERVER_URL:-http://fastapi:8000}
+      AI_INTERNAL_SECRET: ${AI_INTERNAL_SECRET}
+      DEVICE_SECRET_PEPPER: ${DEVICE_SECRET_PEPPER}
+      ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
+      FIREBASE_ACCOUNT_PATH: /run/secrets/timingnote-service-account.json
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      fastapi:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tn-network
+
+  flyway:
+    image: flyway/flyway:10.17.3
+    container_name: timingnote-flyway
+    command:
+      - -url=jdbc:postgresql://postgres:5432/${DB_NAME}
+      - -user=${DB_USERNAME}
+      - -password=${DB_PASSWORD}
+      - -locations=filesystem:/flyway/sql
+      - -baselineOnMigrate=true
+      - migrate
+    volumes:
+      - ./TimingNote_BE/src/main/resources/db/migration:/flyway/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - tn-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  elasticsearch-data:
+
+networks:
+  tn-network:
+    name: tn-network

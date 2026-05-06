@@ -67,6 +67,10 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 
+	<!-- Kakao Maps SDK 키 — Generated.xcconfig(--dart-define-from-file=.env)에서 주입 -->
+	<key>KAKAO_NATIVE_APP_KEY</key>
+	<string>$(KAKAO_NATIVE_APP_KEY)</string>
+
 	<!-- 위치/알림 권한 문구 -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>앱 사용 중 위치 기반 기능(지오펜스)을 위해 위치 권한이 필요합니다.</string>
@@ -81,5 +85,13 @@
 		<string>location</string>
 		<string>remote-notification</string>
 	</array>
+
+	<!-- FCM 알림 관련 설정 -->
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
+	<key>NSPushNotificationUsageDescription</key>
+	<string>앱에서 알림을 보내기 위해 사용됩니다.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>앱의 디버깅 및 알림 처리를 위해 로컬 네트워크 접근 권한이 필요합니다.</string>
 </dict>
 </plist>
