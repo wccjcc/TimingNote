@@ -3,6 +3,7 @@ package com.timingnote.api.domain.todo.controller;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.common.response.ApiResponseDto;
+import com.timingnote.api.domain.todo.dto.request.TodoAliasPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
@@ -197,6 +198,28 @@ public class TodoController {
             @Valid @RequestBody TodoPlaceSetRequest body) {
         Long userId = extractAuthenticatedUserId(request);
         return ApiResponseDto.success(todoService.setTodoPlace(userId, todoId, body));
+    }
+
+    @Operation(
+            summary = "내 장소(별칭)로 Todo 장소 지정",
+            description = "사전 등록한 내 장소(UserPlace)를 Todo에 연결한다. todoType = ALIAS, resolvedPlaceLabel = 별칭명으로 설정된다."
+    )
+    @ApiResponse(responseCode = "200", description = "지정 성공")
+    @ApiResponse(responseCode = "400", description = "필수 필드 누락 (userPlaceId)",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo 또는 내 장소",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
+    @PostMapping("/{todoId}/place/alias")
+    public ApiResponseDto<TodoDetailResponse> setTodoPlaceFromAlias(
+            HttpServletRequest request,
+            @PathVariable Long todoId,
+            @Valid @RequestBody TodoAliasPlaceSetRequest body) {
+        Long userId = extractAuthenticatedUserId(request);
+        return ApiResponseDto.success(todoService.setTodoPlaceFromAlias(userId, todoId, body));
     }
 
     @Operation(
