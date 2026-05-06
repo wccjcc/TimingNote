@@ -7,7 +7,10 @@ import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
+import com.timingnote.api.domain.user.entity.UserPlace;
+import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
+import com.timingnote.api.domain.todo.dto.request.TodoAliasPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
@@ -65,6 +68,7 @@ public class TodoServiceImpl implements TodoService {
     private final TodoTimeConditionRepository todoTimeConditionRepository;
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
     private final PlaceRepository placeRepository;
+    private final UserPlaceRepository userPlaceRepository;
     private final AiClient aiClient;
     private final PlaceService placeService;
 
@@ -253,10 +257,11 @@ public class TodoServiceImpl implements TodoService {
                 req.getPhone(), req.getPlaceUrl(),
                 req.getLongitude(), req.getLatitude()));
 
-        // 특정 장소로 변경: todoType=SPECIFIC, 기존 GENERIC 후보 제거
+        // 특정 장소로 변경: todoType=SPECIFIC, 기존 후보 제거 후 단건 등록
         todo.updateTodoType(TodoType.SPECIFIC.name());
         todo.updatePrimaryPlaceId(place.getId());
         todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+        saveSingleCandidate(todo, place);
 
         // 표시 레이블: 도로명 주소 우선, 없으면 장소명
         String label = StringUtils.hasText(req.getRoadAddressName())
@@ -268,6 +273,49 @@ public class TodoServiceImpl implements TodoService {
                 todoId, place.getId(), label);
 
         return self.getTodoDetail(userId, todoId);
+    }
+
+    @Override
+    @Transactional
+    public TodoDetailResponse setTodoPlaceFromAlias(Long userId, Long todoId, TodoAliasPlaceSetRequest req) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+
+        UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(req.getUserPlaceId(), userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+
+        Place place = userPlace.getPlace();
+
+        // 내 장소로 변경: todoType=ALIAS, 기존 후보 제거 후 단건 등록
+        todo.updateTodoType(TodoType.ALIAS.name());
+        todo.updatePrimaryPlaceId(place.getId());
+        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+        saveSingleCandidate(todo, place);
+
+        // 표시 레이블: 별칭 사용 (예: "집", "회사")
+        todo.updateResolvedPlaceLabel(userPlace.getAliasName());
+
+        log.info("[Todo/Place] todoId={} → ALIAS placeId={} alias='{}'",
+                todoId, place.getId(), userPlace.getAliasName());
+
+        return self.getTodoDetail(userId, todoId);
+    }
+
+    /**
+     * SPECIFIC/ALIAS 단건 후보를 todo_candidate_places에 등록한다.
+     * distanceM은 0으로 초기화하며, 다음 geofence 재계산 시 PostGIS 실거리로 갱신된다.
+     */
+    private void saveSingleCandidate(Todo todo, Place place) {
+        todoCandidatePlaceRepository.save(TodoCandidatePlace.builder()
+                .todo(todo)
+                .place(place)
+                .distanceM(0)
+                .isMonitoringTarget(true)
+                .calculatedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build());
     }
 
     @Override
