@@ -2,30 +2,34 @@ package com.timingnote.api.domain.notification.service;
 
 import com.timingnote.api.domain.notification.dto.request.GeofenceRecalculateRequestDto;
 import com.timingnote.api.domain.notification.dto.response.GeofenceRecalculateResponseDto;
+import com.timingnote.api.domain.place.service.GenericCandidateRefreshService;
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Geofence 재계산 요청 서비스.
+ * POST /api/v1/geofence/recalculate 핸들러.
+ *
+ * <p>메서드에 {@code @Transactional}을 두지 않는 이유: Kakao HTTP 호출을 트랜잭션 안에 두면
+ * HikariCP 커넥션이 응답 대기 시간 동안 점유된다. refresh는 트랜잭션 없이, enqueue는 자체
+ * 짧은 트랜잭션으로 분리한다.
  */
 @Service
 @RequiredArgsConstructor
 public class GeofenceRecalculateServiceImpl implements GeofenceRecalculateService {
 
-    private final GeofenceRecalculateOutboxService geofenceRecalculateOutboxService;
+    private final GenericCandidateRefreshService refreshService;
+    private final GeofenceRecalculateOutboxService outboxService;
 
     @Override
-    @Transactional
     public GeofenceRecalculateResponseDto requestRecalculation(Long userId, GeofenceRecalculateRequestDto requestDto) {
-        // 중요 위치 변경 이벤트를 outbox에 적재하고 비동기 릴레이로 전달한다.
         if (requestDto == null || requestDto.getLatitude() == null || requestDto.getLongitude() == null) {
             throw new BusinessException(ErrorCode.INVALID_GEOFENCE_RECALCULATE_REQUEST);
         }
         try {
-            geofenceRecalculateOutboxService.enqueue(
+            refreshService.refresh(userId, requestDto.getLatitude(), requestDto.getLongitude());
+            outboxService.enqueue(
                     userId,
                     requestDto.getLatitude(),
                     requestDto.getLongitude(),
