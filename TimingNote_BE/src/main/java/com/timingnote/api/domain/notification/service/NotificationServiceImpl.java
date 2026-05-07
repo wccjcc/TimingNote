@@ -64,6 +64,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserNotificationRepository userNotificationRepository;
     private final PlaceRepository placeRepository;
     private final PushNotificationSender pushNotificationSender;
+    private final GeofenceRecalculateOutboxService geofenceRecalculateOutboxService;
 
     @Override
     @Transactional
@@ -188,6 +189,14 @@ public class NotificationServiceImpl implements NotificationService {
             case COMPLETE -> {
                 notification.markOpened(now);
                 todo.updateStatus(TodoStatus.DONE.name());
+                // COMPLETE 처리 시점에만 geofence 재계산 outbox 이벤트를 적재합니다.
+                // 위치 정보는 프론트에서 항상 전달하되, 값이 없으면 null로 적재됩니다.
+                geofenceRecalculateOutboxService.enqueue(
+                        userId,
+                        requestDto.getLatitude(),
+                        requestDto.getLongitude(),
+                        requestDto.getCourse()
+                );
                 yield NotificationActionResponseDto.builder()
                         .actionType(actionType.name())
                         .todoStatus(todo.getStatus())
