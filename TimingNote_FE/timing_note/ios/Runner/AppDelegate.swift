@@ -14,6 +14,10 @@ import UserNotifications
 
   /// 액션 식별자: 1시간 스누즈
   private let actionSnooze60 = "SNOOZE_60"
+  /// Flutter로 푸시 액션 탭 이벤트를 전달하는 채널 이름입니다.
+  private let pushActionChannelName = "timing_note/push_actions"
+  private var pushActionChannel: FlutterMethodChannel?
+  private var pendingPushActionPayloads: [[String: Any]] = []
 
   override func application(
     _ application: UIApplication,
@@ -40,6 +44,7 @@ import UserNotifications
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     NativeGeofenceBridge.shared.attachChannels(pluginRegistry: engineBridge.pluginRegistry)
+    attachPushActionChannel(pluginRegistry: engineBridge.pluginRegistry)
   }
 
   /// 푸시 액션 버튼 카테고리를 등록합니다.
@@ -94,8 +99,60 @@ import UserNotifications
 
     if categoryId == geofenceActionCategoryId {
       NSLog("[PushAction] category=\(categoryId), action=\(actionId)")
+      forwardPushActionToFlutter(response: response)
     }
 
     completionHandler()
+  }
+
+  /// Flutter MethodChannel을 연결합니다.
+  ///
+  /// Implicit Flutter Engine이 준비된 시점에만 messenger를 확보할 수 있으므로
+  /// didInitializeImplicitFlutterEngine에서 호출합니다.
+  private func attachPushActionChannel(pluginRegistry: FlutterPluginRegistry) {
+    guard let registrar = pluginRegistry.registrar(forPlugin: "PushActionBridge") else {
+      assertionFailure("PushActionBridge registrar is unavailable")
+      return
+    }
+
+    pushActionChannel = FlutterMethodChannel(
+      name: pushActionChannelName,
+      binaryMessenger: registrar.messenger()
+    )
+
+    // 엔진 초기화 전에 적재된 액션 이벤트가 있다면 순서대로 전달합니다.
+    flushPendingPushActionPayloads()
+  }
+
+  /// iOS 알림 액션 탭 응답을 Flutter로 전달합니다.
+  ///
+  /// 전달 payload:
+  /// - actionId: COMPLETE / SNOOZE_60
+  /// - notificationId: 백엔드가 data payload로 내려준 notifications PK
+  /// - todoId / slotId: 디버깅 및 추적용 보조 정보
+  private func forwardPushActionToFlutter(response: UNNotificationResponse) {
+    let userInfo = response.notification.request.content.userInfo
+    let payload: [String: Any] = [
+      "actionId": response.actionIdentifier,
+      "notificationId": String(describing: userInfo["notificationId"] ?? ""),
+      "todoId": String(describing: userInfo["todoId"] ?? ""),
+      "slotId": String(describing: userInfo["slotId"] ?? "")
+    ]
+
+    guard let channel = pushActionChannel else {
+      pendingPushActionPayloads.append(payload)
+      return
+    }
+
+    channel.invokeMethod("onPushAction", arguments: payload)
+  }
+
+  /// 아직 Flutter 채널이 준비되지 않아 대기 중이던 이벤트를 재전송합니다.
+  private func flushPendingPushActionPayloads() {
+    guard let channel = pushActionChannel else { return }
+    for payload in pendingPushActionPayloads {
+      channel.invokeMethod("onPushAction", arguments: payload)
+    }
+    pendingPushActionPayloads.removeAll()
   }
 }

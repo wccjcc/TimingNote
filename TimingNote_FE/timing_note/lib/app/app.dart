@@ -2,9 +2,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logger/logger.dart';
 
 import '../core/geofence/geofence_runtime.dart';
 import '../core/notification/fcm_token_service.dart';
+import '../core/notification/push_action_bridge.dart';
+import '../core/location/location_permission_service.dart';
+import '../core/location/location_service.dart';
+import '../features/notification/service/notification_service.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -21,7 +26,11 @@ class App extends ConsumerStatefulWidget {
 /// - foreground(resumed): geofenceRuntime.start() 보장 + syncSlots() 강제 1회
 /// - background/paused: geofenceRuntime.stop()으로 SSE/감시 리소스 정리
 class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
+  static final Logger _logger = Logger();
+
   late final Future<void> _bootstrapFuture;
+  final PushActionBridge _pushActionBridge = PushActionBridge();
+  StreamSubscription<Map<String, String>>? _pushActionSubscription;
 
   @override
   void initState() {
@@ -32,6 +41,8 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       try {
         // FCM 토큰 초기화는 앱 시작 시점에 1회 수행합니다.
         await ref.read(fcmTokenServiceProvider).initialize();
+        await _pushActionBridge.initialize();
+        _pushActionSubscription = _pushActionBridge.events.listen(_handlePushActionEvent);
       } catch (e) {
         debugPrint('Bootstrap skipped: $e');
       }
@@ -41,6 +52,10 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    final subscription = _pushActionSubscription;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
     super.dispose();
   }
 
@@ -77,6 +92,65 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         // - 따라서 lifecycle 경로에서는 일관되게 "SSE만 중지" 정책을 사용합니다.
         await runtime.pauseRealtimeSync();
         break;
+    }
+  }
+
+  /// iOS 푸시 액션 버튼 탭 이벤트를 처리합니다.
+  ///
+  /// 처리 규칙:
+  /// - COMPLETE   -> NOTI-02 actionType=COMPLETE
+  /// - SNOOZE_60  -> NOTI-02 actionType=SNOOZE, snoozeMinutes=60
+  /// - geofence 슬롯 반영은 백엔드 outbox->consumer->SSE signal 경로에 위임
+  Future<void> _handlePushActionEvent(Map<String, String> event) async {
+    final actionId = event['actionId'] ?? '';
+    final notificationId = int.tryParse(event['notificationId'] ?? '');
+    if (notificationId == null) {
+      _logger.w('[PUSH_ACTION_SKIP] invalid notificationId event=$event');
+      return;
+    }
+
+    final notificationService = ref.read(notificationServiceProvider);
+    try {
+      // 액션 유형과 무관하게 현재 위치/방향을 best-effort로 수집합니다.
+      // 실패 시 null을 전송하고 액션은 계속 진행합니다.
+      double? latitude;
+      double? longitude;
+      double? course;
+      try {
+        final locationService = LocationService(LocationPermissionService());
+        final position = await locationService.getCurrentPosition();
+        latitude = position.latitude;
+        longitude = position.longitude;
+        if (position.heading.isFinite && position.heading >= 0) {
+          course = position.heading;
+        }
+      } catch (e) {
+        _logger.w('[PUSH_ACTION_LOCATION_SKIP] action without location: $e');
+      }
+
+      if (actionId == 'COMPLETE') {
+        await notificationService.applyAction(
+          notificationId: notificationId,
+          actionType: 'COMPLETE',
+          latitude: latitude,
+          longitude: longitude,
+          course: course,
+        );
+      } else if (actionId == 'SNOOZE_60') {
+        await notificationService.applyAction(
+          notificationId: notificationId,
+          actionType: 'SNOOZE',
+          snoozeMinutes: 60,
+          latitude: latitude,
+          longitude: longitude,
+          course: course,
+        );
+      } else {
+        _logger.w('[PUSH_ACTION_SKIP] unsupported actionId=$actionId');
+        return;
+      }
+    } catch (e, st) {
+      _logger.e('[PUSH_ACTION_ERROR] failed action handling', error: e, stackTrace: st);
     }
   }
 

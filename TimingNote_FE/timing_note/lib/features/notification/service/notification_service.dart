@@ -35,12 +35,20 @@ class NotificationService {
     required int notificationId,
     required String actionType,
     int? snoozeMinutes,
+    double? latitude,
+    double? longitude,
+    double? course,
   }) async {
     final envelope = await _client.post<NotificationActionResult>(
       '${ApiEndpoints.notifications}/$notificationId/actions',
       data: {
         'actionType': actionType,
         if (snoozeMinutes != null) 'snoozeMinutes': snoozeMinutes,
+        // 확장성을 위해 위치 키는 항상 포함합니다.
+        // 값이 없으면 null로 전송되어 백엔드에서 정책에 맞게 처리할 수 있습니다.
+        'latitude': latitude,
+        'longitude': longitude,
+        'course': course,
       },
       dataParser: (json) =>
           NotificationActionResult.fromJson(json as Map<String, dynamic>),
