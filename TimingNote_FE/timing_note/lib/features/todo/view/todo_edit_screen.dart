@@ -492,7 +492,7 @@ class _Star {
 }
 
 /// 장소 선택 타일 — 탭하면 PlaceSearchScreen으로 이동하고,
-/// 결과가 오면 todoDetailProvider.setPlace() 즉시 호출.
+/// 결과가 ALIAS면 setAliasPlace, EXTERNAL이면 setExternalPlace 즉시 호출.
 class _PlaceTile extends ConsumerWidget {
   const _PlaceTile({required this.todoId});
 
@@ -559,20 +559,15 @@ class _PlaceTile extends ConsumerWidget {
         ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
         : '/place-search';
 
-    final result = await context.push<SelectedKakaoPlace>(uri);
+    final result = await context.push<SelectedPlace>(uri);
     if (result == null || !context.mounted) return;
 
-    await ref.read(todoDetailProvider(todoId).notifier).setPlace(
-          kakaoPlaceId: result.kakaoPlaceId,
-          placeName: result.name,
-          addressName: result.address,
-          roadAddressName: result.roadAddress,
-          categoryGroupCode: result.categoryGroupCode,
-          categoryGroupName: result.categoryGroupName,
-          phone: result.phone,
-          placeUrl: result.placeUrl,
-          longitude: result.longitude,
-          latitude: result.latitude,
-        );
+    final notifier = ref.read(todoDetailProvider(todoId).notifier);
+    switch (result) {
+      case SelectedAliasPlace alias:
+        await notifier.setAliasPlace(userPlaceId: alias.userPlaceId);
+      case SelectedExternalPlace external:
+        await notifier.setExternalPlace(place: external);
+    }
   }
 }

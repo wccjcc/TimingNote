@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/location/location_provider.dart';
+import '../model/selected_kakao_place.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../service/todo_service.dart';
@@ -84,7 +86,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     });
   }
 
-  /// 알림 토글 (낙관적 업데이트)
+  /// 알림 토글 (낙관적 업데이트) — 후보 재계산 트리거이므로 GPS 4종 동봉
   Future<void> toggleAlert() async {
     final current = state.detail;
     if (current == null) return;
@@ -93,13 +95,21 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     state = state.copyWith(detail: toggled);
 
     try {
-      await _service.updateAlert(_todoId, alertEnabled: toggled.alertEnabled);
+      final gps = await tryGetGpsSnapshot(ref);
+      await _service.updateAlert(
+        _todoId,
+        alertEnabled: toggled.alertEnabled,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
     } catch (_) {
       state = state.copyWith(detail: current);
     }
   }
 
-  /// 완료 상태 토글 (낙관적 업데이트)
+  /// 완료 상태 토글 (낙관적 업데이트) — monitoring 쿼리 필터 변경으로 슬롯 재계산
   Future<void> toggleStatus() async {
     final current = state.detail;
     if (current == null) return;
@@ -112,17 +122,32 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     state = state.copyWith(detail: toggled);
 
     try {
-      await _service.updateStatus(_todoId, status: newStatus);
+      final gps = await tryGetGpsSnapshot(ref);
+      await _service.updateStatus(
+        _todoId,
+        status: newStatus,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
     } catch (_) {
       state = state.copyWith(detail: current);
     }
   }
 
-  /// 소프트 삭제 — 완료 후 화면을 pop하는 것은 View 책임
+  /// 소프트 삭제 — 슬롯 비활성화 트리거이므로 GPS 4종 동봉
   Future<bool> deleteTodo() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      await _service.delete(_todoId);
+      final gps = await tryGetGpsSnapshot(ref);
+      await _service.delete(
+        _todoId,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
       ref.invalidate(todoListProvider);
       state = state.copyWith(isLoading: false);
       return true;
@@ -132,33 +157,37 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     }
   }
 
-  /// 장소 지정 — Kakao 검색 결과를 Todo에 연결
-  Future<void> setPlace({
-    required String kakaoPlaceId,
-    required String placeName,
-    String? addressName,
-    String? roadAddressName,
-    String? categoryGroupCode,
-    String? categoryGroupName,
-    String? phone,
-    String? placeUrl,
-    required double longitude,
-    required double latitude,
-  }) async {
+  /// 장소 지정 — ALIAS (내 장소) 선택. GPS 4종은 호출 시점에 가져옴.
+  Future<void> setAliasPlace({required int userPlaceId}) async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final updated = await _service.setPlace(
+      final gps = await tryGetGpsSnapshot(ref);
+      final updated = await _service.setAliasPlace(
         _todoId,
-        kakaoPlaceId: kakaoPlaceId,
-        placeName: placeName,
-        addressName: addressName,
-        roadAddressName: roadAddressName,
-        categoryGroupCode: categoryGroupCode,
-        categoryGroupName: categoryGroupName,
-        phone: phone,
-        placeUrl: placeUrl,
-        longitude: longitude,
-        latitude: latitude,
+        userPlaceId: userPlaceId,
+        userLatitude: gps?.latitude,
+        userLongitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
+      state = state.copyWith(detail: updated, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  /// 장소 지정 — SPECIFIC (외부 장소). GPS 4종은 호출 시점에 가져옴.
+  Future<void> setExternalPlace({required SelectedExternalPlace place}) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final gps = await tryGetGpsSnapshot(ref);
+      final updated = await _service.setExternalPlace(
+        _todoId,
+        place: place,
+        userLatitude: gps?.latitude,
+        userLongitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
       );
       state = state.copyWith(detail: updated, isLoading: false);
     } catch (e) {
