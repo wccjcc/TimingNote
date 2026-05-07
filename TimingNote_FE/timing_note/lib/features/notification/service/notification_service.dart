@@ -63,6 +63,23 @@ class NotificationService {
     );
   }
 
+  /// NOTI-05: geofence 슬롯 기준으로 서버 푸시 알림 발송을 요청합니다.
+  ///
+  /// 반환값은 서버 응답의 sent 필드를 우선 사용하고,
+  /// 필드가 없으면 요청 성공 자체를 true로 간주합니다.
+  Future<bool> sendGeofenceNotification(int slotId) async {
+    final envelope = await _client.get<Map<String, dynamic>>(
+      '${ApiEndpoints.notifications}/geofence/$slotId',
+      dataParser: (json) => json as Map<String, dynamic>,
+    );
+
+    final data = envelope.data;
+    if (data == null) {
+      return true;
+    }
+    return data['sent'] != false;
+  }
+
   /// 서버가 현재 계산해둔 geofence 슬롯 목록을 조회합니다.
   ///
   /// SSE는 "슬롯이 바뀌었다"는 신호만 전달하므로,

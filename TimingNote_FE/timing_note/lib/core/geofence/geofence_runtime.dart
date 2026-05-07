@@ -1,14 +1,10 @@
 ﻿import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 
 import '../../features/notification/service/notification_service.dart';
 import '../location/location_permission_service.dart';
-import '../notification/local_notification_service.dart';
-import 'geofence_event.dart';
-import 'geofence_event_publisher.dart';
 import 'geofence_region_store.dart';
 import 'geofence_service.dart';
 import 'geofence_sse_client.dart';
@@ -18,27 +14,21 @@ import 'native_geofence_bridge.dart';
 ///
 /// 책임:
 /// 1) 앱 시작 시 geofence 감시 초기화
-/// 2) 네이티브 geofence 이벤트 수신 시 알림/백엔드 전송
+/// 2) geofence 진입 이벤트 발생 시 NOTI-05 호출
 /// 3) SSE 신호를 받아 서버 슬롯 재조회 후 감시 목록 갱신
 class GeofenceRuntime {
   GeofenceRuntime({
     required GeofenceService geofenceService,
-    required GeofenceEventPublisher publisher,
     required GeofenceRegionStore regionStore,
-    required LocalNotificationService localNotificationService,
     required GeofenceSseClient geofenceSseClient,
     required NotificationService notificationService,
   })  : _geofenceService = geofenceService,
-        _publisher = publisher,
         _regionStore = regionStore,
-        _localNotificationService = localNotificationService,
         _geofenceSseClient = geofenceSseClient,
         _notificationService = notificationService;
 
   final GeofenceService _geofenceService;
-  final GeofenceEventPublisher _publisher;
   final GeofenceRegionStore _regionStore;
-  final LocalNotificationService _localNotificationService;
   final GeofenceSseClient _geofenceSseClient;
   final NotificationService _notificationService;
   final Logger _logger = Logger();
@@ -50,13 +40,10 @@ class GeofenceRuntime {
   bool get isStarted => _started;
 
   /// Geofence 감시를 시작합니다.
-  ///
-  /// 동작 순서:
-  /// - 로컬에 저장된 기존 region이 있으면 우선 사용
-  /// - 저장된 region이 없으면 즉시 SSE/slots 동기화로 서버 기준 목록을 받음
-  /// - 하드코딩 fallback은 사용하지 않음
   Future<void> start() async {
     if (_started) {
+      // 이미 감시 중이면 실시간 동기화(SSE)만 재개합니다.
+      await resumeRealtimeSync();
       return;
     }
 
@@ -68,8 +55,6 @@ class GeofenceRuntime {
         onTransition: _handleTransition,
       );
     } else {
-      // 앱 첫 실행/캐시 초기화 상태에서는 임시 하드코딩 region을 등록하지 않습니다.
-      // 이 상태는 잠시 "미등록" 상태로 두고, 아래 슬롯 동기화가 완료되면 서버 기준으로 등록합니다.
       _logger.i('[GEOFENCE_MONITORING_STARTED] no cached regions, waiting server slots');
     }
 
@@ -78,14 +63,29 @@ class GeofenceRuntime {
       _logger.i('[GEOFENCE_MONITORING_STARTED] regions=${storedRegions.length}');
     }
 
-    // SSE 슬롯 동기화를 시작합니다.
-    // 연결 직후 1회 강제 재조회하여 초기 정합성을 맞춥니다.
     await _startSlotsSignalSync();
   }
 
-  /// Geofence 감시를 중지합니다.
+  /// Geofence 감시를 완전히 중지합니다.
+  ///
+  /// 주의:
+  /// - 일반적인 background 전환에서는 이 메서드를 쓰지 않습니다.
+  /// - background에서는 geofence 감시는 유지하고, SSE만 끊어야 하므로
+  ///   [pauseRealtimeSync]를 사용합니다.
   Future<void> stop() async {
-    // 1) 슬롯 재조회 관련 비동기 리소스 정리
+    await pauseRealtimeSync();
+    await _geofenceService.clearGeofences();
+
+    _started = false;
+    _logger.i('[GEOFENCE_MONITORING_STOPPED]');
+  }
+
+  /// 실시간 동기화(SSE + 슬롯 재조회 트리거)만 일시 중지합니다.
+  ///
+  /// 사용 시점:
+  /// - 앱이 paused/background로 내려갈 때
+  /// - geofence 감시는 유지하고 네트워크 동기화만 멈추고 싶을 때
+  Future<void> pauseRealtimeSync() async {
     _slotsRefreshDebounceTimer?.cancel();
     _slotsRefreshDebounceTimer = null;
 
@@ -93,24 +93,25 @@ class GeofenceRuntime {
     _sseSignalSubscription = null;
 
     await _geofenceSseClient.stop();
+    _logger.i('[GEOFENCE_REALTIME_SYNC_PAUSED]');
+  }
 
-    // 2) 네이티브 geofence 감시 해제
-    await _geofenceService.clearGeofences();
-
-    _started = false;
-    _logger.i('[GEOFENCE_MONITORING_STOPPED]');
+  /// 실시간 동기화(SSE)를 재개합니다.
+  Future<void> resumeRealtimeSync() async {
+    if (!_started) {
+      return;
+    }
+    await _startSlotsSignalSync();
+    _logger.i('[GEOFENCE_REALTIME_SYNC_RESUMED]');
   }
 
   /// SSE 신호 수신 파이프라인을 시작합니다.
   Future<void> _startSlotsSignalSync() async {
     await _geofenceSseClient.start();
-
-    // 연결 성공 직후 1회 즉시 동기화
     await _refreshSlots();
 
     await _sseSignalSubscription?.cancel();
     _sseSignalSubscription = _geofenceSseClient.signals.listen((signal) {
-      // 신호 폭주 시 API 과호출을 막기 위해 디바운스를 적용합니다.
       _slotsRefreshDebounceTimer?.cancel();
       _slotsRefreshDebounceTimer = Timer(const Duration(seconds: 1), () {
         _refreshSlots();
@@ -120,20 +121,12 @@ class GeofenceRuntime {
     });
   }
 
-  /// 외부(앱 lifecycle 등)에서 강제로 슬롯 동기화를 요청할 때 사용하는 공개 메서드입니다.
-  ///
-  /// 사용 시점:
-  /// - 앱이 background -> foreground(resumed)로 복귀했을 때
-  /// - SSE 재연결 직후 정합성을 한 번 더 맞추고 싶을 때
+  /// 외부(앱 lifecycle 등)에서 강제로 슬롯 동기화를 요청할 때 사용합니다.
   Future<void> syncSlots() async {
     await _refreshSlots();
   }
 
   /// 서버의 최신 geofence 슬롯 목록을 조회하고 네이티브 감시에 반영합니다.
-  ///
-  /// 정책:
-  /// - 정상 응답에서 슬롯이 비어 있으면 전체 해제
-  /// - 좌표/반경이 유효한 슬롯만 등록 대상으로 사용
   Future<void> _refreshSlots() async {
     try {
       final slotsResponse = await _notificationService.getGeofenceSlots();
@@ -178,42 +171,35 @@ class GeofenceRuntime {
     }
   }
 
-  /// 네이티브 geofence enter/exit 이벤트를 공통 이벤트로 변환해 처리합니다.
+  /// geofence 이벤트에서 slotId를 파싱해 NOTI-05를 호출합니다.
+  ///
+  /// 정책:
+  /// - ENTER 이벤트에서만 호출(도착 시점 알림)
+  /// - geofenceId는 slot_{id} 형식으로 가정
   Future<void> _handleTransition(GeofenceTransitionEvent transitionEvent) async {
-    final event = GeofenceEvent(
-      eventId: transitionEvent.eventId.isNotEmpty
-          ? transitionEvent.eventId
-          : _newFallbackEventId(transitionEvent),
-      geofenceId: transitionEvent.geofenceId,
-      transition: transitionEvent.transition,
-      occurredAt: transitionEvent.occurredAt,
-      latitude: transitionEvent.latitude,
-      longitude: transitionEvent.longitude,
-      accuracyMeters: transitionEvent.accuracyMeters,
-    );
+    if (transitionEvent.transition != GeofenceTransitionType.enter) {
+      return;
+    }
+
+    final slotId = _extractSlotId(transitionEvent.geofenceId);
+    if (slotId == null) {
+      _logger.w('[GEOFENCE_NOTI_SKIP] invalid geofenceId=${transitionEvent.geofenceId}');
+      return;
+    }
 
     try {
-      await _localNotificationService.showGeofenceNotification(
-        geofenceId: event.geofenceId,
-        transition: event.transition.name.toUpperCase(),
-        occurredAt: event.occurredAt.toLocal().toIso8601String(),
-      );
-
-      await _publisher.publish(event);
-      _logger.i(
-        '[GEOFENCE_PUBLISHED] '
-        '${event.transition.name} ${event.geofenceId} '
-        '${event.occurredAt.toIso8601String()}',
-      );
+      final sent = await _notificationService.sendGeofenceNotification(slotId);
+      _logger.i('[GEOFENCE_NOTI_REQUESTED] slotId=$slotId sent=$sent');
     } catch (e) {
-      _logger.e('[GEOFENCE_PUBLISH_FAILED] ${event.geofenceId} $e');
+      _logger.e('[GEOFENCE_NOTI_FAILED] slotId=$slotId error=$e');
     }
   }
 
-  /// 네이티브에서 eventId를 주지 않을 때 사용할 fallback ID 생성기입니다.
-  String _newFallbackEventId(GeofenceTransitionEvent event) {
-    final random = Random().nextInt(1 << 32).toRadixString(16);
-    return '${event.geofenceId}_${event.transition.name}_${event.occurredAt.microsecondsSinceEpoch}_$random';
+  int? _extractSlotId(String geofenceId) {
+    if (!geofenceId.startsWith('slot_')) {
+      return null;
+    }
+    return int.tryParse(geofenceId.substring(5));
   }
 }
 
@@ -229,10 +215,6 @@ final geofenceRegionStoreProvider = Provider<GeofenceRegionStore>((ref) {
   return GeofenceRegionStore();
 });
 
-final localNotificationServiceProvider = Provider<LocalNotificationService>((ref) {
-  return LocalNotificationService();
-});
-
 final geofenceServiceProvider = Provider<GeofenceService>((ref) {
   return GeofenceService(
     permissionService: ref.read(locationPermissionServiceProvider),
@@ -243,9 +225,7 @@ final geofenceServiceProvider = Provider<GeofenceService>((ref) {
 final geofenceRuntimeProvider = Provider<GeofenceRuntime>((ref) {
   return GeofenceRuntime(
     geofenceService: ref.read(geofenceServiceProvider),
-    publisher: ref.read(geofenceEventPublisherProvider),
     regionStore: ref.read(geofenceRegionStoreProvider),
-    localNotificationService: ref.read(localNotificationServiceProvider),
     geofenceSseClient: ref.read(geofenceSseClientProvider),
     notificationService: ref.read(notificationServiceProvider),
   );
