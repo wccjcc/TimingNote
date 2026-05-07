@@ -49,4 +49,8 @@ public class UserPlace {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    public void updateAliasName(String aliasName) {
+        this.aliasName = aliasName;
+    }
 }

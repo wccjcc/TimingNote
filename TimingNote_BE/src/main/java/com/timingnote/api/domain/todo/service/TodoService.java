@@ -8,6 +8,8 @@ import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoListResponse;
 import com.timingnote.api.infra.client.ai.dto.AiStructureResponse;
 
+import java.util.List;
+
 public interface TodoService {
     TodoCreateResponse createTodo(Long userId, TodoCreateRequest request);
 
@@ -22,8 +24,10 @@ public interface TodoService {
     void updateStatus(Long userId, Long todoId, String status);
 
     /**
-     * FE에서 직접 선택한 장소를 Todo에 연결한다.
-     * places 테이블에 upsert 후 todo.primaryPlaceId / resolvedPlaceLabel 갱신.
+     * Todo에 장소를 지정한다.
+     * - userPlaceId 있음  → todoType=ALIAS  (내 장소 목록에서 선택)
+     * - externalPlace 있음 → todoType=SPECIFIC (Kakao 키워드/주소 검색, 지도 마커 핀)
+     * 둘 다 있거나 둘 다 없으면 VALIDATION_ERROR.
      */
     TodoDetailResponse setTodoPlace(Long userId, Long todoId, TodoPlaceSetRequest request);
 
@@ -33,8 +37,11 @@ public interface TodoService {
      */
     TodoDetailResponse removeTodoPlace(Long userId, Long todoId);
 
-    /** 소프트 삭제 — status = DELETED, deletedAt = now() */
-    void deleteTodo(Long userId, Long todoId);
+    /**
+     * 단건/다중 소프트 삭제 — status = DELETED, deletedAt = now().
+     * 전달된 ID 중 하나라도 소유권이 없으면 전체 실패(FORBIDDEN).
+     */
+    void deleteTodos(Long userId, List<Long> ids);
 
     void saveStructure(Long todoId, AiStructureResponse response, Double latitude, Double longitude);
 

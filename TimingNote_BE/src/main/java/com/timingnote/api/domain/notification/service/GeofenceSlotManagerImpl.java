@@ -83,7 +83,7 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
                     : todoCandidatePlaceRepository.findAllWithTodoAndPlaceByIdIn(candidateIds);
         } else {
             // 위치 좌표가 없으면 기존 candidate distance_m을 fallback으로 사용한다.
-            rawCandidates = todoCandidatePlaceRepository.findMonitoringCandidatesByUserId(event.userId());
+            rawCandidates = todoCandidatePlaceRepository.findMonitoringCandidatesByUserId(event.userId(), now);
         }
         // 하드 규칙 필터 -> 점수 계산(거리/방향/alias 보너스) -> 내림차순 정렬
         List<ScoredCandidate> scored = rawCandidates.stream()

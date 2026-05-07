@@ -22,6 +22,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -158,37 +160,41 @@ public class TodoController {
     }
 
     @Operation(
-            summary = "할 일 삭제",
-            description = "소프트 삭제 — status를 DELETED로 변경한다. 목록 조회에서 자동으로 제외된다."
+            summary = "할 일 삭제 (단건/다중)",
+            description = "쿼리 파라미터로 ID 목록을 전달한다. 단건은 ids=1, 다중은 ids=1,2,3. " +
+                    "하나라도 소유권이 없으면 전체 실패 처리된다."
     )
     @ApiResponse(responseCode = "200", description = "삭제 성공")
+    @ApiResponse(responseCode = "400", description = "ids 파라미터 누락",
+            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
     @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
             content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
-    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
+    @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo 포함",
             content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
-    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
-            content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
-    @DeleteMapping("/{todoId}")
-    public ApiResponseDto<Void> deleteTodo(
+    @DeleteMapping
+    public ApiResponseDto<Void> deleteTodos(
             HttpServletRequest request,
-            @PathVariable Long todoId) {
+            @Parameter(description = "삭제할 Todo ID 목록 (예: ids=1,2,3)")
+            @RequestParam List<Long> ids) {
         Long userId = extractAuthenticatedUserId(request);
-        todoService.deleteTodo(userId, todoId);
+        todoService.deleteTodos(userId, ids);
         return ApiResponseDto.success(null);
     }
 
     @Operation(
             summary = "Todo 장소 지정",
-            description = "FE에서 Kakao 검색으로 선택한 장소를 Todo에 연결한다. places 테이블에 upsert 후 primaryPlaceId를 갱신한다."
+            description = "userPlaceId(ALIAS) 또는 externalPlace(SPECIFIC) 중 하나만 포함해야 한다. " +
+                    "ALIAS: 내 장소 목록에서 선택. " +
+                    "SPECIFIC: Kakao 키워드 검색(kakaoPlaceId 있음), 주소 검색·지도 마커 핀(kakaoPlaceId 없음) 모두 지원."
     )
     @ApiResponse(responseCode = "200", description = "지정 성공")
-    @ApiResponse(responseCode = "400", description = "필수 필드 누락 (kakaoPlaceId, placeName, longitude, latitude)",
+    @ApiResponse(responseCode = "400", description = "userPlaceId·externalPlace 둘 다 있거나 둘 다 없음, 또는 필수 필드 누락",
             content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
     @ApiResponse(responseCode = "401", description = "유효하지 않은 Device Secret",
             content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
     @ApiResponse(responseCode = "403", description = "다른 사용자의 Todo",
             content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
-    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo",
+    @ApiResponse(responseCode = "404", description = "존재하지 않는 Todo 또는 내 장소",
             content = @Content(schema = @Schema(implementation = ApiResponseDto.class)))
     @PostMapping("/{todoId}/place")
     public ApiResponseDto<TodoDetailResponse> setTodoPlace(

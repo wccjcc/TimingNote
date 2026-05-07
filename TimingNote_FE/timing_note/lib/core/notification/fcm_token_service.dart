@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../auth/device_auth_service.dart';
 import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
 import '../network/api_provider.dart';
@@ -23,7 +22,6 @@ final notificationPermissionServiceProvider =
 final fcmTokenServiceProvider = Provider<FcmTokenService>((ref) {
   return FcmTokenService(
     apiClient: ref.read(apiClientProvider),
-    deviceAuthService: ref.read(deviceAuthServiceProvider),
     permissionService: ref.read(notificationPermissionServiceProvider),
   );
 });
@@ -32,14 +30,11 @@ final fcmTokenServiceProvider = Provider<FcmTokenService>((ref) {
 class FcmTokenService {
   FcmTokenService({
     required ApiClient apiClient,
-    required DeviceAuthService deviceAuthService,
     required NotificationPermissionService permissionService,
   })  : _apiClient = apiClient,
-        _deviceAuthService = deviceAuthService,
         _permissionService = permissionService;
 
   final ApiClient _apiClient;
-  final DeviceAuthService _deviceAuthService;
   final NotificationPermissionService _permissionService;
   final Logger _logger = Logger();
 
@@ -62,7 +57,6 @@ class FcmTokenService {
     }
 
     // FCM 등록 API는 X-Device-Secret 인증이 필요하므로 먼저 디바이스 등록을 보장한다.
-    await _deviceAuthService.initialize();
     await _initializeFirebase();
     await _requestNotificationPermission();
     await _syncCurrentToken();

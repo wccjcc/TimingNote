@@ -19,4 +19,7 @@ public class UserRegisterResponseDto {
 
     @Schema(description = "사용자 생성 시각 (ISO 8601)", example = "2026-04-19T10:00:00Z")
     private String createdAt;
+
+    @Schema(description = "신규 등록 유저인지 여부", example="true")
+    private Boolean isNewUser;
 }

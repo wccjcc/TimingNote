@@ -29,8 +29,8 @@ public class Place {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 카카오 장소 ID
-    @Column(name = "external_place_id", nullable = false, unique = true, length = 128)
+    // 카카오 장소 ID (지도 마커로 등록한 사용자 정의 장소는 null)
+    @Column(name = "external_place_id", nullable = true, length = 128)
     private String externalPlaceId;
 
     // Google Places ID (영업시간 연동, nullable)

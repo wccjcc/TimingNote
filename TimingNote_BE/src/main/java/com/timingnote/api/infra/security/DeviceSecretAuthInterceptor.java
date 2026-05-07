@@ -28,6 +28,11 @@ public class DeviceSecretAuthInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        // CORS preflight 요청은 인증 헤더 없이 들어오므로 통과시킨다.
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
         String rawSecret = request.getHeader(DEVICE_SECRET_HEADER);
         if (!StringUtils.hasText(rawSecret)) {
             throw new BusinessException("X-Device-Secret 헤더가 필요합니다.", ErrorCode.MISSING_REQUEST_HEADER);

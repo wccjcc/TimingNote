@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/auth/device_auth_service.dart';
 import '../core/notification/fcm_token_service.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -25,7 +24,6 @@ class _AppState extends ConsumerState<App> {
     // try-catch로 감싸 앱 자체가 죽지 않도록 한다.
     _bootstrapFuture = Future<void>.microtask(() async {
       try {
-        await ref.read(deviceAuthServiceProvider).initialize();
         await ref.read(fcmTokenServiceProvider).initialize();
       } catch (e) {
         debugPrint('Bootstrap skipped: $e');
@@ -73,7 +71,7 @@ class _AppState extends ConsumerState<App> {
         return MaterialApp.router(
           title: 'Timing Note',
           debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
+          theme: AppTheme.dark,
           routerConfig: router,
         );
       },

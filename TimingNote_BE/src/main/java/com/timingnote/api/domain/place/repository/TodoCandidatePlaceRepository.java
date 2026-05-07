@@ -1,14 +1,11 @@
 package com.timingnote.api.domain.place.repository;
 
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
 import com.timingnote.api.domain.place.repository.projection.TodoCandidateDistanceProjection;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,9 +13,20 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
 
     List<TodoCandidatePlace> findByTodoId(Long todoId);
 
+    @Query("""
+            SELECT tcp FROM TodoCandidatePlace tcp
+            JOIN FETCH tcp.place
+            WHERE tcp.todo.id = :todoId
+            """)
+    List<TodoCandidatePlace> findAllWithPlaceByTodoId(@Param("todoId") Long todoId);
+
     @Modifying
     @Query("DELETE FROM TodoCandidatePlace tcp WHERE tcp.todo.id = :todoId")
     void deleteAllByTodo_Id(@Param("todoId") Long todoId);
+
+    @Modifying
+    @Query("DELETE FROM TodoCandidatePlace tcp WHERE tcp.todo.id IN :todoIds")
+    void deleteAllByTodoIdIn(@Param("todoIds") List<Long> todoIds);
 
     @Query("""
             SELECT tcp
@@ -28,8 +36,9 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
             WHERE t.userId = :userId
               AND t.status = 'ACTIVE'
               AND tcp.isMonitoringTarget = true
+              AND (tcp.expiresAt IS NULL OR tcp.expiresAt > :now)
             """)
-    List<TodoCandidatePlace> findMonitoringCandidatesByUserId(@Param("userId") Long userId);
+    List<TodoCandidatePlace> findMonitoringCandidatesByUserId(@Param("userId") Long userId, @Param("now") OffsetDateTime now);
 
     @Query("""
             SELECT tcp
@@ -53,6 +62,7 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
             WHERE t.user_id = :userId
               AND t.status = 'ACTIVE'
               AND tcp.is_monitoring_target = true
+              AND (tcp.expires_at IS NULL OR tcp.expires_at > NOW())
             """, nativeQuery = true)
     List<TodoCandidateDistanceProjection> findMonitoringCandidateDistancesByUserId(
             @Param("userId") Long userId,
