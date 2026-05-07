@@ -7,6 +7,8 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.OffsetDateTime;
+
 @Getter
 @NoArgsConstructor
 @Schema(description = "Todo 장소 지정 요청. userPlaceId(ALIAS) 또는 externalPlace(SPECIFIC) 중 하나만 포함해야 한다.")
@@ -18,6 +20,19 @@ public class TodoPlaceSetRequest {
     @Valid
     @Schema(description = "외부 장소 정보 — Kakao 키워드/주소 검색 또는 지도 마커 핀 선택 시 사용 (SPECIFIC)")
     private ExternalPlaceInfo externalPlace;
+
+    @Schema(description = "사용자 현재 위도 — 슬롯 정확도 향상을 위해 선택적으로 전달", example = "37.5660")
+    private Double latitude;
+
+    @Schema(description = "사용자 현재 경도", example = "126.9815")
+    private Double longitude;
+
+    @Schema(description = "이동 방향 (iOS CLLocation.course, 선택)", example = "180.0")
+    private Double course;
+
+    @Schema(description = "위치 정보 수집 시각 (ISO-8601, 선택)", example = "2026-05-07T10:30:00+09:00")
+    private OffsetDateTime occurredAt;
+
 
     @Getter
     @NoArgsConstructor

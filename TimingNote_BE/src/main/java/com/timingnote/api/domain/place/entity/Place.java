@@ -12,7 +12,6 @@ import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
 
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 
 @Entity
 @Getter
@@ -112,6 +111,6 @@ public class Place {
         this.googlePlaceId = googlePlaceId;
         this.regularHoursRaw = regularHoursRaw;
         this.businessStatus = businessStatus;
-        this.hoursFetchedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        this.hoursFetchedAt = OffsetDateTime.now();
     }
 }

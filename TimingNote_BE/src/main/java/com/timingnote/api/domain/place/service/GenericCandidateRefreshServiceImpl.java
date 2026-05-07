@@ -1,23 +1,16 @@
 package com.timingnote.api.domain.place.service;
 
 import com.timingnote.api.domain.place.entity.Place;
-import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
-import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service
@@ -25,17 +18,28 @@ import org.springframework.transaction.annotation.Transactional;
 public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefreshService {
 
     private final TodoRepository todoRepository;
-    private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
     private final PlaceService placeService;
+    private final GenericCandidatePersister genericCandidatePersister;
 
+    /**
+     * 유의미한 이동 이벤트 수신 시, 사용자의 활성 GENERIC 투두 후보지를 새 좌표 기준으로 갱신한다.
+     *
+     * <p>흐름:
+     * <ol>
+     *   <li>활성 GENERIC 투두 목록 조회 (짧은 읽기 트랜잭션, 레포지토리가 자체 관리)</li>
+     *   <li>placeLabel 기준으로 그루핑 → 동일 키워드는 Kakao API 1회만 호출</li>
+     *   <li>HTTP 호출은 트랜잭션 없이 수행 → 커넥션 점유 없음</li>
+     *   <li>DB 갱신은 {@link GenericCandidatePersister#persistOneTodo}에 위임 → 투두별 짧은 쓰기 트랜잭션</li>
+     * </ol>
+     */
     @Override
-    @Transactional
     public void refresh(Long userId, BigDecimal latitude, BigDecimal longitude) {
         if (latitude == null || longitude == null) {
             log.info("[GenericRefresh] 좌표 없음 → 후보 갱신 스킵: userId={}", userId);
             return;
         }
 
+        // 1. 활성 GENERIC 투두 목록 조회 (레포지토리 기본 readOnly 트랜잭션)
         List<Todo> genericTodos = todoRepository.findActiveGenericTodosByUserId(userId);
         if (genericTodos.isEmpty()) {
             log.info("[GenericRefresh] 활성 GENERIC 투두 없음: userId={}", userId);
@@ -44,88 +48,44 @@ public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefre
 
         double lat = latitude.doubleValue();
         double lon = longitude.doubleValue();
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime now = OffsetDateTime.now();
 
-        for (Todo todo : genericTodos) {
+        // 2. placeLabel 기준 그루핑 → 동일 키워드 Kakao 검색 1회로 줄임
+        Map<String, List<Todo>> todosByLabel = genericTodos.stream()
+                .collect(Collectors.groupingBy(Todo::getResolvedPlaceLabel));
+
+        for (Map.Entry<String, List<Todo>> entry : todosByLabel.entrySet()) {
+            String placeLabel = entry.getKey();
+            List<Todo> todosForLabel = entry.getValue();
+
+            // 3. HTTP 호출 — 트랜잭션 없음 (커넥션 점유 없음)
+            List<Place> newPlaces;
             try {
-                refreshOneTodo(todo, lat, lon, now);
+                newPlaces = placeService.resolveGenericCandidates(placeLabel, lat, lon);
             } catch (Exception e) {
-                log.warn("[GenericRefresh] 투두 후보 갱신 실패 — 스킵: todoId={} error={}",
-                        todo.getId(), e.getMessage());
+                log.warn("[GenericRefresh] Kakao 검색 실패 — 스킵: placeLabel='{}' error={}",
+                        placeLabel, e.getMessage());
+                continue;
+            }
+
+            // Kakao 결과가 비면 기존 후보를 유지 (API 오류를 빈 결과로 신뢰하면 전체 만료 위험)
+            if (newPlaces.isEmpty()) {
+                log.warn("[GenericRefresh] 재검색 결과 없음 — 기존 후보 유지: placeLabel='{}'", placeLabel);
+                continue;
+            }
+
+            // 4. DB 갱신 — 투두별 짧은 쓰기 트랜잭션으로 위임
+            for (Todo todo : todosForLabel) {
+                try {
+                    genericCandidatePersister.persistOneTodo(todo, newPlaces, lat, lon, now);
+                } catch (Exception e) {
+                    log.warn("[GenericRefresh] 투두 후보 갱신 실패 — 스킵: todoId={} error={}",
+                            todo.getId(), e.getMessage());
+                }
             }
         }
 
-        log.info("[GenericRefresh] 완료: userId={} genericTodos={}", userId, genericTodos.size());
-    }
-
-    private void refreshOneTodo(Todo todo, double lat, double lon, OffsetDateTime now) {
-        String placeLabel = todo.getResolvedPlaceLabel();
-
-        // 1. 새 위치 기준으로 Kakao 검색
-        List<Place> newPlaces = placeService.resolveGenericCandidates(placeLabel, lat, lon);
-
-        // Kakao API 오류나 네트워크 장애로 결과가 비었을 경우 기존 후보를 그대로 유지한다.
-        // 빈 결과를 신뢰하면 멀쩡한 후보 전체가 만료될 수 있음
-        if (newPlaces.isEmpty()) {
-            log.warn("[GenericRefresh] 재검색 결과 없음 — 기존 후보 유지: todoId={} placeLabel='{}'",
-                    todo.getId(), placeLabel);
-            return;
-        }
-
-        Set<Long> newPlaceIds = newPlaces.stream()
-                .map(Place::getId)
-                .collect(Collectors.toSet());
-
-        // 2. 기존 후보 조회 (만료된 것 포함) — placeId 기준 맵으로 변환
-        List<TodoCandidatePlace> existing = todoCandidatePlaceRepository.findAllWithPlaceByTodoId(todo.getId());
-        Map<Long, TodoCandidatePlace> existingByPlaceId = existing.stream()
-                .collect(Collectors.toMap(tcp -> tcp.getPlace().getId(), Function.identity()));
-
-        List<TodoCandidatePlace> toSave = new ArrayList<>();
-
-        // 3. 새 검색 결과에 있는 장소: 기존이면 재활성화, 없으면 신규 삽입
-        for (Place place : newPlaces) {
-            int distanceM = haversineMeters(lat, lon, place.getLatitude(), place.getLongitude());
-            TodoCandidatePlace candidate = existingByPlaceId.get(place.getId());
-            if (candidate != null) {
-                // 동일 장소 재발견 — 만료 해제 후 거리 갱신
-                candidate.reactivate(distanceM, now);
-                toSave.add(candidate);
-            } else {
-                // 새로 발견된 장소 — 신규 삽입
-                toSave.add(TodoCandidatePlace.builder()
-                        .todo(todo)
-                        .place(place)
-                        .distanceM(distanceM)
-                        .isMonitoringTarget(true)
-                        .calculatedAt(now)
-                        .build());
-            }
-        }
-
-        // 4. 새 검색 결과에 없는 기존 후보 — 만료 처리
-        for (TodoCandidatePlace candidate : existing) {
-            if (!newPlaceIds.contains(candidate.getPlace().getId())) {
-                candidate.expire(now);
-                toSave.add(candidate);
-            }
-        }
-
-        todoCandidatePlaceRepository.saveAll(toSave);
-        log.info("[GenericRefresh] todoId={} placeLabel='{}' → 재활성화/신규={}, 만료={}",
-                todo.getId(), placeLabel,
-                newPlaces.size(),
-                existing.size() - (int) existing.stream()
-                        .filter(c -> newPlaceIds.contains(c.getPlace().getId())).count());
-    }
-
-    private static int haversineMeters(double lat1, double lon1, double lat2, double lon2) {
-        final double R = 6_371_000.0;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return (int) Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+        log.info("[GenericRefresh] 완료: userId={} genericTodos={} uniqueLabels={}",
+                userId, genericTodos.size(), todosByLabel.size());
     }
 }
