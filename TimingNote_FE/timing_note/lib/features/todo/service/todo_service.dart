@@ -66,6 +66,8 @@ class TodoService {
   }
 
   // ── 생성 ─────────────────────────────────────────────────────────
+  // userPlaceId: 사용자가 명시 선택한 내 장소 ID (옵셔널).
+  //   있으면 BE는 AI 응답의 placeText 검색 없이 ID로 직접 ALIAS 연결.
   Future<TodoCreateResult> create({
     required String content,
     required String inputType,
@@ -73,6 +75,7 @@ class TodoService {
     double? longitude,
     double? course,
     DateTime? occurredAt,
+    int? userPlaceId,
   }) async {
     final body = <String, dynamic>{
       'content': content,
@@ -81,6 +84,7 @@ class TodoService {
       if (longitude != null) 'longitude': longitude,
       if (course != null) 'course': course,
       if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (userPlaceId != null) 'userPlaceId': userPlaceId,
     };
 
     final envelope = await _client.post<TodoCreateResult>(
