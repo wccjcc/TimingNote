@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../features/home/view/home_screen.dart';
 import '../features/map/view/map_screen.dart';
 import '../features/mypage/view/mypage_screen.dart';
+import '../features/notification/view/notification_screen.dart';
 import '../features/todo/model/selected_kakao_place.dart';
 import '../features/todo/view/place_search_screen.dart';
 import '../features/todo/view/todo_detail_screen.dart';
@@ -65,6 +66,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ── 하단바 위에 전체화면으로 올라오는 화면들 ───────────────────────
       // (하단바가 보이지 않아야 하는 경우 Shell 밖에 위치)
+      GoRoute(
+        path: '/notifications',
+        builder: (context, state) => const NotificationScreen(),
+      ),
       GoRoute(
         path: '/todos/new',
         builder: (context, state) => const TodoInputScreen(),
