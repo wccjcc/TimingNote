@@ -5,6 +5,7 @@ import 'package:logger/logger.dart';
 
 import '../../features/notification/service/notification_service.dart';
 import '../location/location_permission_service.dart';
+import 'geofence_event.dart';
 import 'geofence_region_store.dart';
 import 'geofence_service.dart';
 import 'geofence_sse_client.dart';

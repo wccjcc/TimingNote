@@ -2,7 +2,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
-import 'package:timing_note/core/notification/local_notification_service.dart';
 import 'package:timing_note/features/bootstrap/service/app_bootstrap_service.dart';
 
 import 'app/app.dart';
@@ -13,8 +12,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 로컬 알림 플러그인을 앱 시작 전에 초기화합니다.
-  final localNotificationService = LocalNotificationService();
-  await localNotificationService.initialize();
 
   // 앱 전역 ProviderContainer를 직접 생성해 runApp 이전 초기화에 사용합니다.
   final container = ProviderContainer();
@@ -45,3 +42,5 @@ Future<void> main() async {
     ),
   );
 }
+
+
