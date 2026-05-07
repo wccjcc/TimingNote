@@ -1,15 +1,17 @@
 ﻿import 'dart:async';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
 
 import '../core/geofence/geofence_runtime.dart';
-import '../core/notification/fcm_token_service.dart';
-import '../core/notification/push_action_bridge.dart';
 import '../core/location/location_permission_service.dart';
 import '../core/location/location_service.dart';
+import '../core/notification/fcm_token_service.dart';
+import '../core/notification/push_action_bridge.dart';
 import '../features/notification/service/notification_service.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -25,13 +27,15 @@ class App extends ConsumerStatefulWidget {
 ///
 /// 정책:
 /// - foreground(resumed): geofenceRuntime.start() 보장 + syncSlots() 강제 1회
-/// - background/paused: geofenceRuntime.stop()으로 SSE/감시 리소스 정리
+/// - background 계열: geofence 감시는 유지하고 SSE만 중지
 class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   static final Logger _logger = Logger();
 
   late final Future<void> _bootstrapFuture;
   final PushActionBridge _pushActionBridge = PushActionBridge();
   StreamSubscription<Map<String, String>>? _pushActionSubscription;
+  StreamSubscription<RemoteMessage>? _fcmTapSubscription;
+  bool _initialPushTapHandled = false;
 
   @override
   void initState() {
@@ -42,8 +46,14 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       try {
         // FCM 토큰 초기화는 앱 시작 시점에 1회 수행합니다.
         await ref.read(fcmTokenServiceProvider).initialize();
+
+        // 푸시 알림 탭 딥링크 라우팅 초기화
+        await _initFcmTapDeepLinkRouting();
+
+        // iOS 액션 버튼 브리지 초기화
         await _pushActionBridge.initialize();
-        _pushActionSubscription = _pushActionBridge.events.listen(_handlePushActionEvent);
+        _pushActionSubscription =
+            _pushActionBridge.events.listen(_handlePushActionEvent);
       } catch (e) {
         debugPrint('Bootstrap skipped: $e');
       }
@@ -53,10 +63,17 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+
     final subscription = _pushActionSubscription;
     if (subscription != null) {
       unawaited(subscription.cancel());
     }
+
+    final fcmTapSubscription = _fcmTapSubscription;
+    if (fcmTapSubscription != null) {
+      unawaited(fcmTapSubscription.cancel());
+    }
+
     super.dispose();
   }
 
@@ -90,15 +107,68 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       case AppLifecycleState.detached:
         // background 전환 시에는 geofence 감시는 유지하고,
         // SSE 실시간 동기화만 중지합니다.
-        //
-        // 중요:
-        // - detached에서도 runtime.stop()을 호출하지 않습니다.
-        // - stop()은 내부에서 clearGeofences()를 수행하므로,
-        //   앱 종료 직전 geofence 등록이 해제되어 "앱이 꺼져도 감시 유지" 요구와 충돌합니다.
-        // - 따라서 lifecycle 경로에서는 일관되게 "SSE만 중지" 정책을 사용합니다.
         await runtime.pauseRealtimeSync();
         break;
     }
+  }
+
+  /// FCM 푸시 알림 탭 딥링크 라우팅을 초기화합니다.
+  ///
+  /// 처리 대상:
+  /// 1) 백그라운드 상태에서 푸시 탭 후 앱 복귀: onMessageOpenedApp
+  /// 2) 종료 상태에서 푸시 탭으로 앱 기동: getInitialMessage
+  Future<void> _initFcmTapDeepLinkRouting() async {
+    if (kIsWeb) {
+      return;
+    }
+
+    _fcmTapSubscription ??= FirebaseMessaging.onMessageOpenedApp.listen(
+      (message) => _handleFcmPushTap(message, source: 'onMessageOpenedApp'),
+      onError: (Object error, StackTrace stackTrace) {
+        _logger.e(
+          '[PUSH_TAP_LISTEN_ERROR] onMessageOpenedApp',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      },
+    );
+
+    if (_initialPushTapHandled) {
+      return;
+    }
+    _initialPushTapHandled = true;
+
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      await _handleFcmPushTap(initialMessage, source: 'getInitialMessage');
+    }
+  }
+
+  /// 푸시 탭 메시지에서 todoId를 추출해 상세 화면으로 이동합니다.
+  Future<void> _handleFcmPushTap(
+    RemoteMessage message, {
+    required String source,
+  }) async {
+    final rawTodoId = message.data['todoId']?.toString();
+    final todoId = int.tryParse(rawTodoId ?? '');
+    if (todoId == null) {
+      _logger.w(
+        '[PUSH_TAP_SKIP] missing/invalid todoId source=$source data=${message.data}',
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    // 라우터가 붙은 이후 프레임에서 push해야 안전합니다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      context.push('/todos/$todoId');
+    });
   }
 
   /// iOS 푸시 액션 버튼 탭 이벤트를 처리합니다.
@@ -156,7 +226,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
         return;
       }
     } catch (e, st) {
-      _logger.e('[PUSH_ACTION_ERROR] failed action handling', error: e, stackTrace: st);
+      _logger.e(
+        '[PUSH_ACTION_ERROR] failed action handling',
+        error: e,
+        stackTrace: st,
+      );
     }
   }
 
@@ -207,4 +281,3 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     );
   }
 }
-
