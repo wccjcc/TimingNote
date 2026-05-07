@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
@@ -67,6 +68,11 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
 
   /// 앱 상태 전환에 맞춰 geofence 런타임을 제어합니다.
   Future<void> _handleLifecycle(AppLifecycleState state) async {
+    // 웹에서는 geofence/SSE 런타임을 사용하지 않으므로 lifecycle 제어를 스킵합니다.
+    if (kIsWeb) {
+      return;
+    }
+
     final runtime = ref.read(geofenceRuntimeProvider);
 
     switch (state) {
@@ -201,3 +207,4 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     );
   }
 }
+
