@@ -1,14 +1,21 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class MainShell extends StatelessWidget {
   const MainShell({super.key, required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
+  static const _homeActiveIconAssetPath = 'assets/images/home_icon_active.png';
+  static const _homeInactiveIconAssetPath =
+      'assets/images/home_icon_inactive.png';
 
-  // 탭 구성
   static const _tabs = [
-    _TabInfo(icon: Icons.home_filled, label: '홈'),
+    _TabInfo(
+      activeIconAsset: _homeActiveIconAssetPath,
+      inactiveIconAsset: _homeInactiveIconAssetPath,
+      icon: Icons.home_filled,
+      label: '홈',
+    ),
     _TabInfo(icon: Icons.map_outlined, label: '지도'),
     _TabInfo(icon: Icons.list_alt_outlined, label: '할 일'),
     _TabInfo(icon: Icons.settings_outlined, label: '설정'),
@@ -17,15 +24,14 @@ class MainShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // 하단바와 본문이 겹치도록 설정 (배경 투명도 효과를 위해)
       extendBody: true,
       body: navigationShell,
       bottomNavigationBar: Container(
         height: 90,
         decoration: const BoxDecoration(
-          color: Color(0xF20F0F1A), // rgba(15, 15, 26, 0.95)
+          color: Color(0xF20F0F1A),
           border: Border(
-            top: BorderSide(color: Color(0x1AFFFFFF), width: 1), // White 10%
+            top: BorderSide(color: Color(0x1AFFFFFF), width: 1),
           ),
         ),
         padding: const EdgeInsets.only(top: 16, left: 43.77, right: 43.79),
@@ -67,7 +73,7 @@ class _BottomNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activeColor = const Color(0xFFA78BFA);
-    final inactiveColor = const Color(0x66E9D5FF); // rgba(233, 213, 255, 0.4)
+    final inactiveColor = const Color(0x66E9D5FF);
 
     return GestureDetector(
       onTap: onTap,
@@ -77,11 +83,23 @@ class _BottomNavItem extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              info.icon,
-              color: isActive ? activeColor : inactiveColor,
-              size: 24,
-            ),
+            info.hasImageIcon
+                ? Image.asset(
+                    info.resolveIconAsset(isActive),
+                    width: 24,
+                    height: 24,
+                    color: isActive ? activeColor : inactiveColor,
+                    errorBuilder: (_, __, ___) => Icon(
+                      info.icon ?? Icons.home_filled,
+                      color: isActive ? activeColor : inactiveColor,
+                      size: 24,
+                    ),
+                  )
+                : Icon(
+                    info.icon ?? Icons.circle,
+                    color: isActive ? activeColor : inactiveColor,
+                    size: 24,
+                  ),
             const SizedBox(height: 6),
             Text(
               info.label,
@@ -102,7 +120,28 @@ class _BottomNavItem extends StatelessWidget {
 }
 
 class _TabInfo {
-  const _TabInfo({required this.icon, required this.label});
-  final IconData icon;
+  const _TabInfo({
+    this.icon,
+    this.iconAsset,
+    this.activeIconAsset,
+    this.inactiveIconAsset,
+    required this.label,
+  });
+
+  final IconData? icon;
+  final String? iconAsset;
+  final String? activeIconAsset;
+  final String? inactiveIconAsset;
   final String label;
+
+  bool get hasImageIcon =>
+      iconAsset != null || activeIconAsset != null || inactiveIconAsset != null;
+
+  String resolveIconAsset(bool isActive) {
+    if (isActive) {
+      return activeIconAsset ?? iconAsset ?? '';
+    }
+
+    return inactiveIconAsset ?? iconAsset ?? '';
+  }
 }

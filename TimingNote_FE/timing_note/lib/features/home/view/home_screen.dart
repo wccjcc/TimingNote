@@ -10,6 +10,7 @@ import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
 import '../../../../shared/widgets/neon_button.dart';
 import '../../../../shared/widgets/space_card.dart';
+import '../../notification/viewmodel/notification_viewmodel.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/viewmodel/todo_input_viewmodel.dart';
 import '../../todo/viewmodel/todo_list_viewmodel.dart';
@@ -88,6 +89,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.listen<TodoInputState>(todoInputProvider, _onStateChanged);
     final inputState = ref.watch(todoInputProvider);
     final todoListState = ref.watch(todoListProvider);
+    final unreadCountAsync = ref.watch(unreadNotificationCountProvider);
+    final unreadCount = unreadCountAsync.maybeWhen(
+      data: (count) => count,
+      orElse: () => 0,
+    );
     final hasText = _textController.text.trim().isNotEmpty;
 
     return Scaffold(
@@ -100,7 +106,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   constraints: const BoxConstraints(maxWidth: 500),
                   child: CustomScrollView(
                     slivers: [
-                      const SliverToBoxAdapter(child: _HomeHeader()),
+                      SliverToBoxAdapter(child: _HomeHeader(unreadCount: unreadCount)),
                       if (todoListState.isLoading && todoListState.items.isEmpty)
                         const SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple)))
                       else if (todoListState.items.isEmpty)
@@ -249,7 +255,8 @@ class _FloatingTagArea extends StatelessWidget {
 }
 
 class _HomeHeader extends StatelessWidget {
-  const _HomeHeader();
+  const _HomeHeader({required this.unreadCount});
+  final int unreadCount;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(24, 20, 24, 10),
@@ -264,20 +271,27 @@ class _HomeHeader extends StatelessWidget {
             const Text('> 지금 할 수 있어요!', style: TextStyle(color: Colors.white, fontSize: 24, fontFamily: 'Galmuri11', fontWeight: FontWeight.bold, shadows: [Shadow(color: Color(0x7FA78BFA), blurRadius: 10, offset: Offset(0, 4))])),
           ],
         ),
-        const _NotificationBadge(count: 2),
+        _NotificationBadge(
+          count: unreadCount,
+          onTap: () => context.push('/notifications'),
+        ),
       ],
     ),
   );
 }
 
 class _NotificationBadge extends StatelessWidget {
-  const _NotificationBadge({required this.count});
+  const _NotificationBadge({required this.count, this.onTap});
   final int count;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => Stack(clipBehavior: Clip.none, children: [
-    Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xCC2A2A4A), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0x4CA78BFA)), boxShadow: const [BoxShadow(color: Colors.black45, offset: Offset(0, 4))]), child: const Icon(Icons.notifications_none, color: Colors.white, size: 24)),
-    Positioned(right: -4, top: -4, child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: SpaceColors.neonPink, shape: BoxShape.circle, border: Border.all(color: SpaceColors.space950, width: 2), boxShadow: [BoxShadow(color: SpaceColors.neonPink.withOpacity(0.8), blurRadius: 8)]), constraints: const BoxConstraints(minWidth: 20, minHeight: 20), child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center))),
-  ]);
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Stack(clipBehavior: Clip.none, children: [
+      Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xCC2A2A4A), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0x4CA78BFA)), boxShadow: const [BoxShadow(color: Colors.black45, offset: Offset(0, 4))]), child: const Icon(Icons.notifications_none, color: Colors.white, size: 24)),
+      Positioned(right: -4, top: -4, child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: SpaceColors.neonPink, shape: BoxShape.circle, border: Border.all(color: SpaceColors.space950, width: 2), boxShadow: [BoxShadow(color: SpaceColors.neonPink.withOpacity(0.8), blurRadius: 8)]), constraints: const BoxConstraints(minWidth: 20, minHeight: 20), child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center))),
+    ]),
+  );
 }
 
 class _TimelineCard extends StatelessWidget {
