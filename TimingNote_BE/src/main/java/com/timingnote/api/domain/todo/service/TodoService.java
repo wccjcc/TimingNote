@@ -6,11 +6,11 @@ import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoListResponse;
-import com.timingnote.api.infra.client.ai.dto.AiStructureResponse;
 
 import java.util.List;
 
 public interface TodoService {
+
     TodoCreateResponse createTodo(Long userId, TodoCreateRequest request);
 
     TodoListResponse getTodoList(Long userId, String status, String tab, String placeType, Long cursor, int limit);
@@ -25,7 +25,7 @@ public interface TodoService {
 
     /**
      * Todo에 장소를 지정한다.
-     * - userPlaceId 있음  → todoType=ALIAS  (내 장소 목록에서 선택)
+     * - userPlaceId 있음   → todoType=ALIAS  (내 장소 목록에서 선택)
      * - externalPlace 있음 → todoType=SPECIFIC (Kakao 키워드/주소 검색, 지도 마커 핀)
      * 둘 다 있거나 둘 다 없으면 VALIDATION_ERROR.
      */
@@ -42,8 +42,4 @@ public interface TodoService {
      * 전달된 ID 중 하나라도 소유권이 없으면 전체 실패(FORBIDDEN).
      */
     void deleteTodos(Long userId, List<Long> ids);
-
-    void saveStructure(Long todoId, AiStructureResponse response, Double latitude, Double longitude);
-
-    void markStructureFailed(Long todoId);
 }

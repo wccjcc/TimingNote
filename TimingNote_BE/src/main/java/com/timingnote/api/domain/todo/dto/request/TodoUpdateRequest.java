@@ -36,6 +36,6 @@ public class TodoUpdateRequest {
     @Schema(description = "사용자 현재 위도 — placeText 변경 시 GENERIC 후보 검색에 사용 (선택)")
     private Double latitude;
 
-    @Schema(description = "사용자 현재 경도 — placeText 변경 시 GENERIC 후보 검색에 사용 (선택)")
+    @Schema(description = "사용자 현재 경도 (선택)")
     private Double longitude;
 }
