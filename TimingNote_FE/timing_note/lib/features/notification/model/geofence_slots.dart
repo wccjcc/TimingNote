@@ -24,6 +24,9 @@ class GeofenceSlotItem {
     required this.slotId,
     required this.todoId,
     required this.placeId,
+    required this.latitude,
+    required this.longitude,
+    required this.radiusM,
     required this.active,
     required this.calculatedAt,
   });
@@ -31,6 +34,9 @@ class GeofenceSlotItem {
   final int slotId;
   final int todoId;
   final int placeId;
+  final double? latitude;
+  final double? longitude;
+  final int? radiusM;
   final bool active;
   final DateTime? calculatedAt;
 
@@ -39,6 +45,9 @@ class GeofenceSlotItem {
       slotId: (json['slotId'] as num?)?.toInt() ?? 0,
       todoId: (json['todoId'] as num?)?.toInt() ?? 0,
       placeId: (json['placeId'] as num?)?.toInt() ?? 0,
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      radiusM: (json['radiusM'] as num?)?.toInt(),
       active: json['active'] == true,
       calculatedAt: json['calculatedAt'] == null
           ? null
