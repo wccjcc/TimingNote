@@ -104,10 +104,12 @@ public class TodoServiceImpl implements TodoService {
                 .originalText(savedTodo.getContent())
                 .build());
 
-        // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue
+        // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue.
+        // userPlaceId가 있으면 ALIAS 매칭 시 검색 쿼리 없이 ID로 직접 연결됨.
         triggerAiAnalysis(userId, savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
                 request.getLatitude(), request.getLongitude(),
-                request.getCourse(), request.getOccurredAt());
+                request.getCourse(), request.getOccurredAt(),
+                request.getUserPlaceId());
 
         return TodoCreateResponse.builder()
                 .todoId(savedTodo.getId())
@@ -389,7 +391,8 @@ public class TodoServiceImpl implements TodoService {
      */
     private void triggerAiAnalysis(Long userId, Long todoId, String inputType, String content,
                                    Double latitude, Double longitude,
-                                   Double course, OffsetDateTime occurredAt) {
+                                   Double course, OffsetDateTime occurredAt,
+                                   Long userPlaceId) {
         List<UserPlaceAlias> aliases = userPlaceRepository.findWithPlaceByUserId(userId).stream()
                 .map(up -> UserPlaceAlias.builder().alias(up.getAliasName()).build())
                 .toList();
@@ -408,7 +411,7 @@ public class TodoServiceImpl implements TodoService {
                             // boundedElastic: 트랜잭션 없는 스레드에서 save() 실행 → 커밋 완료 후 outbox enqueue
                             // enqueue는 자체 @Transactional로 새 트랜잭션 시작 → 정상 동작
                             Schedulers.boundedElastic().schedule(() -> {
-                                structurePersister.save(todoId, response, latitude, longitude);
+                                structurePersister.save(todoId, response, latitude, longitude, userPlaceId);
                                 enqueueSlotRecalculate(userId, latitude, longitude, course, occurredAt);
                             });
                         },
