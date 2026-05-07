@@ -120,6 +120,15 @@ class GeofenceRuntime {
     });
   }
 
+  /// 외부(앱 lifecycle 등)에서 강제로 슬롯 동기화를 요청할 때 사용하는 공개 메서드입니다.
+  ///
+  /// 사용 시점:
+  /// - 앱이 background -> foreground(resumed)로 복귀했을 때
+  /// - SSE 재연결 직후 정합성을 한 번 더 맞추고 싶을 때
+  Future<void> syncSlots() async {
+    await _refreshSlots();
+  }
+
   /// 서버의 최신 geofence 슬롯 목록을 조회하고 네이티브 감시에 반영합니다.
   ///
   /// 정책:
