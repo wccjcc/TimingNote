@@ -1,4 +1,4 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+﻿import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class DeviceIdentity {
@@ -18,11 +18,11 @@ class DeviceIdentity {
 class DeviceIdentityStore {
   static const _kInstallationUuid = 'installation_uuid';
   static const _kDeviceSecretSecure = 'device_secret';
-  static const _kDeviceSecretLegacy = 'device_secret'; // shared_preferences 레거시 키
+  static const _kDeviceSecretLegacy = 'device_secret';
   static const _kUserId = 'user_id';
   static const _kCreatedAt = 'user_created_at';
 
-  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(); //flutter_secure_storage에 저장
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
 
   Future<String?> getInstallationUuid() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,21 +35,29 @@ class DeviceIdentityStore {
   }
 
   Future<String?> getDeviceSecret() async {
-    // 1) 우선 secure storage에서 조회
-    final secureSecret = await _secureStorage.read(key: _kDeviceSecretSecure);
-    if (secureSecret != null && secureSecret.isNotEmpty) {
-      return secureSecret;
+    // 1) secure storage 우선 조회
+    try {
+      final secureSecret = await _secureStorage.read(key: _kDeviceSecretSecure);
+      if (secureSecret != null && secureSecret.isNotEmpty) {
+        return secureSecret;
+      }
+    } catch (_) {
+      // 웹/환경 제약으로 secure storage 접근 실패 가능
     }
 
-    // 2) 레거시(shared_preferences) 값이 있으면 1회 마이그레이션
+    // 2) fallback(shared_preferences) 조회
     final prefs = await SharedPreferences.getInstance();
     final legacySecret = prefs.getString(_kDeviceSecretLegacy);
     if (legacySecret != null && legacySecret.isNotEmpty) {
-      await _secureStorage.write(
-        key: _kDeviceSecretSecure,
-        value: legacySecret,
-      );
-      await prefs.remove(_kDeviceSecretLegacy);
+      // 가능한 경우 secure storage로 재마이그레이션
+      try {
+        await _secureStorage.write(
+          key: _kDeviceSecretSecure,
+          value: legacySecret,
+        );
+      } catch (_) {
+        // secure 저장 실패 시 무시 (legacy 값으로 계속 동작)
+      }
       return legacySecret;
     }
 
@@ -57,11 +65,17 @@ class DeviceIdentityStore {
   }
 
   Future<void> saveDeviceSecret(String deviceSecret) async {
-    //flutter_secure_storage에 device secret 저장 
-    await _secureStorage.write(
-      key: _kDeviceSecretSecure,
-      value: deviceSecret,
-    );
+    // secure storage 저장 시도
+    try {
+      await _secureStorage.write(
+        key: _kDeviceSecretSecure,
+        value: deviceSecret,
+      );
+    } catch (_) {
+      // 실패 시 fallback 저장
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kDeviceSecretLegacy, deviceSecret);
+    }
   }
 
   Future<void> saveRegistration({
@@ -69,19 +83,20 @@ class DeviceIdentityStore {
     required int userId,
     required String createdAt,
   }) async {
-    // 민감정보는 secure storage에 저장
-    await _secureStorage.write(
-      key: _kDeviceSecretSecure,
-      value: deviceSecret,
-    );
+    // secret 저장
+    try {
+      await _secureStorage.write(
+        key: _kDeviceSecretSecure,
+        value: deviceSecret,
+      );
+    } catch (_) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kDeviceSecretLegacy, deviceSecret);
+    }
 
-    // 일반 메타정보는 shared_preferences에 저장
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kUserId, userId);
     await prefs.setString(_kCreatedAt, createdAt);
-
-    // 혹시 남아 있을 수 있는 레거시 secret 정리
-    await prefs.remove(_kDeviceSecretLegacy);
   }
 
   Future<DeviceIdentity?> getIdentity() async {
@@ -100,9 +115,12 @@ class DeviceIdentityStore {
   }
 
   Future<void> clearDeviceSecret() async {
-    await _secureStorage.delete(key: _kDeviceSecretSecure);
+    try {
+      await _secureStorage.delete(key: _kDeviceSecretSecure);
+    } catch (_) {
+      // ignore
+    }
 
-    // 레거시 키도 같이 정리
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kDeviceSecretLegacy);
   }
@@ -114,6 +132,10 @@ class DeviceIdentityStore {
     await prefs.remove(_kCreatedAt);
     await prefs.remove(_kDeviceSecretLegacy);
 
-    await _secureStorage.delete(key: _kDeviceSecretSecure);
+    try {
+      await _secureStorage.delete(key: _kDeviceSecretSecure);
+    } catch (_) {
+      // ignore
+    }
   }
 }

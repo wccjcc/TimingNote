@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/theme/typography.dart';
@@ -60,10 +61,20 @@ class NotificationScreen extends ConsumerWidget {
                               final item = state.filteredItems[index];
                               return _NotificationCard(
                                 item: item,
-                                onTap: () {
-                                  ref.read(notificationProvider.notifier).openNotification(item).then((_) {
+                                onTap: () async {
+                                  // 상세 이동은 사용자 액션의 핵심 경로이므로 우선 보장합니다.
+                                  final todoId = item.todoId;
+                                  if (todoId != null) {
+                                    context.push('/todos/$todoId');
+                                  }
+
+                                  // 읽음 처리/OPEN 액션은 실패해도 화면 이동을 막지 않도록 분리합니다.
+                                  try {
+                                    await ref.read(notificationProvider.notifier).openNotification(item);
                                     ref.invalidate(unreadNotificationCountProvider);
-                                  });
+                                  } catch (_) {
+                                    // 목록/배지 동기화 실패는 사용자 이동 UX를 막지 않습니다.
+                                  }
                                 },
                                 onDelete: () {
                                   ref.read(notificationProvider.notifier).deleteOne(item.id).then((_) {
