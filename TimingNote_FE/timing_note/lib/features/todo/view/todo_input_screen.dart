@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../mypage/model/user_place.dart';
+import '../../mypage/service/user_place_service.dart';
 import '../model/todo.dart';
 import '../viewmodel/todo_input_viewmodel.dart';
 
@@ -19,12 +21,29 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
   final _contentController = TextEditingController();
   final _focusNode = FocusNode();
   String _selectedInputType = TodoInputType.text;
+  List<UserPlace>? _userPlaces;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserPlaces();
+  }
 
   @override
   void dispose() {
     _contentController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUserPlaces() async {
+    try {
+      final list = await ref.read(userPlaceServiceProvider).getUserPlaces();
+      if (!mounted) return;
+      setState(() => _userPlaces = list);
+    } catch (_) {
+      // 무시 — 빈 목록으로 처리 (사용자가 등록 안 했거나 네트워크 실패)
+    }
   }
 
   @override
@@ -86,16 +105,46 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ── 내용 입력 ─────────────────────────────────────────────
+          // ── 내 장소 태그 목록 (등록된 게 있을 때만, 클릭 시 ALIAS 명시 선택/교체) ──
+          if (_userPlaces != null && _userPlaces!.isNotEmpty) ...[
+            _UserPlaceTags(
+              places: _userPlaces!,
+              selectedId: state.selectedUserPlace?.id,
+              onTap: (place) {
+                final notifier = ref.read(todoInputProvider.notifier);
+                if (state.selectedUserPlace?.id == place.id) {
+                  notifier.clearUserPlace();
+                } else {
+                  notifier.setUserPlace(place); // 교체
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // ── 내용 입력 (선택된 ALIAS는 prefix chip으로 입력창 안에 표시) ──
           TextField(
             controller: _contentController,
             focusNode: _focusNode,
             autofocus: true,
             maxLines: 6,
             minLines: 3,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
+              prefix: state.selectedUserPlace != null
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: InputChip(
+                        avatar: const Icon(Icons.bookmark, size: 14),
+                        label: Text(state.selectedUserPlace!.aliasName),
+                        onDeleted: () =>
+                            ref.read(todoInputProvider.notifier).clearUserPlace(),
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    )
+                  : null,
               hintText: '할 일을 자연어로 입력하세요.\n예) 다음 주 월요일 오전에 홈플러스에서 우유 사기',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
             onChanged: (v) =>
                 ref.read(todoInputProvider.notifier).setContent(v),
@@ -124,6 +173,43 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── 내 장소 태그 목록 ────────────────────────────────────────────────
+/// 사용자가 등록한 별칭 모두를 ChoiceChip으로 표시.
+/// - 클릭: ALIAS 명시 선택 (선택된 게 있으면 교체)
+/// - 선택된 chip 다시 클릭: 해제
+/// 선택된 ALIAS는 입력창 prefix chip으로 별도 표시됨.
+class _UserPlaceTags extends StatelessWidget {
+  const _UserPlaceTags({
+    required this.places,
+    required this.selectedId,
+    required this.onTap,
+  });
+
+  final List<UserPlace> places;
+  final int? selectedId;
+  final ValueChanged<UserPlace> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: places.map((place) {
+        final isSelected = selectedId == place.id;
+        return ChoiceChip(
+          avatar: Icon(
+            isSelected ? Icons.bookmark : Icons.bookmark_outline,
+            size: 14,
+          ),
+          label: Text(place.aliasName),
+          selected: isSelected,
+          onSelected: (_) => onTap(place),
+        );
+      }).toList(),
     );
   }
 }
