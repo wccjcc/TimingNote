@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/location/location_provider.dart';
 import '../model/todo.dart';
 import '../service/todo_service.dart';
 
@@ -88,11 +89,15 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
     state = state.copyWith(phase: InputSubmitPhase.submitting, clearError: true);
 
     try {
+      // AI가 GENERIC 후보 검색 시 사용자 위치 기준이 필요하므로 등록 직전 GPS 호출
+      final gps = await tryGetGpsSnapshot(ref);
       final result = await _service.create(
         content: state.content.trim(),
         inputType: state.inputType,
-        latitude: state.latitude,
-        longitude: state.longitude,
+        latitude: gps?.latitude ?? state.latitude,
+        longitude: gps?.longitude ?? state.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
       );
 
       // PENDING 여부와 무관하게 즉시 done 처리.
