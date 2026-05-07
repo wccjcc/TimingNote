@@ -2,6 +2,7 @@ package com.timingnote.api.domain.place.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.timingnote.api.common.util.GeoUtils;
 import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.PlaceOpeningPeriod;
@@ -24,13 +25,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -69,9 +71,9 @@ public class PlaceServiceImpl implements PlaceService {
             return resolveViaGoogleTextSearch(placeText, latitude, longitude);
         }
 
-        boolean isNew = placeRepository.findByExternalPlaceId(kakaoDoc.getId()).isEmpty();
-        Place place = placeRepository.findByExternalPlaceId(kakaoDoc.getId())
-                .orElseGet(() -> saveFromKakao(kakaoDoc));
+        Optional<Place> existing = placeRepository.findByExternalPlaceId(kakaoDoc.getId());
+        boolean isNew = existing.isEmpty();
+        Place place = existing.orElseGet(() -> saveFromKakao(kakaoDoc));
         log.info("[SPECIFIC] 장소 {}(externalId={}): '{}'",
                 isNew ? "신규 저장" : "DB 캐시 hit", kakaoDoc.getId(), place.getName());
 
@@ -301,17 +303,19 @@ public class PlaceServiceImpl implements PlaceService {
     private List<Place> saveCandidates(List<KakaoDocument> docs) {
         List<String> ids = docs.stream().map(KakaoDocument::getId).toList();
 
-        Set<String> existing = placeRepository.findAllByExternalPlaceIdIn(ids)
-                .stream().map(Place::getExternalPlaceId).collect(Collectors.toSet());
+        // SELECT 1회: 기존 Place 엔티티를 바로 보존 (ID 추출 후 재조회 없음)
+        List<Place> existingPlaces = placeRepository.findAllByExternalPlaceIdIn(ids);
+        Set<String> existingIds = existingPlaces.stream()
+                .map(Place::getExternalPlaceId)
+                .collect(Collectors.toSet());
 
         List<Place> newPlaces = docs.stream()
-                .filter(d -> !existing.contains(d.getId()))
+                .filter(d -> !existingIds.contains(d.getId()))
                 .map(this::saveFromKakao)
                 .toList();
 
-        log.info("[Place] 후보 저장: 신규={}개 기존={}개", newPlaces.size(), existing.size());
-
-        return placeRepository.findAllByExternalPlaceIdIn(ids);
+        log.info("[Place] 후보 저장: 신규={}개 기존={}개", newPlaces.size(), existingPlaces.size());
+        return Stream.concat(existingPlaces.stream(), newPlaces.stream()).toList();
     }
 
     // ── Google 보강 (SPECIFIC 신규) ──────────────────────────────────────────
@@ -360,7 +364,7 @@ public class PlaceServiceImpl implements PlaceService {
                     log.warn("[Google/TextSearch] 좌표 없음: '{}'", kakaoName);
                     return;
                 }
-                double dist = distanceMeters(place.getLatitude(), place.getLongitude(),
+                double dist = GeoUtils.distanceMeters(place.getLatitude(), place.getLongitude(),
                         gp.getLocation().getLatitude(), gp.getLocation().getLongitude());
                 if (dist > SPECIFIC_ENRICH_MAX_DIST_M) {
                     log.warn("[Google/TextSearch] 거리 초과 ({}m > {}m) → 스킵: '{}'",
@@ -377,7 +381,7 @@ public class PlaceServiceImpl implements PlaceService {
             place.enrichGoogleData(gp.getId(), serializeHours(gp), gp.getBusinessStatus());
             saveOpeningPeriods(place.getId(), gp.getRegularOpeningHours());
         } catch (Exception e) {
-            log.warn("[Google/TextSearch] SPECIFIC 보강 실패 (placeId={}): {}", place.getId(), e.getMessage());
+            log.warn("[Google/TextSearch] SPECIFIC 보강 실패 (placeId={})", place.getId(), e);
         }
     }
 
@@ -386,7 +390,7 @@ public class PlaceServiceImpl implements PlaceService {
     private boolean isHoursExpired(Place place) {
         if (place.getHoursFetchedAt() == null) return true;
         return place.getHoursFetchedAt()
-                .isBefore(OffsetDateTime.now(ZoneOffset.UTC).minusDays(OPENING_HOURS_TTL_DAYS));
+                .isBefore(OffsetDateTime.now().minusDays(OPENING_HOURS_TTL_DAYS));
     }
 
     private void refreshWithPlaceDetails(Place place) {
@@ -405,7 +409,7 @@ public class PlaceServiceImpl implements PlaceService {
             place.enrichGoogleData(place.getGooglePlaceId(), serializeHours(gp), gp.getBusinessStatus());
             saveOpeningPeriods(place.getId(), gp.getRegularOpeningHours());
         } catch (Exception e) {
-            log.warn("[Google/Details] 갱신 실패 (placeId={}): {}", place.getId(), e.getMessage());
+            log.warn("[Google/Details] 갱신 실패 (placeId={})", place.getId(), e);
         }
     }
 
@@ -464,7 +468,7 @@ public class PlaceServiceImpl implements PlaceService {
 
                 if (closest.isPresent()) {
                     Place p = closest.get();
-                    double dist = distanceMeters(p.getLatitude(), p.getLongitude(),
+                    double dist = GeoUtils.distanceMeters(p.getLatitude(), p.getLongitude(),
                             gp.getLocation().getLatitude(), gp.getLocation().getLongitude());
                     log.info("[Google/Batch] 매칭: kakao='{}' ↔ google='{}' 거리={}m",
                             p.getName(), gpName, (int) dist);
@@ -522,12 +526,13 @@ public class PlaceServiceImpl implements PlaceService {
             }
 
             String gpName = gp.getDisplayName() != null ? gp.getDisplayName().getText() : placeText;
-            boolean isNew = placeRepository.findByExternalPlaceId(gp.getId()).isEmpty();
+            Optional<Place> existingOpt = placeRepository.findByExternalPlaceId(gp.getId());
+            boolean isNew = existingOpt.isEmpty();
             log.info("[Google/TextSearch] 장소 {}: '{}' status={} hasHours={}",
                     isNew ? "신규 저장" : "DB 캐시 hit",
                     gpName, gp.getBusinessStatus(), gp.getRegularOpeningHours() != null);
 
-            Place place = placeRepository.findByExternalPlaceId(gp.getId()).orElseGet(() -> {
+            Place place = existingOpt.orElseGet(() -> {
                 String hoursJson = serializeHours(gp);
                 Point location = Place.toPoint(
                         gp.getLocation().getLongitude(),
@@ -539,7 +544,7 @@ public class PlaceServiceImpl implements PlaceService {
                         .location(location)
                         .regularHoursRaw(hoursJson)
                         .businessStatus(gp.getBusinessStatus())
-                        .hoursFetchedAt(hoursJson != null ? OffsetDateTime.now(ZoneOffset.UTC) : null)
+                        .hoursFetchedAt(hoursJson != null ? OffsetDateTime.now() : null)
                         .build());
             });
 
@@ -559,7 +564,7 @@ public class PlaceServiceImpl implements PlaceService {
             log.info("[OpeningHours] regularOpeningHours=null → place.id={} 저장 스킵", placeId);
             return;
         }
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime now = OffsetDateTime.now();
         List<PlaceOpeningPeriod> periods = OpeningHoursParser.parse(placeId, hours, now);
         if (periods.isEmpty()) {
             log.info("[OpeningHours] 파싱 결과 0개 → place.id={} 저장 스킵", placeId);
@@ -575,20 +580,12 @@ public class PlaceServiceImpl implements PlaceService {
     private Optional<Place> findClosestPlace(List<Place> candidates,
                                               double lat, double lon,
                                               double maxDistanceM) {
+        record PlaceWithDist(Place place, double dist) {}
         return candidates.stream()
-                .filter(p -> distanceMeters(p.getLatitude(), p.getLongitude(), lat, lon) <= maxDistanceM)
-                .min(Comparator.comparingDouble(
-                        p -> distanceMeters(p.getLatitude(), p.getLongitude(), lat, lon)));
-    }
-
-    private static double distanceMeters(double lat1, double lon1, double lat2, double lon2) {
-        final double R = 6_371_000.0;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                .map(p -> new PlaceWithDist(p, GeoUtils.distanceMeters(p.getLatitude(), p.getLongitude(), lat, lon)))
+                .filter(pd -> pd.dist() <= maxDistanceM)
+                .min(Comparator.comparingDouble(PlaceWithDist::dist))
+                .map(PlaceWithDist::place);
     }
 
     private String serializeHours(GooglePlace gp) {
