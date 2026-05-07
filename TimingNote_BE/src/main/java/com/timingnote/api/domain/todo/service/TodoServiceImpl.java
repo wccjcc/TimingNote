@@ -68,11 +68,9 @@ public class TodoServiceImpl implements TodoService {
     private final UserPlaceRepository userPlaceRepository;
     private final AiClient aiClient;
     private final PlaceService placeService;
-    // AI 비동기 콜백에서 트랜잭션 경계가 필요한 저장 작업을 위임.
-    // @Lazy self 자기 주입 없이 외부 빈 참조로 동일 효과 달성.
+    // AI 비동기 콜백의 트랜잭션 경계 위임용 외부 빈 (AOP 프록시 경유 목적)
     private final TodoStructurePersister structurePersister;
-    // 슬롯 재계산 트리거를 outbox에 적재 (정우주 영역의 단일 파이프라인에 합류).
-    // todo CRUD 트랜잭션과 같은 트랜잭션에 INSERT되어 롤백 원자성 보장.
+    // todo CRUD 트랜잭션에 outbox INSERT가 합류 → 롤백 원자성 확보
     private final GeofenceRecalculateOutboxService outboxService;
 
     // 요일 → 비트마스크 변환 테이블 (updateTodo의 사용자 시간 조건 파싱 전용)
@@ -104,10 +102,9 @@ public class TodoServiceImpl implements TodoService {
                 .originalText(savedTodo.getContent())
                 .build());
 
+        // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue
         triggerAiAnalysis(userId, savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
                 request.getLatitude(), request.getLongitude());
-
-        // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue
 
         return TodoCreateResponse.builder()
                 .todoId(savedTodo.getId())
@@ -496,12 +493,8 @@ public class TodoServiceImpl implements TodoService {
     // ── Geofence 재계산 ───────────────────────────────────────────────────────
 
     /**
-     * 슬롯 재계산 이벤트를 outbox에 적재한다 (단일 파이프라인 합류).
-     *
-     * <p>Todo CRUD 트랜잭션 안에서 호출 시 같은 트랜잭션에 outbox row INSERT가 합류(REQUIRED)
+     * Todo CRUD 트랜잭션 안에서 호출하면 같은 트랜잭션에 outbox row INSERT가 합류(REQUIRED)
      * → todo 변경과 outbox row가 원자적으로 커밋/롤백된다.
-     * <p>릴레이 → RabbitMQ → Consumer → {@code recalculateSlots} 흐름으로 비동기 처리.
-     * Kakao 재검색은 Consumer가 아니라 위치 이동 API({@code POST /geofence/recalculate}) 핸들러에서만 수행한다.
      */
     private void enqueueSlotRecalculate(Long userId, Double lat, Double lon, Double course) {
         outboxService.enqueue(
