@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/location/location_provider.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
@@ -205,18 +206,19 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
     state = state.copyWith(isSaving: true, clearError: true);
 
     try {
+      // placeText가 non-empty면 GENERIC 후보 검색 + 슬롯 재계산이 일어나므로 GPS 호출
+      final needsLocation = placeTextToSend != null && placeTextToSend.isNotEmpty;
+      final gps = needsLocation ? await tryGetGpsSnapshot(ref) : null;
+
       final updated = await _service.update(
         _todoId,
         content: contentToSend,
         category: categoryToSend,
         placeText: placeTextToSend,
-        // placeText가 non-empty일 때만 좌표 전달 (GENERIC 후보 검색용)
-        latitude: (placeTextToSend != null && placeTextToSend.isNotEmpty)
-            ? state.latitude
-            : null,
-        longitude: (placeTextToSend != null && placeTextToSend.isNotEmpty)
-            ? state.longitude
-            : null,
+        latitude: gps?.latitude ?? (needsLocation ? state.latitude : null),
+        longitude: gps?.longitude ?? (needsLocation ? state.longitude : null),
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
         sharedUrl: sharedUrlToSend,
         imageUrls: imageUrlsToSend,
         timeConditions: timeConditionsToSend,

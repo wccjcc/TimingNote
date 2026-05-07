@@ -10,6 +10,7 @@ import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.domain.notification.dto.request.GeofenceRecalculateRequestDto;
 import com.timingnote.api.domain.notification.dto.response.GeofenceRecalculateResponseDto;
+import com.timingnote.api.domain.place.service.GenericCandidateRefreshService;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 class GeofenceRecalculateServiceImplTest {
 
     @Mock
-    private GeofenceRecalculateOutboxService geofenceRecalculateOutboxService;
+    private GenericCandidateRefreshService refreshService;
+
+    @Mock
+    private GeofenceRecalculateOutboxService outboxService;
 
     @InjectMocks
     private GeofenceRecalculateServiceImpl geofenceRecalculateService;
@@ -42,7 +46,12 @@ class GeofenceRecalculateServiceImplTest {
         GeofenceRecalculateResponseDto response = geofenceRecalculateService.requestRecalculation(userId, requestDto);
 
         // then: outbox enqueue가 정확한 인자로 1회 호출되고, API 응답은 accepted/enqueued를 반환해야 한다.
-        verify(geofenceRecalculateOutboxService).enqueue(
+        verify(refreshService).refresh(
+                userId,
+                requestDto.getLatitude(),
+                requestDto.getLongitude()
+        );
+        verify(outboxService).enqueue(
                 userId,
                 requestDto.getLatitude(),
                 requestDto.getLongitude(),
@@ -68,7 +77,7 @@ class GeofenceRecalculateServiceImplTest {
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.INVALID_GEOFENCE_RECALCULATE_REQUEST);
 
-        verifyNoInteractions(geofenceRecalculateOutboxService);
+        verifyNoInteractions(refreshService, outboxService);
     }
 
     @Test
@@ -81,7 +90,7 @@ class GeofenceRecalculateServiceImplTest {
                 new BigDecimal("120.0")
         );
         doThrow(new RuntimeException("rabbit publish failed"))
-                .when(geofenceRecalculateOutboxService)
+                .when(outboxService)
                 .enqueue(userId, requestDto.getLatitude(), requestDto.getLongitude(), requestDto.getCourse());
 
         // when & then: 서비스는 내부 예외를 BusinessException(500 코드)로 변환해서 던져야 한다.

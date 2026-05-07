@@ -158,13 +158,11 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
     private boolean passesHardRules(TodoCandidatePlace candidatePlace) {
         // 하드 규칙:
         // 1) alert_enabled=false 이면 후보 제외
-        // 2) snooze 기간이 아직 끝나지 않았으면 제외
         Todo todo = candidatePlace.getTodo();
         if (todo == null || !todo.isAlertEnabled()) {
             return false;
         }
-        OffsetDateTime now = OffsetDateTime.now();
-        return todo.getSnoozedUntil() == null || !todo.getSnoozedUntil().isAfter(now);
+        return true;
     }
 
     //후보 점수 계산

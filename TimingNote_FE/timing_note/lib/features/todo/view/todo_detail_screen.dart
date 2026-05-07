@@ -399,21 +399,16 @@ class TodoDetailScreen extends ConsumerWidget {
         ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
         : '/place-search';
 
-    final result = await context.push<SelectedKakaoPlace>(uri);
+    final result = await context.push<SelectedPlace>(uri);
     if (result == null || !context.mounted) return;
 
-    await ref.read(todoDetailProvider(todoId).notifier).setPlace(
-          kakaoPlaceId: result.kakaoPlaceId,
-          placeName: result.name,
-          addressName: result.address,
-          roadAddressName: result.roadAddress,
-          categoryGroupCode: result.categoryGroupCode,
-          categoryGroupName: result.categoryGroupName,
-          phone: result.phone,
-          placeUrl: result.placeUrl,
-          longitude: result.longitude,
-          latitude: result.latitude,
-        );
+    final notifier = ref.read(todoDetailProvider(todoId).notifier);
+    switch (result) {
+      case SelectedAliasPlace alias:
+        await notifier.setAliasPlace(userPlaceId: alias.userPlaceId);
+      case SelectedExternalPlace external:
+        await notifier.setExternalPlace(place: external);
+    }
   }
 }
 

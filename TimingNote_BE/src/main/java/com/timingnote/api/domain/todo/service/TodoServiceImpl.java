@@ -8,13 +8,14 @@ import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
-import com.timingnote.api.domain.notification.dto.request.GeofenceSlotRecalculateEvent;
-import com.timingnote.api.domain.notification.service.GeofenceSlotManager;
+import com.timingnote.api.domain.notification.service.GeofenceRecalculateOutboxService;
 import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
+import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoStatusUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
@@ -42,8 +43,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import reactor.core.scheduler.Schedulers;
 
@@ -71,10 +70,10 @@ public class TodoServiceImpl implements TodoService {
     private final UserPlaceRepository userPlaceRepository;
     private final AiClient aiClient;
     private final PlaceService placeService;
-    // AI 비동기 콜백에서 트랜잭션 경계가 필요한 저장 작업을 위임.
-    // @Lazy self 자기 주입 없이 외부 빈 참조로 동일 효과 달성.
+    // AI 비동기 콜백의 트랜잭션 경계 위임용 외부 빈 (AOP 프록시 경유 목적)
     private final TodoStructurePersister structurePersister;
-    private final GeofenceSlotManager geofenceSlotManager;
+    // todo CRUD 트랜잭션에 outbox INSERT가 합류 → 롤백 원자성 확보
+    private final GeofenceRecalculateOutboxService outboxService;
 
     // 요일 → 비트마스크 변환 테이블 (updateTodo의 사용자 시간 조건 파싱 전용)
     // AI 파싱용은 TodoStructurePersister 에서 별도 관리
@@ -105,11 +104,12 @@ public class TodoServiceImpl implements TodoService {
                 .originalText(savedTodo.getContent())
                 .build());
 
+        // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue.
+        // userPlaceId가 있으면 ALIAS 매칭 시 검색 쿼리 없이 ID로 직접 연결됨.
         triggerAiAnalysis(userId, savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
-                request.getLatitude(), request.getLongitude());
-
-        // Geofence 재계산은 AI 분석이 완료되어 후보 장소가 저장된 이후에 트리거됨
-        // → TodoStructurePersister.save() 마지막에서 enqueue 처리
+                request.getLatitude(), request.getLongitude(),
+                request.getCourse(), request.getOccurredAt(),
+                request.getUserPlaceId());
 
         return TodoCreateResponse.builder()
                 .todoId(savedTodo.getId())
@@ -124,7 +124,9 @@ public class TodoServiceImpl implements TodoService {
     @Override
     @Transactional(readOnly = true)
     public TodoListResponse getTodoList(Long userId, String status, String tab, String placeType,
-                                        Long cursor, int limit) {
+                                        Long cursor, int limit,
+                                        Double latitude, Double longitude, Double course, OffsetDateTime occurredAt) {
+        // 좌표 4종은 향후 거리 기반 정렬/필터에 활용 예정 — 현재는 receiving만
         List<Todo> fetched = todoRepository.findTodoPage(
                 userId, status, tab, placeType, cursor, PageRequest.of(0, limit + 1));
 
@@ -174,8 +176,9 @@ public class TodoServiceImpl implements TodoService {
         }
         if (request.getPlaceText() != null) {
             applyPlaceTextUpdate(todo, todoId, request);
-            // 장소 텍스트 변경 → 슬롯 재계산만 (Kakao 재검색 불필요 — 방금 저장 완료)
-            triggerSlotRecalculate(userId, request.getLatitude(), request.getLongitude(), null);
+            // 장소 텍스트 변경 → 슬롯 재계산 outbox enqueue (Kakao 재검색은 방금 완료)
+            enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
+                    request.getCourse(), request.getOccurredAt());
         }
         if (request.getTimeConditions() != null) {
             todoTimeConditionRepository.deleteAllByTodo_Id(todoId);
@@ -213,26 +216,30 @@ public class TodoServiceImpl implements TodoService {
 
     @Override
     @Transactional
-    public void updateAlert(Long userId, Long todoId, boolean alertEnabled) {
+    public void updateAlert(Long userId, Long todoId, TodoAlertUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        todo.updateAlertEnabled(alertEnabled);
+        todo.updateAlertEnabled(request.getAlertEnabled());
+        // 알림 on/off → recalculateSlots의 hard rule(alertEnabled) 필터 변경되므로 슬롯 재계산
+        enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
+                request.getCourse(), request.getOccurredAt());
     }
 
     @Override
     @Transactional
-    public void updateStatus(Long userId, Long todoId, String status) {
+    public void updateStatus(Long userId, Long todoId, TodoStatusUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        todo.updateStatus(status);
+        todo.updateStatus(request.getStatus());
         // DONE↔ACTIVE 전환 시 monitoring 쿼리(status='ACTIVE') 필터가 바뀌므로 슬롯 재계산
-        triggerSlotRecalculate(userId, null, null, null);
+        enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
+                request.getCourse(), request.getOccurredAt());
     }
 
     // ── 장소 지정/해제 ────────────────────────────────────────────────────────
@@ -287,8 +294,9 @@ public class TodoServiceImpl implements TodoService {
                     todoId, place.getId(), label);
         }
 
-        // 장소 설정 → 슬롯 재계산만 (후보는 이미 저장됨, Kakao 재검색 불필요)
-        triggerSlotRecalculate(userId, req.getLatitude(), req.getLongitude(), req.getCourse());
+        // 장소 설정 → 슬롯 재계산 outbox enqueue (후보는 이미 저장됨)
+        enqueueSlotRecalculate(userId, req.getLatitude(), req.getLongitude(),
+                req.getCourse(), req.getOccurredAt());
 
         // 이미 로드된 todo 재사용 — primaryPlaceId 업데이트 후 L1 캐시에서 place 조회
         return assembleTodoDetail(todo);
@@ -308,8 +316,9 @@ public class TodoServiceImpl implements TodoService {
         todo.updateResolvedPlaceLabel(null);
         todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
 
-        // 장소 제거 → 해당 슬롯 비활성화를 위해 재계산 트리거 (저장된 거리 기준)
-        triggerSlotRecalculate(userId, null, null, null);
+        // 장소 제거 → 좌표 없으면 enqueue 스킵 (다음 액션에서 자연 복구).
+        // 좌표 없이 호출하므로 메모 모드/권한 거부 사용자 보호 가드에 의해 스킵됨.
+        enqueueSlotRecalculate(userId, null, null, null, null);
 
         log.info("[Todo/Place] todoId={} 장소 연결 해제", todoId);
         return assembleTodoDetail(todo);
@@ -319,7 +328,8 @@ public class TodoServiceImpl implements TodoService {
 
     @Override
     @Transactional
-    public void deleteTodos(Long userId, List<Long> ids) {
+    public void deleteTodos(Long userId, List<Long> ids,
+                            Double latitude, Double longitude, Double course, OffsetDateTime occurredAt) {
         if (ids.isEmpty()) return;
 
         int affected = todoRepository.softDeleteByIdsAndUserId(ids, userId, OffsetDateTime.now());
@@ -331,7 +341,7 @@ public class TodoServiceImpl implements TodoService {
         log.info("[Todo/Delete] userId={} todoIds={} 소프트 삭제 완료", userId, ids);
 
         // 삭제된 todo 슬롯 비활성화 — candidates 제거 후 재계산으로 geofence_slots 정리
-        triggerSlotRecalculate(userId, null, null, null);
+        enqueueSlotRecalculate(userId, latitude, longitude, course, occurredAt);
     }
 
     // ── 상세 응답 조립 ────────────────────────────────────────────────────────
@@ -380,7 +390,9 @@ public class TodoServiceImpl implements TodoService {
      * {@code @Transactional} 새 트랜잭션 정상 시작.
      */
     private void triggerAiAnalysis(Long userId, Long todoId, String inputType, String content,
-                                   Double latitude, Double longitude) {
+                                   Double latitude, Double longitude,
+                                   Double course, OffsetDateTime occurredAt,
+                                   Long userPlaceId) {
         List<UserPlaceAlias> aliases = userPlaceRepository.findWithPlaceByUserId(userId).stream()
                 .map(up -> UserPlaceAlias.builder().alias(up.getAliasName()).build())
                 .toList();
@@ -392,18 +404,15 @@ public class TodoServiceImpl implements TodoService {
                 .userPlaceAliases(aliases)
                 .build();
 
-        BigDecimal bdLat = latitude != null ? BigDecimal.valueOf(latitude) : null;
-        BigDecimal bdLon = longitude != null ? BigDecimal.valueOf(longitude) : null;
-
         aiClient.structureMemo(aiRequest)
                 .subscribe(
                         response -> {
                             if (response == null) return;
-                            // boundedElastic: 트랜잭션 없는 스레드에서 save() 실행 → 커밋 완료 후 바로 recalculate
+                            // boundedElastic: 트랜잭션 없는 스레드에서 save() 실행 → 커밋 완료 후 outbox enqueue
+                            // enqueue는 자체 @Transactional로 새 트랜잭션 시작 → 정상 동작
                             Schedulers.boundedElastic().schedule(() -> {
-                                structurePersister.save(todoId, response, latitude, longitude);
-                                geofenceSlotManager.recalculateSlots(
-                                        new GeofenceSlotRecalculateEvent(userId, bdLat, bdLon, null));
+                                structurePersister.save(todoId, response, latitude, longitude, userPlaceId);
+                                enqueueSlotRecalculate(userId, latitude, longitude, course, occurredAt);
                             });
                         },
                         e -> {
@@ -501,24 +510,24 @@ public class TodoServiceImpl implements TodoService {
     // ── Geofence 재계산 ───────────────────────────────────────────────────────
 
     /**
-     * 트랜잭션 커밋 후 비동기로 geofence 슬롯만 재계산한다 (Kakao 재검색 없음).
+     * Todo CRUD 트랜잭션 안에서 호출하면 같은 트랜잭션에 outbox row INSERT가 합류(REQUIRED)
+     * → todo 변경과 outbox row가 원자적으로 커밋/롤백된다.
      *
-     * <p>위치 이동 이벤트(Consumer 경로)와 달리 Todo CRUD 변경은 이미 후보가 저장된 상태이므로
-     * {@code GeofenceSlotManager.recalculateSlots()}만 직접 호출한다.
-     * lat/lon이 있으면 PostGIS 실거리 기준, 없으면 저장된 {@code distance_m} 기준.
+     * <p>좌표 없으면 슬롯 재계산 의미 없음 — 메모 모드 사용자(위치 권한 거부) 보호.
+     * BE의 {@code recalculateSlots}는 좌표 필수 contract이므로 호출 자체를 스킵한다.
+     * occurredAt은 outbox 시그니처 미지원으로 receiving만 (정우주 영역 확장 시 전달 예정).
      */
-    private void triggerSlotRecalculate(Long userId, Double lat, Double lon, Double course) {
-        BigDecimal bdLat = lat != null ? BigDecimal.valueOf(lat) : null;
-        BigDecimal bdLon = lon != null ? BigDecimal.valueOf(lon) : null;
-        BigDecimal bdCourse = course != null ? BigDecimal.valueOf(course) : null;
-        GeofenceSlotRecalculateEvent event = new GeofenceSlotRecalculateEvent(userId, bdLat, bdLon, bdCourse);
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                Schedulers.boundedElastic().schedule(() -> geofenceSlotManager.recalculateSlots(event));
-            }
-        });
+    private void enqueueSlotRecalculate(Long userId, Double lat, Double lon, Double course, OffsetDateTime occurredAt) {
+        if (lat == null || lon == null) {
+            log.debug("[Todo] 좌표 없음 → 슬롯 재계산 enqueue 스킵 userId={}", userId);
+            return;
+        }
+        outboxService.enqueue(
+                userId,
+                BigDecimal.valueOf(lat),
+                BigDecimal.valueOf(lon),
+                course != null ? BigDecimal.valueOf(course) : null
+        );
     }
 
     // ── 시간 조건 빌더 (사용자 요청 DTO 전용) ────────────────────────────────

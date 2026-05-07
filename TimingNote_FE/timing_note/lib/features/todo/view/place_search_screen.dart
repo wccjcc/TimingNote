@@ -9,8 +9,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/location/location_service.dart';
 import '../../../core/location/location_permission_service.dart';
+import '../../mypage/model/user_place.dart';
+import '../../mypage/service/user_place_service.dart';
 import '../model/selected_kakao_place.dart';
 import '../service/place_search_service.dart';
+import '../widgets/user_place_sheet.dart';
 
 // ── 디자인 상수 (우주 테마 통일) ─────────────────────────────────────
 const _kBgDark = Color(0xFF050510);
@@ -25,8 +28,9 @@ const _kDefaultLng = 126.9780;
 
 /// 장소 검색 + 카카오 지도 선택 화면.
 ///
-/// 진입: context.push<SelectedKakaoPlace>('/place-search?keyword=이전장소명')
-/// 반환: context.pop(SelectedKakaoPlace) — 취소 시 null
+/// 진입: context.push<SelectedPlace>('/place-search?keyword=이전장소명')
+/// 반환: context.pop(SelectedPlace) — 카카오/지도 선택 시 SelectedExternalPlace,
+///       내 장소 선택 시 SelectedAliasPlace, 취소 시 null
 class PlaceSearchScreen extends ConsumerStatefulWidget {
   const PlaceSearchScreen({super.key, this.initialKeyword});
 
@@ -43,6 +47,11 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
   LatLng? _lastReverseGeocoded; // 마지막으로 역지오코딩한 좌표
   String? _currentAddress;
   bool _isReverseGeocoding = false;
+
+  // 사용자 GPS 위치 (BE setPlace의 userLatitude/userLongitude로 전달, 권한 없으면 null)
+  // _center와 분리해서 저장 — _center는 핀 드래그로 바뀌지만 사용자 위치는 고정
+  double? _userLatitude;
+  double? _userLongitude;
 
   // 선택된 장소 (검색 결과 선택 시 채워짐, 지도 핀 드래그 시 null)
   KakaoPlaceItem? _selectedFromSearch;
@@ -69,7 +78,11 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       final pos = await locationService.getCurrentPosition();
       if (!mounted) return;
       final latLng = LatLng(pos.latitude, pos.longitude);
-      setState(() => _center = latLng);
+      setState(() {
+        _center = latLng;
+        _userLatitude = pos.latitude;
+        _userLongitude = pos.longitude;
+      });
       if (_mapController != null) {
         _mapController!.panTo(latLng);
       } else {
@@ -77,7 +90,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       }
       _reverseGeocode(pos.latitude, pos.longitude);
     } catch (_) {
-      // 위치 권한 없거나 실패 시 기본 위치(서울 시청) 사용
+      // 위치 권한 없거나 실패 시 기본 위치(서울 시청) 사용 — _userLat/Lng는 null 유지
       _reverseGeocode(_kDefaultLat, _kDefaultLng);
     }
   }
@@ -147,25 +160,51 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
     final name = _customNameController.text.trim();
     if (name.isEmpty) return;
 
-    SelectedKakaoPlace result;
+    SelectedExternalPlace result;
 
     if (_selectedFromSearch != null) {
-      // 검색 결과 선택: kakaoPlaceId 있음
-      result = _selectedFromSearch!.toSelectedPlace();
-      // 사용자가 이름을 바꿨을 경우 덮어쓰기 (현재는 동일 사용)
+      // 카카오 키워드 검색 결과: kakaoPlaceId 있음
+      result = _selectedFromSearch!.toSelectedPlace(
+        userLatitude: _userLatitude,
+        userLongitude: _userLongitude,
+      );
     } else {
-      // 지도 핀 직접 선택: kakaoPlaceId 없음 → id에 좌표 기반 임시값 사용
-      result = SelectedKakaoPlace(
-        kakaoPlaceId: 'custom_${_center.latitude}_${_center.longitude}',
-        name: name,
-        latitude: _center.latitude,
-        longitude: _center.longitude,
-        address: _currentAddress,
-        roadAddress: _currentAddress,
+      // 지도 핀 직접 선택: kakaoPlaceId 없음 (BE에서 새 Place 레코드 생성)
+      result = SelectedExternalPlace(
+        kakaoPlaceId: null,
+        placeName: name,
+        placeLatitude: _center.latitude,
+        placeLongitude: _center.longitude,
+        addressName: _currentAddress,
+        roadAddressName: _currentAddress,
+        userLatitude: _userLatitude,
+        userLongitude: _userLongitude,
       );
     }
 
     context.pop(result);
+  }
+
+  /// 내 장소 시트 — 사용자 등록 별칭 목록에서 선택
+  Future<void> _openUserPlaceSheet() async {
+    final selected = await showModalBottomSheet<UserPlace>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => UserPlaceSheet(
+        userPlaceService: ref.read(userPlaceServiceProvider),
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    context.pop(SelectedAliasPlace(
+      userPlaceId: selected.id,
+      aliasName: selected.aliasName,
+      placeLatitude: selected.latitude,
+      placeLongitude: selected.longitude,
+      userLatitude: _userLatitude,
+      userLongitude: _userLongitude,
+    ));
   }
 
   @override
@@ -226,6 +265,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
                 _TopBar(
                   onBack: () => context.pop(),
                   onSearchTap: () => _openSearchSheet(),
+                  onUserPlaceTap: () => _openUserPlaceSheet(),
                 ),
                 const Spacer(),
                 // 하단 패널
@@ -262,10 +302,15 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
 
 // ── 상단 바 ───────────────────────────────────────────────────────────
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onBack, required this.onSearchTap});
+  const _TopBar({
+    required this.onBack,
+    required this.onSearchTap,
+    required this.onUserPlaceTap,
+  });
 
   final VoidCallback onBack;
   final VoidCallback onSearchTap;
+  final VoidCallback onUserPlaceTap;
 
   @override
   Widget build(BuildContext context) {
@@ -304,14 +349,10 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          // 내 장소 버튼 (추후 연결)
+          // 내 장소 버튼 — 사용자 등록 별칭 목록에서 선택
           _GlassButton(
             child: const Text('내 장소', style: TextStyle(color: _kPurpleAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('내 장소 기능은 준비 중입니다'), duration: Duration(seconds: 1)),
-              );
-            },
+            onTap: onUserPlaceTap,
           ),
         ],
       ),
@@ -837,3 +878,4 @@ class _PinShadow extends StatelessWidget {
     );
   }
 }
+
