@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 import com.timingnote.api.infra.client.fcm.PushNotificationSender;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +51,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     private static final String TODO_STATUS_ACTIVE = "ACTIVE";
     private static final String PUSH_TYPE_GEOFENCE = "GEOFENCE";
+    private static final String IOS_CATEGORY_GEOFENCE_TODO_ACTIONS = "GEOFENCE_TODO_ACTIONS";
     private static final String TITLE_SUFFIX = "근처에요";
     private static final String TITLE_FALLBACK = "타이밍노트 알림";
     private static final String BODY_FALLBACK = "위치 기반 알림이 도착했습니다.";
@@ -86,7 +88,8 @@ public class NotificationServiceImpl implements NotificationService {
         if (fcmToken == null || !Boolean.TRUE.equals(fcmToken.getIsActive())) {
             String title = buildTitle(slot.getPlaceId());
             String body = buildBody(todo.getContent());
-            saveNotificationHistory(userId, todo, null, title, body, false);
+            UserNotification history = saveNotificationHistory(userId, todo, null, title, body, false);
+            history.markFailed();
             return NotificationGeofenceSendResponseDto.builder()
                     .sent(false)
                     .reason("FCM_TOKEN_NOT_AVAILABLE")
@@ -95,8 +98,26 @@ public class NotificationServiceImpl implements NotificationService {
 
         String title = buildTitle(slot.getPlaceId());
         String body = buildBody(todo.getContent());
-        boolean sent = pushNotificationSender.send(fcmToken.getFcmToken(), PUSH_TYPE_GEOFENCE, title, body);
-        saveNotificationHistory(userId, todo, null, title, body, sent);
+        UserNotification history = saveNotificationHistory(userId, todo, null, title, body, false);
+        Map<String, String> pushData = Map.of(
+                "notificationId", String.valueOf(history.getId()),
+                "todoId", String.valueOf(todo.getId()),
+                "slotId", String.valueOf(slot.getId()),
+                "type", PUSH_TYPE_GEOFENCE
+        );
+        boolean sent = pushNotificationSender.send(
+                fcmToken.getFcmToken(),
+                PUSH_TYPE_GEOFENCE,
+                title,
+                body,
+                pushData,
+                IOS_CATEGORY_GEOFENCE_TODO_ACTIONS
+        );
+        if (sent) {
+            history.markSent();
+        } else {
+            history.markFailed();
+        }
         log.info(
                 "Notification sent result userId={} slotId={} todoId={} sent={} title='{}' body='{}'",
                 userId, slotId, todo.getId(), sent, title, body
@@ -320,7 +341,7 @@ public class NotificationServiceImpl implements NotificationService {
         return (todoContent == null || todoContent.isBlank()) ? BODY_FALLBACK : todoContent;
     }
 
-    private void saveNotificationHistory(
+    private UserNotification saveNotificationHistory(
             Long userId,
             Todo todo,
             Long candidatePlaceId,
@@ -339,7 +360,7 @@ public class NotificationServiceImpl implements NotificationService {
                 .title(title)
                 .body(body)
                 .build();
-        userNotificationRepository.save(notification);
+        return userNotificationRepository.save(notification);
     }
 
     private NotificationType resolveNotificationType(Todo todo) {

@@ -88,4 +88,12 @@ public class UserNotification {
         this.status = NotificationStatus.OPENED;
         this.openedAt = openedAt;
     }
+
+    public void markSent() {
+        this.status = NotificationStatus.SENT;
+    }
+
+    public void markFailed() {
+        this.status = NotificationStatus.FAILED;
+    }
 }
