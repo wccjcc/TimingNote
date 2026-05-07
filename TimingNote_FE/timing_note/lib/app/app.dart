@@ -66,14 +66,16 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
         // background 전환 시에는 geofence 감시는 유지하고,
         // SSE 실시간 동기화만 중지합니다.
+        //
+        // 중요:
+        // - detached에서도 runtime.stop()을 호출하지 않습니다.
+        // - stop()은 내부에서 clearGeofences()를 수행하므로,
+        //   앱 종료 직전 geofence 등록이 해제되어 "앱이 꺼져도 감시 유지" 요구와 충돌합니다.
+        // - 따라서 lifecycle 경로에서는 일관되게 "SSE만 중지" 정책을 사용합니다.
         await runtime.pauseRealtimeSync();
-        break;
-
-      case AppLifecycleState.detached:
-        // 앱 프로세스 종료 단계(detached)에서는 전체 감시를 정리합니다.
-        await runtime.stop();
         break;
     }
   }
