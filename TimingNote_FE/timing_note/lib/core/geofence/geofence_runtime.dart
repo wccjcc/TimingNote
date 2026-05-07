@@ -9,7 +9,6 @@ import '../location/location_permission_service.dart';
 import '../notification/local_notification_service.dart';
 import 'geofence_event.dart';
 import 'geofence_event_publisher.dart';
-import 'geofence_hardcoded_regions.dart';
 import 'geofence_region_store.dart';
 import 'geofence_service.dart';
 import 'geofence_sse_client.dart';
@@ -54,27 +53,30 @@ class GeofenceRuntime {
   ///
   /// 동작 순서:
   /// - 로컬에 저장된 기존 region이 있으면 우선 사용
-  /// - 없으면 임시 하드코딩 region으로 시작
-  /// - 이후 SSE/slots 동기화가 붙으면 서버 기준 목록으로 교체됨
+  /// - 저장된 region이 없으면 즉시 SSE/slots 동기화로 서버 기준 목록을 받음
+  /// - 하드코딩 fallback은 사용하지 않음
   Future<void> start() async {
     if (_started) {
       return;
     }
 
     final storedRegions = await _regionStore.loadRegions();
-    final regionsToRegister = storedRegions.isNotEmpty
-        ? storedRegions
-        : GeofenceHardcodedRegions.regions;
-
-    await _regionStore.saveRegions(regionsToRegister);
-
-    await _geofenceService.registerGeofences(
-      regionsToRegister,
-      onTransition: _handleTransition,
-    );
+    if (storedRegions.isNotEmpty) {
+      await _regionStore.saveRegions(storedRegions);
+      await _geofenceService.registerGeofences(
+        storedRegions,
+        onTransition: _handleTransition,
+      );
+    } else {
+      // 앱 첫 실행/캐시 초기화 상태에서는 임시 하드코딩 region을 등록하지 않습니다.
+      // 이 상태는 잠시 "미등록" 상태로 두고, 아래 슬롯 동기화가 완료되면 서버 기준으로 등록합니다.
+      _logger.i('[GEOFENCE_MONITORING_STARTED] no cached regions, waiting server slots');
+    }
 
     _started = true;
-    _logger.i('[GEOFENCE_MONITORING_STARTED] regions=${regionsToRegister.length}');
+    if (storedRegions.isNotEmpty) {
+      _logger.i('[GEOFENCE_MONITORING_STARTED] regions=${storedRegions.length}');
+    }
 
     // SSE 슬롯 동기화를 시작합니다.
     // 연결 직후 1회 강제 재조회하여 초기 정합성을 맞춥니다.
