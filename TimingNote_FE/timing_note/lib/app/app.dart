@@ -13,6 +13,9 @@ import '../core/location/location_service.dart';
 import '../core/notification/fcm_token_service.dart';
 import '../core/notification/push_action_bridge.dart';
 import '../features/notification/service/notification_service.dart';
+import '../shared/theme/colors.dart';
+import '../shared/widgets/neon_button.dart';
+import '../shared/widgets/space_card.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -28,13 +31,17 @@ class App extends ConsumerStatefulWidget {
 /// 정책:
 /// - foreground(resumed): geofenceRuntime.start() 보장 + syncSlots() 강제 1회
 /// - background 계열: geofence 감시는 유지하고 SSE만 중지
-class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
+class _AppState extends ConsumerState<App>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   static final Logger _logger = Logger();
 
   late final Future<void> _bootstrapFuture;
   final PushActionBridge _pushActionBridge = PushActionBridge();
   StreamSubscription<Map<String, String>>? _pushActionSubscription;
   StreamSubscription<RemoteMessage>? _fcmTapSubscription;
+  StreamSubscription<RemoteMessage>? _fcmForegroundSubscription;
+  OverlayEntry? _activeForegroundToastEntry;
+  AnimationController? _foregroundToastAnimationController;
   bool _initialPushTapHandled = false;
 
   @override
@@ -49,6 +56,7 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
 
         // 푸시 알림 탭 딥링크 라우팅 초기화
         await _initFcmTapDeepLinkRouting();
+        await _initForegroundPushToast();
 
         // iOS 액션 버튼 브리지 초기화
         await _pushActionBridge.initialize();
@@ -73,6 +81,13 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     if (fcmTapSubscription != null) {
       unawaited(fcmTapSubscription.cancel());
     }
+
+    final fcmForegroundSubscription = _fcmForegroundSubscription;
+    if (fcmForegroundSubscription != null) {
+      unawaited(fcmForegroundSubscription.cancel());
+    }
+
+    _removeForegroundToast();
 
     super.dispose();
   }
@@ -142,6 +157,23 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     if (initialMessage != null) {
       await _handleFcmPushTap(initialMessage, source: 'getInitialMessage');
     }
+  }
+
+  /// foreground 수신 시 앱 상단 토스트 알림을 노출합니다.
+  Future<void> _initForegroundPushToast() async {
+    if (kIsWeb) {
+      return;
+    }
+    _fcmForegroundSubscription ??= FirebaseMessaging.onMessage.listen(
+      (message) => unawaited(_showForegroundPushToast(message)),
+      onError: (Object error, StackTrace stackTrace) {
+        _logger.e(
+          '[PUSH_FOREGROUND_LISTEN_ERROR] onMessage',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      },
+    );
   }
 
   /// 푸시 탭 메시지에서 todoId를 추출해 상세 화면으로 이동합니다.
@@ -234,6 +266,160 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _showForegroundPushToast(RemoteMessage message) async {
+    if (!mounted) {
+      return;
+    }
+    _removeForegroundToast();
+
+    final overlayState = Overlay.of(context, rootOverlay: true);
+
+    final animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+      reverseDuration: const Duration(milliseconds: 220),
+    );
+    _foregroundToastAnimationController = animationController;
+    final curved = CurvedAnimation(
+      parent: animationController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) {
+        final placeName = _resolvePlaceNameFromMessage(message);
+        final todoText = _resolveTodoTextFromMessage(message);
+        final notificationId =
+            int.tryParse(message.data['notificationId']?.toString() ?? '');
+
+        return Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, -1),
+                      end: Offset.zero,
+                    ).animate(curved),
+                    child: _ForegroundNotificationToastCard(
+                      placeName: placeName,
+                      todoText: todoText,
+                      onTapCard: () => unawaited(_handleForegroundToastTap(message)),
+                      onTapSnooze: notificationId == null
+                          ? null
+                          : () => unawaited(
+                                _handleForegroundToastAction(
+                                  notificationId: notificationId,
+                                  actionId: 'SNOOZE_60',
+                                ),
+                              ),
+                      onTapComplete: notificationId == null
+                          ? null
+                          : () => unawaited(
+                                _handleForegroundToastAction(
+                                  notificationId: notificationId,
+                                  actionId: 'COMPLETE',
+                                ),
+                              ),
+                      onClose: () => unawaited(_dismissForegroundToast()),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    _activeForegroundToastEntry = entry;
+    overlayState.insert(entry);
+    await animationController.forward();
+
+    await Future<void>.delayed(const Duration(seconds: 4));
+    if (!mounted || _activeForegroundToastEntry != entry) {
+      return;
+    }
+    await _dismissForegroundToast();
+  }
+
+  Future<void> _dismissForegroundToast() async {
+    final controller = _foregroundToastAnimationController;
+    if (controller == null) {
+      _removeForegroundToast();
+      return;
+    }
+    if (controller.status != AnimationStatus.dismissed) {
+      await controller.reverse();
+    }
+    _removeForegroundToast();
+  }
+
+  void _removeForegroundToast() {
+    _activeForegroundToastEntry?.remove();
+    _activeForegroundToastEntry = null;
+    _foregroundToastAnimationController?.dispose();
+    _foregroundToastAnimationController = null;
+  }
+
+  Future<void> _handleForegroundToastTap(RemoteMessage message) async {
+    await _dismissForegroundToast();
+    await _handleFcmPushTap(message, source: 'foregroundToastTap');
+  }
+
+  Future<void> _handleForegroundToastAction({
+    required int notificationId,
+    required String actionId,
+  }) async {
+    await _dismissForegroundToast();
+    await _handlePushActionEvent({
+      'actionId': actionId,
+      'notificationId': '$notificationId',
+    });
+  }
+
+  String _resolveTodoTextFromMessage(RemoteMessage message) {
+    final body = message.notification?.body ?? message.data['body']?.toString() ?? '';
+    if (body.trim().isEmpty) {
+      return '할 일을 확인해 주세요';
+    }
+    return body.trim();
+  }
+
+  String _resolvePlaceNameFromMessage(RemoteMessage message) {
+    final rawTitle =
+        message.notification?.title ?? message.data['title']?.toString() ?? '';
+    final title = rawTitle.trim();
+    if (title.isEmpty) {
+      return '현재 위치';
+    }
+
+    final suffixes = <String>[
+      '근처에요',
+      '근처예요',
+      '근처입니다',
+      '근처',
+    ];
+    for (final suffix in suffixes) {
+      if (title.endsWith(suffix)) {
+        final place = title.substring(0, title.length - suffix.length).trim();
+        if (place.isNotEmpty) {
+          return place;
+        }
+      }
+    }
+    return title;
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<void>(
@@ -278,6 +464,157 @@ class _AppState extends ConsumerState<App> with WidgetsBindingObserver {
           routerConfig: router,
         );
       },
+    );
+  }
+}
+
+class _ForegroundNotificationToastCard extends StatelessWidget {
+  const _ForegroundNotificationToastCard({
+    required this.placeName,
+    required this.todoText,
+    required this.onTapCard,
+    required this.onTapSnooze,
+    required this.onTapComplete,
+    required this.onClose,
+  });
+
+  final String placeName;
+  final String todoText;
+  final VoidCallback onTapCard;
+  final VoidCallback? onTapSnooze;
+  final VoidCallback? onTapComplete;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: GestureDetector(
+        onTap: onTapCard,
+        child: SpaceCard(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+          borderColor: SpaceColors.neonViolet.withOpacity(0.45),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: SpaceColors.neonPurple.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: SpaceColors.neonPurple.withOpacity(0.45),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.rocket_launch_outlined,
+                      color: SpaceColors.neonLavender,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      '할 일 알림',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'Galmuri11',
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    splashRadius: 18,
+                    onPressed: onClose,
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: SpaceColors.white50,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              RichText(
+                text: TextSpan(
+                  style: const TextStyle(
+                    color: Color(0xB3FFFFFF),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    height: 1.5,
+                  ),
+                  children: [
+                    const TextSpan(text: '지금 '),
+                    TextSpan(
+                      text: placeName,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const TextSpan(text: ' 근처에 도착했어요.'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '"$todoText"',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                '를 처리할까요?',
+                style: TextStyle(
+                  color: Color(0xB3FFFFFF),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () {},
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 6,
+                      child: NeonButton(
+                        label: '1시간동안 알림 받지 않기',
+                        isPrimary: false,
+                        height: 46,
+                        fontSize: 14,
+                        fontFamily: 'Galmuri11',
+                        onTap: onTapSnooze,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 4,
+                      child: NeonButton(
+                        label: '완료',
+                        icon: Icons.check_rounded,
+                        height: 46,
+                        fontSize: 14,
+                        fontFamily: 'Galmuri11',
+                        onTap: onTapComplete,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
