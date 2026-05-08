@@ -7,6 +7,8 @@ class NeonButton extends StatelessWidget {
   final VoidCallback? onTap;
   final bool isPrimary;
   final double height;
+  final double fontSize;
+  final String? fontFamily;
 
   const NeonButton({
     super.key,
@@ -15,6 +17,8 @@ class NeonButton extends StatelessWidget {
     this.onTap,
     this.isPrimary = true,
     this.height = 54,
+    this.fontSize = 16,
+    this.fontFamily,
   });
 
   @override
@@ -42,22 +46,31 @@ class NeonButton extends StatelessWidget {
                 ]
               : null,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, color: SpaceColors.white, size: 20),
-              const SizedBox(width: 10),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                color: onTap == null ? SpaceColors.white20 : SpaceColors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, color: SpaceColors.white, size: 20),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: onTap == null ? SpaceColors.white20 : SpaceColors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: fontSize,
+                    fontFamily: fontFamily,
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

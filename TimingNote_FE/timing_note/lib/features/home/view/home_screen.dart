@@ -9,7 +9,6 @@ import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
 import '../../../../shared/widgets/neon_button.dart';
-import '../../../../shared/widgets/space_card.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../../notification/viewmodel/notification_viewmodel.dart';
