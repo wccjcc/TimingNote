@@ -10,6 +10,8 @@ import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
 import '../../../../shared/widgets/neon_button.dart';
 import '../../../../shared/widgets/space_card.dart';
+import '../../mypage/model/user_place.dart';
+import '../../mypage/service/user_place_service.dart';
 import '../../notification/viewmodel/notification_viewmodel.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/viewmodel/todo_input_viewmodel.dart';
@@ -28,6 +30,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String _inputType = InputType.text;
   bool _showActionMenu = false;
   bool _isInputMode = false;
+  List<UserPlace> _userPlaces = const [];
 
   @override
   void initState() {
@@ -37,6 +40,80 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         setState(() => _isInputMode = true);
       }
     });
+    _loadUserPlaces();
+  }
+
+  /// 별자리 패턴 슬롯 (7개, 2-3-2 행 구성):
+  ///   행 1 (top 20):  좌중, 우중              [큰 큰]
+  ///   행 2 (top 140): 좌끝, 중앙, 우끝         [작 큰 작]
+  ///   행 3 (top 260): 좌중, 우중              [작 작]
+  /// 중앙 별은 화면 폭에 따라 동적 계산 → 디바이스 회전/크기 자동 대응.
+  List<_TagSlot> _buildConstellationSlots(double width) {
+    // 별 위젯 추정 폭 ~100 → 중앙 정렬 보정
+    final centerLeft = (width / 2) - 50;
+    return [
+      // 행 1
+      const _TagSlot(left: 60, top: 20, small: false),
+      const _TagSlot(right: 60, top: 20, small: false),
+      // 행 2
+      const _TagSlot(left: 20, top: 140, small: true),
+      _TagSlot(left: centerLeft, top: 140, small: false),
+      const _TagSlot(right: 20, top: 140, small: true),
+      // 행 3
+      const _TagSlot(left: 80, top: 260, small: true),
+      const _TagSlot(right: 80, top: 260, small: true),
+    ];
+  }
+
+  Future<void> _loadUserPlaces() async {
+    try {
+      final list = await ref.read(userPlaceServiceProvider).getUserPlaces();
+      if (!mounted) return;
+      setState(() => _userPlaces = list);
+    } catch (_) {
+      // 무시 — 빈 목록으로 처리 (네트워크 실패 / 등록 안 함)
+    }
+  }
+
+  /// 현재 시각 기반 시간 태그 추천. 발표 후 사용자 맞춤 통계로 진화 예정.
+  List<String> _suggestTimeTags() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return const ['오늘 점심', '오늘 저녁', '내일 오전', '매주 월요일', '이번 주말', '오늘 퇴근 후', '이번 주 안에'];
+    } else if (hour < 18) {
+      return const ['오늘 저녁', '내일 오전', '내일 오후 3시', '매주 월요일', '이번 주말', '오늘 퇴근 후', '이번 주 안에'];
+    } else {
+      return const ['내일 오전', '내일 오후 3시', '내일 저녁', '매주 월요일', '이번 주말', '내일 퇴근 후', '이번 주 안에'];
+    }
+  }
+
+  /// 별 태그 클릭 분기:
+  /// - 장소(_TagDisplay.place != null) → state.selectedUserPlace 설정 (입력창 prefix chip으로 고정)
+  /// - 시간 → 입력창 커서 위치에 텍스트 삽입
+  void _onTagTap(_TagDisplay tag) {
+    if (tag.place != null) {
+      ref.read(todoInputProvider.notifier).setUserPlace(tag.place!);
+      return;
+    }
+    _insertTextAtCursor(tag.label);
+  }
+
+  void _insertTextAtCursor(String tag) {
+    final currentText = _textController.text;
+    final selection = _textController.selection;
+    final insertStart = selection.isValid ? selection.start : currentText.length;
+    final insertEnd = selection.isValid ? selection.end : currentText.length;
+
+    final before = currentText.substring(0, insertStart);
+    final needsLeadingSpace = before.isNotEmpty && !before.endsWith(' ');
+    final inserted = '${needsLeadingSpace ? ' ' : ''}$tag ';
+
+    final newText = currentText.replaceRange(insertStart, insertEnd, inserted);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: insertStart + inserted.length),
+    );
+    _onTextChanged(newText);
   }
 
   @override
@@ -170,12 +247,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: _FloatingTagArea(
                       isFocused: _isInputMode,
-                      onTagTap: (tag) {
-                        final currentText = _textController.text;
-                        final separator = (currentText.isEmpty || currentText.endsWith(' ')) ? '' : ' ';
-                        _textController.text = '$currentText$separator$tag';
-                        _onTextChanged(_textController.text);
-                      },
+                      places: _userPlaces,
+                      timeSuggestions: _suggestTimeTags(),
+                      slots: _buildConstellationSlots(
+                        math.min(MediaQuery.of(context).size.width, 500.0),
+                      ),
+                      onTagTap: _onTagTap,
                     ),
                   ),
                 ),
@@ -198,6 +275,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     hasText: hasText,
                     showActionMenu: _showActionMenu,
                     isInputMode: _isInputMode,
+                    selectedUserPlace: inputState.selectedUserPlace,
+                    onClearPlace: () =>
+                        ref.read(todoInputProvider.notifier).clearUserPlace(),
                     onTextChanged: _onTextChanged,
                     onToggleMenu: () => setState(() => _showActionMenu = !_showActionMenu),
                     onSelectType: _onSelectType,
@@ -214,13 +294,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 }
 
 // ── 하위 위젯: 플로팅 태그 영역 ──────────────────────────────────────────
+/// 입력창 focus 시 별처럼 떠오르는 추천 태그.
+/// - 장소: 사용자 등록 내 장소 (최대 _kMaxPlaceTags개) — 노란색, 클릭 시 prefix chip으로 고정
+/// - 시간: 현재 시각 기반 추천 — 보라색, 클릭 시 입력창 커서 위치에 텍스트 삽입
+/// 슬롯 위치는 부모(_HomeScreenState)가 랜덤 생성한 것을 받아 사용.
 class _FloatingTagArea extends StatelessWidget {
-  const _FloatingTagArea({required this.isFocused, required this.onTagTap});
+  const _FloatingTagArea({
+    required this.isFocused,
+    required this.onTagTap,
+    required this.places,
+    required this.timeSuggestions,
+    required this.slots,
+  });
+
   final bool isFocused;
-  final ValueChanged<String> onTagTap;
+  final ValueChanged<_TagDisplay> onTagTap;
+  final List<UserPlace> places;
+  final List<String> timeSuggestions;
+  final List<_TagSlot> slots;
+
+  // 장소 태그 개수 상한 — 나머지 슬롯은 시간 태그로 채움
+  static const int _kMaxPlaceTags = 3;
+
+  static const _placeColor = Color(0xFFFCD34D);    // 노란
+  static const _timeColor = SpaceColors.neonPurple; // 보라
 
   @override
   Widget build(BuildContext context) {
+    final placeCount = math.min(places.length, _kMaxPlaceTags);
+    final timeCount = math.min(timeSuggestions.length, slots.length - placeCount);
+
+    final tags = <_TagDisplay>[
+      for (var i = 0; i < placeCount; i++)
+        _TagDisplay(label: places[i].aliasName, color: _placeColor, place: places[i]),
+      for (var i = 0; i < timeCount; i++)
+        _TagDisplay(label: timeSuggestions[i], color: _timeColor),
+    ];
+
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 400),
       curve: Curves.easeOut,
@@ -228,30 +338,38 @@ class _FloatingTagArea extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          _buildAnimatedTag(left: 30, top: 40, label: '스타벅스 강남점', color: const Color(0xFFFCD34D)),
-          _buildAnimatedTag(right: 40, top: 120, label: '내일 오후 3시', color: const Color(0xFFFDBA74)),
-          _buildAnimatedTag(left: 80, top: 220, label: '매주 월요일', color: const Color(0xFFFCD34D), small: true),
-          _buildAnimatedTag(right: 20, top: 280, label: '다이소', color: const Color(0xFFFDBA74), small: true),
-          _buildAnimatedTag(left: 160, top: 20, label: '오늘 저녁', color: SpaceColors.neonPurple, small: true),
+          for (var i = 0; i < math.min(tags.length, slots.length); i++)
+            Positioned(
+              left: slots[i].left,
+              right: slots[i].right,
+              top: slots[i].top,
+              child: FloatingStarTag(
+                label: tags[i].label,
+                glowColor: tags[i].color,
+                onTap: () => onTagTap(tags[i]),
+                small: slots[i].small,
+              ),
+            ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildAnimatedTag({double? left, double? top, double? right, double? bottom, required String label, required Color color, bool small = false}) {
-    return Positioned(
-      left: left,
-      top: top,
-      right: right,
-      bottom: bottom,
-      child: FloatingStarTag(
-        label: label,
-        glowColor: color,
-        onTap: () => onTagTap(label),
-        small: small,
-      ),
-    );
-  }
+class _TagSlot {
+  final double? left;
+  final double? right;
+  final double top;
+  final bool small;
+  const _TagSlot({this.left, this.right, required this.top, this.small = false});
+}
+
+class _TagDisplay {
+  final String label;
+  final Color color;
+  /// 장소 태그면 UserPlace, 시간 태그면 null.
+  final UserPlace? place;
+  const _TagDisplay({required this.label, required this.color, this.place});
 }
 
 class _HomeHeader extends StatelessWidget {
@@ -319,26 +437,89 @@ class _TimelineCard extends StatelessWidget {
 }
 
 class _BottomInputBar extends StatelessWidget {
-  const _BottomInputBar({required this.controller, required this.focusNode, required this.inputType, required this.isLoading, required this.hasText, required this.showActionMenu, required this.isInputMode, required this.onTextChanged, required this.onToggleMenu, required this.onSelectType, required this.onSubmit});
+  const _BottomInputBar({
+    required this.controller,
+    required this.focusNode,
+    required this.inputType,
+    required this.isLoading,
+    required this.hasText,
+    required this.showActionMenu,
+    required this.isInputMode,
+    required this.selectedUserPlace,
+    required this.onClearPlace,
+    required this.onTextChanged,
+    required this.onToggleMenu,
+    required this.onSelectType,
+    required this.onSubmit,
+  });
+
   final TextEditingController controller;
   final FocusNode focusNode;
   final String inputType;
   final bool isLoading, hasText, showActionMenu, isInputMode;
+  final UserPlace? selectedUserPlace;
+  final VoidCallback onClearPlace;
   final ValueChanged<String> onTextChanged;
   final VoidCallback onToggleMenu;
   final ValueChanged<String> onSelectType;
   final VoidCallback onSubmit;
+
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
-    return AnimatedContainer(duration: const Duration(milliseconds: 200), padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + (isInputMode ? 120 : 10)), decoration: const BoxDecoration(color: SpaceColors.space900, border: Border(top: BorderSide(color: SpaceColors.white10))), child: Column(mainAxisSize: MainAxisSize.min, children: [
-      if (showActionMenu) Padding(padding: const EdgeInsets.only(bottom: 8), child: _ActionMenu(onSelectType: onSelectType)),
-      Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: SpaceColors.space900.withOpacity(0.9), borderRadius: BorderRadius.circular(20), border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2)), child: Row(children: [
-        _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
-        Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: TextField(controller: controller, focusNode: focusNode, onChanged: onTextChanged, style: const TextStyle(color: Colors.white, fontSize: 15), decoration: const InputDecoration(hintText: '새로운 할 일을 입력하세요', hintStyle: TextStyle(color: Color(0x66D8B4FE), fontSize: 15), border: InputBorder.none)))),
-        _IconButton(icon: isLoading ? Icons.hourglass_empty : (hasText ? Icons.arrow_upward : Icons.mic), onTap: hasText ? onSubmit : null, isPrimary: hasText),
-      ])),
-    ]));
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + (isInputMode ? 120 : 10)),
+      decoration: const BoxDecoration(color: SpaceColors.space900, border: Border(top: BorderSide(color: SpaceColors.white10))),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (showActionMenu) Padding(padding: const EdgeInsets.only(bottom: 8), child: _ActionMenu(onSelectType: onSelectType)),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: SpaceColors.space900.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+          ),
+          child: Row(children: [
+            _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  onChanged: onTextChanged,
+                  style: const TextStyle(color: Colors.white, fontSize: 15),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    prefixIcon: selectedUserPlace != null
+                        ? Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: InputChip(
+                              avatar: const Icon(Icons.bookmark, size: 14, color: Colors.white),
+                              label: Text(selectedUserPlace!.aliasName, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                              backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
+                              side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
+                              deleteIconColor: Colors.white70,
+                              onDeleted: onClearPlace,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          )
+                        : null,
+                    prefixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
+                    hintText: '새로운 할 일을 입력하세요',
+                    hintStyle: const TextStyle(color: Color(0x66D8B4FE), fontSize: 15),
+                    border: InputBorder.none,
+                  ),
+                ),
+              ),
+            ),
+            _IconButton(icon: isLoading ? Icons.hourglass_empty : (hasText ? Icons.arrow_upward : Icons.mic), onTap: hasText ? onSubmit : null, isPrimary: hasText),
+          ]),
+        ),
+      ]),
+    );
   }
 }
 
