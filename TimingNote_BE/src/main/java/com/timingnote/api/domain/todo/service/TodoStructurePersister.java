@@ -13,6 +13,7 @@ import com.timingnote.api.domain.todo.enums.StructureStatus;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoStructureRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
+import com.timingnote.api.domain.todo.search.service.TodoIndexer;
 import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import com.timingnote.api.infra.client.ai.AiPlaceType;
@@ -59,6 +60,7 @@ public class TodoStructurePersister {
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
     private final PlaceService placeService;
     private final UserPlaceRepository userPlaceRepository;
+    private final TodoIndexer todoIndexer;
 
     // 요일 → 비트마스크 변환 테이블 (MON=1, TUE=2, WED=4, THU=8, FRI=16, SAT=32, SUN=64)
     private static final Map<String, Integer> DAY_BITMASK = Map.of(
@@ -95,6 +97,10 @@ public class TodoStructurePersister {
 
         log.info("[AI] 구조화 저장 완료 (todoId={}, placeType={}, userPlaceId={})",
                 todoId, placeType, userPlaceId);
+
+        // PENDING→READY 전이 시점 — todoType / category / resolvedPlaceLabel / primaryPlaceId 모두 보강된 상태.
+        // 이 시점이 가장 풍부한 색인 시점이므로 afterCommit 훅 등록.
+        todoIndexer.scheduleAfterCommit(todoId);
     }
 
     /**

@@ -35,6 +35,7 @@ import com.timingnote.api.domain.todo.enums.InputType;
 import com.timingnote.api.domain.todo.enums.StructureStatus;
 import com.timingnote.api.domain.todo.enums.TodoStatus;
 import com.timingnote.api.domain.todo.enums.TodoType;
+import com.timingnote.api.domain.todo.search.service.TodoIndexer;
 import com.timingnote.api.infra.client.ai.AiClient;
 import com.timingnote.api.infra.client.ai.dto.AiStructureRequest;
 import com.timingnote.api.infra.client.ai.dto.UserPlaceAlias;
@@ -74,6 +75,8 @@ public class TodoServiceImpl implements TodoService {
     private final TodoStructurePersister structurePersister;
     // todo CRUD 트랜잭션에 outbox INSERT가 합류 → 롤백 원자성 확보
     private final GeofenceRecalculateOutboxService outboxService;
+    // ES 검색 인덱스 동기화 — afterCommit 훅 등록 (Todo 내부 이벤트 패턴)
+    private final TodoIndexer todoIndexer;
 
     // 요일 → 비트마스크 변환 테이블 (updateTodo의 사용자 시간 조건 파싱 전용)
     // AI 파싱용은 TodoStructurePersister 에서 별도 관리
@@ -110,6 +113,9 @@ public class TodoServiceImpl implements TodoService {
                 request.getLatitude(), request.getLongitude(),
                 request.getCourse(), request.getOccurredAt(),
                 request.getUserPlaceId());
+
+        // PENDING 상태 그대로 색인(content 검색 가능). AI 콜백에서 placeLabel 등 보강 후 재색인.
+        todoIndexer.scheduleAfterCommit(savedTodo.getId());
 
         return TodoCreateResponse.builder()
                 .todoId(savedTodo.getId())
@@ -210,6 +216,8 @@ public class TodoServiceImpl implements TodoService {
             }
         }
 
+        todoIndexer.scheduleAfterCommit(todoId);
+
         // self 프록시 없이 직접 조합 — 이미 로드된 todo 재사용으로 이중 SELECT 제거
         return assembleTodoDetail(todo);
     }
@@ -240,6 +248,8 @@ public class TodoServiceImpl implements TodoService {
         // DONE↔ACTIVE 전환 시 monitoring 쿼리(status='ACTIVE') 필터가 바뀌므로 슬롯 재계산
         enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
                 request.getCourse(), request.getOccurredAt());
+        // status / completedAt 변경 → 검색 색인도 갱신
+        todoIndexer.scheduleAfterCommit(todoId);
     }
 
     // ── 장소 지정/해제 ────────────────────────────────────────────────────────
@@ -298,6 +308,9 @@ public class TodoServiceImpl implements TodoService {
         enqueueSlotRecalculate(userId, req.getLatitude(), req.getLongitude(),
                 req.getCourse(), req.getOccurredAt());
 
+        // resolvedPlaceLabel / primaryPlaceId 변경 → 검색 색인 갱신 (placeName 새로 조인)
+        todoIndexer.scheduleAfterCommit(todoId);
+
         // 이미 로드된 todo 재사용 — primaryPlaceId 업데이트 후 L1 캐시에서 place 조회
         return assembleTodoDetail(todo);
     }
@@ -319,6 +332,9 @@ public class TodoServiceImpl implements TodoService {
         // 장소 제거 → 좌표 없으면 enqueue 스킵 (다음 액션에서 자연 복구).
         // 좌표 없이 호출하므로 메모 모드/권한 거부 사용자 보호 가드에 의해 스킵됨.
         enqueueSlotRecalculate(userId, null, null, null, null);
+
+        // resolvedPlaceLabel / primaryPlaceId 모두 null로 변경 → 검색 색인 갱신
+        todoIndexer.scheduleAfterCommit(todoId);
 
         log.info("[Todo/Place] todoId={} 장소 연결 해제", todoId);
         return assembleTodoDetail(todo);
@@ -342,6 +358,9 @@ public class TodoServiceImpl implements TodoService {
 
         // 삭제된 todo 슬롯 비활성화 — candidates 제거 후 재계산으로 geofence_slots 정리
         enqueueSlotRecalculate(userId, latitude, longitude, course, occurredAt);
+
+        // status=DELETED로 색인 갱신 → 검색 쿼리의 must_not 필터로 자연 제외
+        ids.forEach(todoIndexer::scheduleAfterCommit);
     }
 
     // ── 상세 응답 조립 ────────────────────────────────────────────────────────
