@@ -1,4 +1,4 @@
-﻿package com.timingnote.api.infra.client.fcm;
+package com.timingnote.api.infra.client.fcm;
 
 import com.google.firebase.messaging.ApnsConfig;
 import com.google.firebase.messaging.Aps;
