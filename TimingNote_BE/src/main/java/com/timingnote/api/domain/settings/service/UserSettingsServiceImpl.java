@@ -34,7 +34,7 @@ public class UserSettingsServiceImpl implements UserSettingsService {
         ensureUserExists(userId);
 
         UserSettings userSettings = userSettingsRepository.findTopByUserIdOrderByUpdatedAtDesc(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.SETTINGS_NOT_FOUND));
 
         return UserSettingsGetResponseDto.builder()
                 .locationAlertEnabled(userSettings.getLocationAlertEnabled())
