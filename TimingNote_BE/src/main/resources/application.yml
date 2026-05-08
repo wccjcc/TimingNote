@@ -73,6 +73,7 @@ app:
   s3:
     bucket: ${AWS_S3_BUCKET}
     presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:10}
+    max-upload-size-bytes: 20971520
     original-prefix: ${AWS_S3_ORIGINAL_PREFIX:uploads/original}
     resized-prefix: ${AWS_S3_RESIZED_PREFIX:uploads/resized}
     thumbnail-prefix: ${AWS_S3_THUMBNAIL_PREFIX:uploads/thumbnail}
