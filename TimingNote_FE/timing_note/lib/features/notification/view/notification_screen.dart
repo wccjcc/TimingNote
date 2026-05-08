@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/theme/typography.dart';
+import '../../../../shared/widgets/app_error_view.dart';
+import '../../../../shared/widgets/app_loading_view.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../model/notification_item.dart';
 import '../viewmodel/notification_viewmodel.dart';
@@ -17,7 +19,8 @@ class NotificationScreen extends ConsumerWidget {
 
     ref.listen<NotificationState>(notificationProvider, (prev, next) {
       final error = next.error;
-      if (error != null && error != prev?.error) {
+      final isInitialBlockingError = next.items.isEmpty;
+      if (error != null && error != prev?.error && !isInitialBlockingError) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       }
     });
@@ -47,11 +50,15 @@ class NotificationScreen extends ConsumerWidget {
                 },
               ),
               Expanded(
-                child: state.isLoading
-                    ? const Center(
-                        child: CircularProgressIndicator(color: SpaceColors.neonPurple),
-                      )
-                    : state.filteredItems.isEmpty
+                child: state.isLoading && state.items.isEmpty
+                    ? const AppLoadingView(message: '알림 데이터를 동기화하는 중...')
+                    : state.error != null && state.items.isEmpty
+                        ? AppErrorView(
+                            title: '알림을 불러오지 못했어요',
+                            message: state.error!,
+                            onRetry: () => ref.read(notificationProvider.notifier).load(),
+                          )
+                        : state.filteredItems.isEmpty
                         ? const _EmptyState()
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),

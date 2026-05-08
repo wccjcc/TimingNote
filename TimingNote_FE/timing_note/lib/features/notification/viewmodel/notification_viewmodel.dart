@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:timing_note/core/network/api_exception.dart';
 
 import '../model/notification_item.dart';
 import '../service/notification_service.dart';
@@ -55,7 +56,15 @@ class NotificationNotifier extends Notifier<NotificationState> {
       final page = await _service.getNotifications(page: 0, size: 100);
       state = state.copyWith(isLoading: false, items: page.content);
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      var message = '알림 정보를 불러오지 못했어요.';
+      if (e is ApiException) {
+        if (e.statusCode == 404 && e.message.trim().isNotEmpty) {
+          message = e.message;
+        } else if (e.code == 'NETWORK_ERROR') {
+          message = '서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.';
+        }
+      }
+      state = state.copyWith(isLoading: false, error: message);
     }
   }
 
