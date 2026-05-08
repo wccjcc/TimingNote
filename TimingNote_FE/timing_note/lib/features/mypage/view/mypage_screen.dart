@@ -1,11 +1,14 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:timing_note/core/network/api_exception.dart';
 import 'package:timing_note/features/mypage/model/user_place.dart';
 import 'package:timing_note/features/mypage/model/user_settings.dart';
 import 'package:timing_note/features/mypage/service/user_place_service.dart';
 import 'package:timing_note/features/mypage/service/user_settings_service.dart';
 import 'package:timing_note/shared/theme/colors.dart';
 import 'package:timing_note/shared/theme/typography.dart';
+import 'package:timing_note/shared/widgets/app_error_view.dart';
+import 'package:timing_note/shared/widgets/app_loading_view.dart';
 import 'package:timing_note/shared/widgets/cosmic_background.dart';
 import 'package:timing_note/shared/widgets/space_card.dart';
 import 'package:timing_note/shared/widgets/status_badge.dart';
@@ -25,6 +28,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   bool _isLoadingSettings = true;
   bool _isSavingRadius = false;
+  String? _settingsErrorMessage;
 
   Future<List<UserPlace>> _placesFuture = Future.value(const []);
 
@@ -57,15 +61,22 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
         _radiusMeter = settings.radiusM.toDouble();
         _savedRadiusMeter = settings.radiusM;
         _isLoadingSettings = false;
+        _settingsErrorMessage = null;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      String errorMessage = '설정 정보를 불러오지 못했어요.';
+      if (e is ApiException) {
+        if (e.statusCode == 404 && e.message.trim().isNotEmpty) {
+          errorMessage = e.message;
+        } else if (e.code == 'NETWORK_ERROR') {
+          errorMessage = '서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.';
+        }
+      }
       setState(() {
         _isLoadingSettings = false;
+        _settingsErrorMessage = errorMessage;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('설정 값을 불러오지 못했습니다. 기본값으로 표시합니다.')),
-      );
     }
   }
 
@@ -152,6 +163,38 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingSettings) {
+      return const Scaffold(
+        backgroundColor: SpaceColors.space950,
+        body: CosmicBackground(
+          child: SafeArea(
+            child: AppLoadingView(message: '설정 정보를 동기화하는 중...'),
+          ),
+        ),
+      );
+    }
+
+    if (_settingsErrorMessage != null) {
+      return Scaffold(
+        backgroundColor: SpaceColors.space950,
+        body: CosmicBackground(
+          child: SafeArea(
+            child: AppErrorView(
+              title: '설정 정보를 불러오지 못했어요',
+              message: _settingsErrorMessage!,
+              onRetry: () {
+                setState(() {
+                  _isLoadingSettings = true;
+                  _settingsErrorMessage = null;
+                });
+                _loadSettings();
+              },
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: SpaceColors.space950,
       body: CosmicBackground(
