@@ -6,7 +6,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
 
   # Local development convenience mode:
   # entity changes are reflected automatically without migration SQL.
