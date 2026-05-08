@@ -85,6 +85,12 @@ public class S3PresignedUrlService {
         if ("image/webp".equals(contentType)) {
             return "webp";
         }
+        if ("image/heic".equals(contentType)) {
+            return "heic";
+        }
+        if ("image/heif".equals(contentType)) {
+            return "heif";
+        }
         throw new IllegalArgumentException("지원하지 않는 이미지 타입입니다: " + contentType);
     }
 }
