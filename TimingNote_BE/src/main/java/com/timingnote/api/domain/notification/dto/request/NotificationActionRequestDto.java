@@ -1,4 +1,4 @@
-﻿package com.timingnote.api.domain.notification.dto.request;
+package com.timingnote.api.domain.notification.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
