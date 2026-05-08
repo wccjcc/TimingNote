@@ -3,18 +3,21 @@
     "userId": { "type": "keyword" },
     "content": {
       "type": "text",
-      "analyzer": "korean_search",
+      "analyzer": "korean_index",
+      "search_analyzer": "korean_search",
       "fields": {
         "raw": { "type": "keyword", "ignore_above": 8192 }
       }
     },
     "placeLabel": {
       "type": "text",
-      "analyzer": "korean_search"
+      "analyzer": "korean_index",
+      "search_analyzer": "korean_search"
     },
     "placeName": {
       "type": "text",
-      "analyzer": "korean_search"
+      "analyzer": "korean_index",
+      "search_analyzer": "korean_search"
     },
     "status": { "type": "keyword" },
     "category": { "type": "keyword" },

@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -16,6 +18,74 @@ class TodoService {
   TodoService({required ApiClient apiClient}) : _client = apiClient;
 
   final ApiClient _client;
+
+  /// 이미지 업로드용 Presigned URL 발급
+  Future<_PresignedUploadInfo> _issueImagePresignedUrl({
+    required String contentType,
+    required int fileSize,
+  }) async {
+    final envelope = await _client.post<_PresignedUploadInfo>(
+      ApiEndpoints.imageUploadUrl,
+      data: {
+        'contentType': contentType,
+        'fileSize': fileSize,
+      },
+      dataParser: (json) =>
+          _PresignedUploadInfo.fromJson(json as Map<String, dynamic>),
+    );
+    return envelope.data!;
+  }
+
+  /// Presigned PUT URL로 S3에 바이너리를 직접 업로드하고 objectKey를 반환
+  Future<String> uploadImageToS3({
+    required XFile imageFile,
+  }) async {
+    final bytes = await imageFile.readAsBytes();
+    final contentType = _resolveContentType(imageFile.name);
+
+    // 1) 백엔드에서 presigned URL 발급
+    final presigned = await _issueImagePresignedUrl(
+      contentType: contentType,
+      fileSize: bytes.length,
+    );
+
+    // 2) 발급받은 URL로 S3 PUT 업로드
+    // 앱 API용 Dio(baseUrl 포함)와 분리해 절대 URL 업로드를 안전하게 수행한다.
+    final uploadDio = Dio();
+    await uploadDio.put<void>(
+      presigned.uploadUrl,
+      data: bytes,
+      options: Options(
+        headers: {'Content-Type': contentType},
+        contentType: contentType,
+        responseType: ResponseType.plain,
+        validateStatus: (code) => code != null && code >= 200 && code < 300,
+      ),
+    );
+
+    // 3) Todo update payload에는 URL이 아니라 objectKey를 저장한다.
+    return presigned.objectKey;
+  }
+
+  String _resolveContentType(String fileName) {
+    final ext = fileName.toLowerCase().split('.').last;
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'heic':
+        return 'image/heic';
+      case 'heif':
+        return 'image/heif';
+      default:
+        // iOS 사진 선택기에서 확장자 정보가 불완전한 경우가 있어 기본값을 jpeg로 둔다.
+        return 'image/jpeg';
+    }
+  }
 
   // ── 목록 조회 ────────────────────────────────────────────────────
   // status: ACTIVE | DONE (미입력 시 DELETED 제외 전체)
@@ -297,5 +367,22 @@ class TodoService {
       dataParser: (json) => TodoDetail.fromJson(json as Map<String, dynamic>),
     );
     return envelope.data!;
+  }
+}
+
+class _PresignedUploadInfo {
+  const _PresignedUploadInfo({
+    required this.objectKey,
+    required this.uploadUrl,
+  });
+
+  final String objectKey;
+  final String uploadUrl;
+
+  factory _PresignedUploadInfo.fromJson(Map<String, dynamic> json) {
+    return _PresignedUploadInfo(
+      objectKey: json['objectKey'] as String? ?? '',
+      uploadUrl: json['uploadUrl'] as String? ?? '',
+    );
   }
 }

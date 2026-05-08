@@ -7,6 +7,7 @@ class ApiEndpoints {
   static const String recommendations = '/recommendations';
   static const String userPlaces = '/user-places';
   static const String userSettings = '/users/me/settings';
+  static const String imageUploadUrl = '/images/upload-url';
 
   /// FCM 토큰 최초 등록/갱신 endpoint
   static const String fcmTokens = '/fcm/tokens';
