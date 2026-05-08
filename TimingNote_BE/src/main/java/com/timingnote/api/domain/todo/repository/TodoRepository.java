@@ -52,5 +52,20 @@ public interface TodoRepository extends JpaRepository<Todo, Long> {
     int softDeleteByIdsAndUserId(@Param("ids") List<Long> ids,
                                   @Param("userId") Long userId,
                                   @Param("now") OffsetDateTime now);
+
+    /**
+     * 검색 인덱스 백필용 페이지네이션.
+     * fromId보다 큰 todo를 id 오름차순으로 batchSize만큼 가져온다.
+     * userId가 null이면 전체, 아니면 해당 사용자만.
+     */
+    @Query("""
+            SELECT t FROM Todo t
+            WHERE t.id > :fromId
+              AND (:userId IS NULL OR t.userId = :userId)
+            ORDER BY t.id ASC
+            """)
+    List<Todo> findForReindex(@Param("fromId") Long fromId,
+                              @Param("userId") Long userId,
+                              Pageable pageable);
 }
 

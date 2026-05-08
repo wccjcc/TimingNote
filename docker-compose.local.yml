@@ -47,8 +47,33 @@ services:
       - ./infra/postgres/initdb.d:/docker-entrypoint-initdb.d
     restart: always
 
+  # Elasticsearch 8.14.3 + Nori (한국어 형태소 분석) - 할 일 검색용
+  elasticsearch:
+    build:
+      context: ./infra/elasticsearch
+      dockerfile: Dockerfile
+    container_name: timingnote-elasticsearch-local
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      bootstrap.memory_lock: "false"   # ulimits/memlock 환경 차이 흡수 (single-node 안정성)
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    restart: always
+
 volumes:
   redis-data:
   rabbitmq-data:
   postgres-data:
+  elasticsearch-data:
 
