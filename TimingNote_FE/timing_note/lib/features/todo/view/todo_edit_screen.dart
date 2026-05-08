@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -327,6 +328,9 @@ class _ImageSection extends ConsumerWidget {
     final urls = ref.watch(
       todoEditProvider(todoId).select((s) => s.imageUrls ?? []),
     );
+    final previewMap = ref.watch(
+      todoEditProvider(todoId).select((s) => s.imagePreviewBytes),
+    );
     final canAdd = urls.length < _kMaxImages;
 
     return Column(
@@ -362,6 +366,7 @@ class _ImageSection extends ConsumerWidget {
               // 기존 이미지 목록
               ...urls.map((url) => _ImageTile(
                 url: url,
+                previewBytes: previewMap[url],
                 onDelete: () => ref
                     .read(todoEditProvider(todoId).notifier)
                     .removeImageUrl(url),
@@ -391,20 +396,16 @@ class _ImageSection extends ConsumerWidget {
     );
     if (picked == null || !context.mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('이미지 업로드 기능 준비 중입니다'),
-        duration: Duration(seconds: 2),
-        backgroundColor: Color(0xFF1A1A2E),
-      ),
-    );
+    await ref.read(todoEditProvider(todoId).notifier).uploadPickedImage(picked);
+
   }
 }
 
 class _ImageTile extends StatelessWidget {
-  const _ImageTile({required this.url, required this.onDelete});
+  const _ImageTile({required this.url, required this.onDelete, this.previewBytes});
   final String url;
   final VoidCallback onDelete;
+  final Uint8List? previewBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -415,21 +416,28 @@ class _ImageTile extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.network(
-              url,
-              width: 100,
-              height: 104,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: 100,
-                height: 104,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
-              ),
-            ),
+            child: previewBytes != null
+                ? Image.memory(
+                    previewBytes!,
+                    width: 100,
+                    height: 104,
+                    fit: BoxFit.cover,
+                  )
+                : Image.network(
+                    url,
+                    width: 100,
+                    height: 104,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 100,
+                      height: 104,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
+                    ),
+                  ),
           ),
           Positioned(
             right: 4,
