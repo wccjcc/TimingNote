@@ -154,8 +154,6 @@ class TodoDetailScreen extends ConsumerWidget {
                         imageUrls: detail.imageUrls,
                         initialIndex: i,
                       ),
-                      itemBuilder: (_, i) =>
-                          _ImageThumbnail(url: detail.imageUrls[i]),
                     ),
                   ),
                 ],
