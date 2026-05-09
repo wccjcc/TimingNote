@@ -105,6 +105,8 @@ class TodoItem {
     bool? alertEnabled,
     String? status,
     DateTime? completedAt,
+    String? thumbnailUrl,
+    bool clearThumbnailUrl = false,
   }) {
     return TodoItem(
       id: id,
@@ -118,7 +120,7 @@ class TodoItem {
       alertEnabled: alertEnabled ?? this.alertEnabled,
       completedAt: completedAt ?? this.completedAt,
       createdAt: createdAt,
-      thumbnailUrl: thumbnailUrl,
+      thumbnailUrl: clearThumbnailUrl ? null : (thumbnailUrl ?? this.thumbnailUrl),
     );
   }
 }

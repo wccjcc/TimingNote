@@ -46,4 +46,8 @@ public class TodoInput {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
     private OffsetDateTime createdAt;
+
+    public void updateImageUrl(List<String> imageUrl) {
+        this.imageUrl = imageUrl;
+    }
 }

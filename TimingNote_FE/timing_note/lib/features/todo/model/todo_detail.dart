@@ -155,6 +155,7 @@ class TodoDetail {
     bool? alertEnabled,
     String? status,
     DateTime? completedAt,
+    List<String>? imageUrls,
   }) {
     return TodoDetail(
       id: id,
@@ -173,7 +174,7 @@ class TodoDetail {
       structure: structure,
       timeConditions: timeConditions,
       primaryPlace: primaryPlace,
-      imageUrls: imageUrls,
+      imageUrls: imageUrls ?? this.imageUrls,
       sharedUrl: sharedUrl,
     );
   }
