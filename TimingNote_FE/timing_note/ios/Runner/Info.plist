@@ -70,6 +70,8 @@
 	<!-- Kakao Maps SDK 키 — Generated.xcconfig(--dart-define-from-file=.env)에서 주입 -->
 	<key>KAKAO_NATIVE_APP_KEY</key>
 	<string>$(KAKAO_NATIVE_APP_KEY)</string>
+	<key>FLUTTER_DART_DEFINES</key>
+	<string>$(DART_DEFINES)</string>
 
 	<!-- 위치/알림 권한 문구 -->
 	<key>NSLocationWhenInUseUsageDescription</key>
