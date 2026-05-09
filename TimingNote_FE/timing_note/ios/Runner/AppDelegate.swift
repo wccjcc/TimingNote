@@ -24,7 +24,7 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     // Kakao Maps SDK 초기화: Info.plist/xcconfig로 주입된 키를 사용합니다.
-    let kakaoKey = Bundle.main.infoDictionary?["KAKAO_NATIVE_APP_KEY"] as? String ?? ""
+    let kakaoKey = resolveKakaoNativeAppKey()
     SDKInitializer.InitSDK(appKey: kakaoKey)
 
     // Geofence 네이티브 브릿지 준비
@@ -44,7 +44,56 @@ import UserNotifications
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     NativeGeofenceBridge.shared.attachChannels(pluginRegistry: engineBridge.pluginRegistry)
+    registerNativeKakaoMap(pluginRegistry: engineBridge.pluginRegistry)
     attachPushActionChannel(pluginRegistry: engineBridge.pluginRegistry)
+  }
+
+  /// Flutter의 UiKitView에서 iOS 네이티브 KakaoMapsSDK 지도를 만들 수 있도록 등록합니다.
+  ///
+  /// Dart 화면은 viewType 문자열만 알고 있고, 실제 지도 UIView 생성은 여기서 연결한
+  /// PlatformViewFactory가 담당합니다.
+  private func registerNativeKakaoMap(pluginRegistry: FlutterPluginRegistry) {
+    guard let registrar = pluginRegistry.registrar(forPlugin: "TimingNoteNativeKakaoMap") else {
+      assertionFailure("TimingNoteNativeKakaoMap registrar is unavailable")
+      return
+    }
+
+    registrar.register(
+      TimingNoteNativeKakaoMapFactory(messenger: registrar.messenger()),
+      withId: "timing_note/native_kakao_map"
+    )
+  }
+
+  /// Kakao Native App Key를 런타임에서 안전하게 찾습니다.
+  ///
+  /// Flutter의 `--dart-define-from-file=.env` 값은 iOS 빌드 설정에
+  /// `DART_DEFINES`라는 base64 목록으로 들어갑니다. 따라서 Info.plist의
+  /// `$(KAKAO_NATIVE_APP_KEY)`는 자동 치환되지 않을 수 있어, 먼저 직접 키 값을
+  /// 확인하고 없으면 `DART_DEFINES`에서 `KAKAO_NATIVE_APP_KEY=...` 항목만 꺼냅니다.
+  private func resolveKakaoNativeAppKey() -> String {
+    if let directValue = Bundle.main.infoDictionary?["KAKAO_NATIVE_APP_KEY"] as? String,
+       !directValue.isEmpty,
+       !directValue.hasPrefix("$(") {
+      return directValue
+    }
+
+    guard let dartDefines = Bundle.main.infoDictionary?["FLUTTER_DART_DEFINES"] as? String else {
+      return ""
+    }
+
+    for encodedDefine in dartDefines.split(separator: ",") {
+      guard let data = Data(base64Encoded: String(encodedDefine)),
+            let decoded = String(data: data, encoding: .utf8) else {
+        continue
+      }
+
+      let prefix = "KAKAO_NATIVE_APP_KEY="
+      if decoded.hasPrefix(prefix) {
+        return String(decoded.dropFirst(prefix.count))
+      }
+    }
+
+    return ""
   }
 
   /// 푸시 액션 버튼 카테고리를 등록합니다.
@@ -69,7 +118,6 @@ import UserNotifications
       identifier: geofenceActionCategoryId,
       actions: [completeAction, snoozeAction],
       intentIdentifiers: [],
-      hiddenPreviewsBodyPlaceholder: nil,
       options: []
     )
 
@@ -154,5 +202,246 @@ import UserNotifications
       channel.invokeMethod("onPushAction", arguments: payload)
     }
     pendingPushActionPayloads.removeAll()
+  }
+}
+
+private final class TimingNoteNativeKakaoMapFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    return FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(
+    withFrame frame: CGRect,
+    viewIdentifier viewId: Int64,
+    arguments args: Any?
+  ) -> FlutterPlatformView {
+    return TimingNoteNativeKakaoMapView(
+      frame: frame,
+      viewId: viewId,
+      arguments: args,
+      messenger: messenger
+    )
+  }
+}
+
+private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView {
+  private let container: TimingNoteKakaoMapContainer
+  private let controller: KMController
+  private let channel: FlutterMethodChannel
+  private let mapViewName: String
+  private let initialPosition: MapPoint
+  private let initialLevel: Int
+
+  private weak var kakaoMap: KakaoMap?
+  private var pendingCameraTarget: MapPoint?
+  private var lastNativeState = "created"
+  private var engineStartRequested = false
+
+  init(
+    frame: CGRect,
+    viewId: Int64,
+    arguments args: Any?,
+    messenger: FlutterBinaryMessenger
+  ) {
+    let params = args as? [String: Any]
+    let latitude = params?["latitude"] as? Double ?? 37.5665
+    let longitude = params?["longitude"] as? Double ?? 126.9780
+    let level = params?["level"] as? Int ?? 15
+
+    self.container = TimingNoteKakaoMapContainer(frame: frame)
+    self.controller = KMController(viewContainer: container)
+    self.channel = FlutterMethodChannel(
+      name: "timing_note/native_kakao_map_\(viewId)",
+      binaryMessenger: messenger
+    )
+    self.mapViewName = "timing_note_map_\(viewId)"
+    self.initialPosition = MapPoint(longitude: longitude, latitude: latitude)
+    self.initialLevel = level
+
+    super.init()
+
+    container.backgroundColor = UIColor(red: 0.10, green: 0.10, blue: 0.18, alpha: 1.0)
+    controller.delegate = self
+    container.setDelegate(self)
+    container.onLayout = { [weak self] size in
+      self?.startEngineIfPossible(reason: "layout size=\(size)")
+    }
+
+    // Flutter에서 내려오는 지도 명령을 네이티브 SDK 호출로 변환합니다.
+    // 화면이 먼저 좌표 이동을 요청하고 SDK 렌더링이 아직 준비되지 않은 경우에는
+    // pendingCameraTarget에 보관했다가 addViewSucceeded 이후 적용합니다.
+    channel.setMethodCallHandler { [weak self] call, result in
+      self?.handle(call: call, result: result)
+    }
+
+    DispatchQueue.main.async { [weak self] in
+      self?.startEngineIfPossible(reason: "nextRunLoop")
+    }
+  }
+
+  func view() -> UIView {
+    return container
+  }
+
+  deinit {
+    channel.setMethodCallHandler(nil)
+    controller.pauseEngine()
+    controller.resetEngine()
+  }
+
+  private func handle(call: FlutterMethodCall, result: FlutterResult) {
+    switch call.method {
+    case "debugState":
+      result([
+        "lastNativeState": lastNativeState,
+        "enginePrepared": controller.isEnginePrepared,
+        "engineActive": controller.isEngineActive,
+        "engineStartRequested": engineStartRequested,
+        "bounds": "\(container.bounds)",
+        "renderView": String(describing: container.renderView),
+        "subviewCount": container.subviews.count,
+        "mapReady": kakaoMap != nil,
+        "stateDescription": controller.getStateDescMessage(),
+      ])
+    case "panTo":
+      guard let args = call.arguments as? [String: Any],
+            let latitude = args["latitude"] as? Double,
+            let longitude = args["longitude"] as? Double else {
+        result(FlutterError(
+          code: "INVALID_ARGUMENT",
+          message: "latitude/longitude is required",
+          details: nil
+        ))
+        return
+      }
+
+      moveCamera(to: MapPoint(longitude: longitude, latitude: latitude))
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func startEngineIfPossible(reason: String) {
+    guard !engineStartRequested else { return }
+
+    let size = container.bounds.size
+    guard size.width > 0 && size.height > 0 else {
+      lastNativeState = "waitingForLayout"
+      return
+    }
+
+    engineStartRequested = true
+    let prepared = controller.prepareEngine()
+    lastNativeState = prepared ? "prepareEngineSucceeded" : "prepareEngineFailed"
+
+    if prepared {
+      controller.activateEngine()
+    }
+  }
+
+  private func moveCamera(to target: MapPoint) {
+    guard let map = kakaoMap else {
+      pendingCameraTarget = target
+      return
+    }
+
+    let update = CameraUpdate.make(target: target, zoomLevel: map.zoomLevel, mapView: map)
+    map.moveCamera(update)
+  }
+
+  private func notifyCameraIdle(from map: KakaoMap) {
+    let centerPoint = CGPoint(x: container.bounds.midX, y: container.bounds.midY)
+    let coordinate = map.getPosition(centerPoint).wgsCoord
+
+    channel.invokeMethod("onCameraIdle", arguments: [
+      "latitude": coordinate.latitude,
+      "longitude": coordinate.longitude,
+      "level": map.zoomLevel,
+    ])
+  }
+}
+
+extension TimingNoteNativeKakaoMapView: MapControllerDelegate {
+  func addViews() {
+    lastNativeState = "addViews"
+    let mapInfo = MapviewInfo(
+      viewName: mapViewName,
+      appName: "openmap",
+      viewInfoName: "map",
+      defaultPosition: initialPosition,
+      defaultLevel: initialLevel,
+      enabled: true
+    )
+
+    // PlatformView가 생성되는 아주 이른 시점에는 bounds가 아직 0일 수 있습니다.
+    // 이 경우 SDK가 빈 크기의 지도를 만들지 않도록 화면 크기를 임시 기본값으로 사용합니다.
+    let currentSize = container.bounds.size
+    let fallbackSize = UIScreen.main.bounds.size
+    let viewSize: CGSize
+    if currentSize.width > 0 && currentSize.height > 0 {
+      viewSize = currentSize
+    } else {
+      viewSize = fallbackSize
+    }
+
+    controller.addView(mapInfo, viewSize: viewSize)
+  }
+
+  func addViewSucceeded(_ viewName: String, viewInfoName: String) {
+    guard let map = controller.getView(viewName) as? KakaoMap else { return }
+    lastNativeState = "addViewSucceeded"
+    kakaoMap = map
+    map.eventDelegate = self
+
+    if let target = pendingCameraTarget {
+      pendingCameraTarget = nil
+      moveCamera(to: target)
+    } else {
+      notifyCameraIdle(from: map)
+    }
+  }
+
+  func addViewFailed(_ viewName: String, viewInfoName: String) {
+    lastNativeState = "addViewFailed"
+  }
+
+  func authenticationFailed(_ errorCode: Int, desc: String) {
+    lastNativeState = "authenticationFailed"
+  }
+
+  func authenticationSucceeded() {
+    lastNativeState = "authenticationSucceeded"
+  }
+
+  func containerDidResized(_ size: CGSize) {
+  }
+}
+
+extension TimingNoteNativeKakaoMapView: KakaoMapEventDelegate {
+  func cameraWillMove(kakaoMap: KakaoMap, by: MoveBy) {
+    channel.invokeMethod("onCameraMoveStarted", arguments: nil)
+  }
+
+  func cameraDidStopped(kakaoMap: KakaoMap, by: MoveBy) {
+    notifyCameraIdle(from: kakaoMap)
+  }
+}
+
+extension TimingNoteNativeKakaoMapView: K3fMapContainerDelegate {}
+
+private final class TimingNoteKakaoMapContainer: KMViewContainer {
+  var onLayout: ((CGSize) -> Void)?
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    onLayout?(bounds.size)
   }
 }

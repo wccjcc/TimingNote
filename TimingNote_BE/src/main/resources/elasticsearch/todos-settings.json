@@ -28,9 +28,24 @@
           "NA",
           "VSV"
         ]
+      },
+      "korean_edge_ngram": {
+        "type": "edge_ngram",
+        "min_gram": 1,
+        "max_gram": 20
       }
     },
     "analyzer": {
+      "korean_index": {
+        "type": "custom",
+        "tokenizer": "nori_user_dict",
+        "filter": [
+          "korean_pos_filter",
+          "nori_readingform",
+          "lowercase",
+          "korean_edge_ngram"
+        ]
+      },
       "korean_search": {
         "type": "custom",
         "tokenizer": "nori_user_dict",

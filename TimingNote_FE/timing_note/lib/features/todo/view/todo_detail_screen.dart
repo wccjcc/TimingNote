@@ -1,6 +1,3 @@
-import 'dart:math' as math;
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -29,11 +26,17 @@ class TodoDetailScreen extends ConsumerWidget {
     return Scaffold(
       body: CosmicBackground(
         child: SafeArea(
-          child: state.detail == null && state.isLoading
-              ? const Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple))
-              : state.error != null
-                  ? _buildErrorView(ref, state.error!)
-                  : _buildMainContent(context, ref, state.detail!),
+          child: state.error != null
+              ? _buildErrorView(ref, state.error!)
+              : state.detail == null
+              // 상세 데이터는 Future.microtask(load)로 다음 이벤트 루프에서 가져옵니다.
+              // 첫 프레임에는 detail이 아직 null일 수 있으므로 로딩 화면을 먼저 보여줍니다.
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    color: SpaceColors.neonPurple,
+                  ),
+                )
+              : _buildMainContent(context, ref, state.detail!),
         ),
       ),
     );
@@ -44,7 +47,10 @@ class TodoDetailScreen extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('오류 발생: $error', style: const TextStyle(color: SpaceColors.white50)),
+          Text(
+            '오류 발생: $error',
+            style: const TextStyle(color: SpaceColors.white50),
+          ),
           const SizedBox(height: 16),
           NeonButton(
             label: '다시 시도',
@@ -55,7 +61,11 @@ class TodoDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildMainContent(BuildContext context, WidgetRef ref, TodoDetail detail) {
+  Widget _buildMainContent(
+    BuildContext context,
+    WidgetRef ref,
+    TodoDetail detail,
+  ) {
     final categoryKey = detail.category ?? TodoCategory.etc;
     final themeColor = _getCategoryColor(categoryKey);
 
@@ -66,7 +76,8 @@ class TodoDetailScreen extends ConsumerWidget {
 
         Expanded(
           child: RefreshIndicator(
-            onRefresh: () => ref.read(todoDetailProvider(todoId).notifier).load(),
+            onRefresh: () =>
+                ref.read(todoDetailProvider(todoId).notifier).load(),
             color: SpaceColors.neonPurple,
             backgroundColor: SpaceColors.space900,
             child: ListView(
@@ -78,12 +89,17 @@ class TodoDetailScreen extends ConsumerWidget {
                 // 3. 상단 요약 정보 (카테고리, 상태)
                 Row(
                   children: [
-                    StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: themeColor),
+                    StatusBadge(
+                      label: TodoCategory.labels[categoryKey] ?? categoryKey,
+                      color: themeColor,
+                    ),
                     const SizedBox(width: 12),
                     Text(
                       detail.isDone ? '완료됨' : '진행 중',
                       style: TextStyle(
-                        color: detail.isDone ? SpaceColors.success : SpaceColors.neonPurple,
+                        color: detail.isDone
+                            ? SpaceColors.success
+                            : SpaceColors.neonPurple,
                         fontSize: 12,
                         fontFamily: SpaceTypography.pixelFontFamily,
                         letterSpacing: 0.5,
@@ -106,7 +122,10 @@ class TodoDetailScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Text(
                   '등록일: ${_formatDate(detail.createdAt)}',
-                  style: const TextStyle(color: SpaceColors.white50, fontSize: 13),
+                  style: const TextStyle(
+                    color: SpaceColors.white50,
+                    fontSize: 13,
+                  ),
                 ),
 
                 const SizedBox(height: 32),
@@ -135,6 +154,8 @@ class TodoDetailScreen extends ConsumerWidget {
                         imageUrls: detail.imageUrls,
                         initialIndex: i,
                       ),
+                      itemBuilder: (_, i) =>
+                          _ImageThumbnail(url: detail.imageUrls[i]),
                     ),
                   ),
                 ],
@@ -158,7 +179,11 @@ class TodoDetailScreen extends ConsumerWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+            icon: const Icon(
+              Icons.arrow_back_ios_new,
+              color: Colors.white,
+              size: 20,
+            ),
             onPressed: () => context.pop(),
           ),
           const Text(
@@ -178,7 +203,10 @@ class TodoDetailScreen extends ConsumerWidget {
                 onPressed: () => context.push('/todos/$todoId/edit'),
               ),
               IconButton(
-                icon: const Icon(Icons.delete_outline, color: SpaceColors.white50),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: SpaceColors.white50,
+                ),
                 onPressed: () => _confirmDelete(context, ref),
               ),
             ],
@@ -197,19 +225,35 @@ class TodoDetailScreen extends ConsumerWidget {
           borderRadius: BorderRadius.circular(20),
           side: const BorderSide(color: SpaceColors.white10),
         ),
-        title: const Text('할 일 삭제', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          '할 일 삭제',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         content: const Text(
           '이 할 일을 삭제할까요?\n삭제된 항목은 복구할 수 없습니다.',
-          style: TextStyle(color: SpaceColors.white50, fontSize: 14, height: 1.5),
+          style: TextStyle(
+            color: SpaceColors.white50,
+            fontSize: 14,
+            height: 1.5,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소', style: TextStyle(color: SpaceColors.white50)),
+            child: const Text(
+              '취소',
+              style: TextStyle(color: SpaceColors.white50),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('삭제', style: TextStyle(color: SpaceColors.neonPink, fontWeight: FontWeight.bold)),
+            child: const Text(
+              '삭제',
+              style: TextStyle(
+                color: SpaceColors.neonPink,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -220,7 +264,12 @@ class TodoDetailScreen extends ConsumerWidget {
     if (ok && context.mounted) context.pop();
   }
 
-  Widget _buildInfoSection(BuildContext context, WidgetRef ref, TodoDetail detail, Color color) {
+  Widget _buildInfoSection(
+    BuildContext context,
+    WidgetRef ref,
+    TodoDetail detail,
+    Color color,
+  ) {
     return SpaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -234,11 +283,21 @@ class TodoDetailScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('실행 장소', style: TextStyle(color: SpaceColors.white50, fontSize: 11)),
+                    const Text(
+                      '실행 장소',
+                      style: TextStyle(
+                        color: SpaceColors.white50,
+                        fontSize: 11,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       detail.resolvedPlaceLabel ?? '장소 미정',
-                      style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -253,7 +312,11 @@ class TodoDetailScreen extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: SpaceColors.white10),
                   ),
-                  child: const Icon(Icons.edit_location_alt_outlined, color: SpaceColors.neonPurple, size: 16),
+                  child: const Icon(
+                    Icons.edit_location_alt_outlined,
+                    color: SpaceColors.neonPurple,
+                    size: 16,
+                  ),
                 ),
               ),
             ],
@@ -265,26 +328,48 @@ class TodoDetailScreen extends ConsumerWidget {
           // 시간 정보
           Row(
             children: [
-              const Icon(Icons.access_time_filled, color: Colors.cyanAccent, size: 20),
+              const Icon(
+                Icons.access_time_filled,
+                color: Colors.cyanAccent,
+                size: 20,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('실행 시간', style: TextStyle(color: SpaceColors.white50, fontSize: 11)),
+                    const Text(
+                      '실행 시간',
+                      style: TextStyle(
+                        color: SpaceColors.white50,
+                        fontSize: 11,
+                      ),
+                    ),
                     const SizedBox(height: 2),
                     detail.timeConditions.isEmpty
-                        ? Text('시간 조건 없음', style: TextStyle(color: SpaceColors.white.withOpacity(0.7), fontSize: 15))
+                        ? Text(
+                            '시간 조건 없음',
+                            style: TextStyle(
+                              color: SpaceColors.white.withOpacity(0.7),
+                              fontSize: 15,
+                            ),
+                          )
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: detail.timeConditions
-                                .map((tc) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Text(
-                                        _describeTime(tc),
-                                        style: const TextStyle(color: Colors.cyanAccent, fontSize: 15, fontWeight: FontWeight.w500),
+                                .map(
+                                  (tc) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 4),
+                                    child: Text(
+                                      _describeTime(tc),
+                                      style: const TextStyle(
+                                        color: Colors.cyanAccent,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
                                       ),
-                                    ))
+                                    ),
+                                  ),
+                                )
                                 .toList(),
                           ),
                   ],
@@ -302,16 +387,42 @@ class TodoDetailScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('상세 장소 정보', style: TextStyle(color: SpaceColors.white50, fontSize: 11, fontWeight: FontWeight.bold)),
+          const Text(
+            '상세 장소 정보',
+            style: TextStyle(
+              color: SpaceColors.white50,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 12),
-          Text(place.name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(
+            place.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           if (place.roadAddress != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                const Icon(Icons.map_outlined, size: 14, color: SpaceColors.white50),
+                const Icon(
+                  Icons.map_outlined,
+                  size: 14,
+                  color: SpaceColors.white50,
+                ),
                 const SizedBox(width: 8),
-                Expanded(child: Text(place.roadAddress!, style: TextStyle(color: SpaceColors.white.withOpacity(0.7), fontSize: 13))),
+                Expanded(
+                  child: Text(
+                    place.roadAddress!,
+                    style: TextStyle(
+                      color: SpaceColors.white.withOpacity(0.7),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
               ],
             ),
           ],
@@ -319,9 +430,19 @@ class TodoDetailScreen extends ConsumerWidget {
             const SizedBox(height: 6),
             Row(
               children: [
-                const Icon(Icons.phone_outlined, size: 14, color: SpaceColors.white50),
+                const Icon(
+                  Icons.phone_outlined,
+                  size: 14,
+                  color: SpaceColors.white50,
+                ),
                 const SizedBox(width: 8),
-                Text(place.phone!, style: TextStyle(color: SpaceColors.white.withOpacity(0.7), fontSize: 13)),
+                Text(
+                  place.phone!,
+                  style: TextStyle(
+                    color: SpaceColors.white.withOpacity(0.7),
+                    fontSize: 13,
+                  ),
+                ),
               ],
             ),
           ],
@@ -340,8 +461,11 @@ class TodoDetailScreen extends ConsumerWidget {
       child: Row(
         children: [
           _CircleActionButton(
-            icon: detail.alertEnabled ? Icons.notifications : Icons.notifications_off,
-            onTap: () => ref.read(todoDetailProvider(todoId).notifier).toggleAlert(),
+            icon: detail.alertEnabled
+                ? Icons.notifications
+                : Icons.notifications_off,
+            onTap: () =>
+                ref.read(todoDetailProvider(todoId).notifier).toggleAlert(),
             active: detail.alertEnabled,
           ),
           const SizedBox(width: 16),
@@ -349,7 +473,8 @@ class TodoDetailScreen extends ConsumerWidget {
             child: NeonButton(
               label: detail.isDone ? '다시 시작' : '작업 완료',
               icon: detail.isDone ? Icons.replay : Icons.check_circle_outline,
-              onTap: () => ref.read(todoDetailProvider(todoId).notifier).toggleStatus(),
+              onTap: () =>
+                  ref.read(todoDetailProvider(todoId).notifier).toggleStatus(),
               isPrimary: !detail.isDone,
             ),
           ),
@@ -368,7 +493,9 @@ class TodoDetailScreen extends ConsumerWidget {
         return '${tc.startDate} ~ ${tc.endDate}';
       case ConditionType.week:
         final days = tc.dayNames.join(', ');
-        final time = tc.startTime != null ? ' ${tc.startTime}${tc.endTime != null ? '~${tc.endTime}' : ''}' : '';
+        final time = tc.startTime != null
+            ? ' ${tc.startTime}${tc.endTime != null ? '~${tc.endTime}' : ''}'
+            : '';
         return '$days$time';
       case ConditionType.timeRange:
         return '${tc.startTime} ~ ${tc.endTime}';
@@ -394,10 +521,16 @@ class TodoDetailScreen extends ConsumerWidget {
     }
   }
 
-  String _formatDate(DateTime dt) => '${dt.year}.${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')}';
+  String _formatDate(DateTime dt) =>
+      '${dt.year}.${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')}';
 
-  Future<void> _onEditPlaceTap(BuildContext context, WidgetRef ref, TodoDetail detail) async {
-    final keyword = detail.primaryPlace?.name ?? detail.resolvedPlaceLabel ?? '';
+  Future<void> _onEditPlaceTap(
+    BuildContext context,
+    WidgetRef ref,
+    TodoDetail detail,
+  ) async {
+    final keyword =
+        detail.primaryPlace?.name ?? detail.resolvedPlaceLabel ?? '';
     final uri = keyword.isNotEmpty
         ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
         : '/place-search';
@@ -427,7 +560,12 @@ class _SectionTitle extends StatelessWidget {
       padding: const EdgeInsets.only(left: 4, bottom: 12, top: 12),
       child: Text(
         title,
-        style: const TextStyle(color: SpaceColors.white50, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1),
+        style: const TextStyle(
+          color: SpaceColors.white50,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1,
+        ),
       ),
     );
   }
@@ -549,7 +687,11 @@ class _ImageGalleryViewerState extends State<_ImageGalleryViewer> {
 }
 
 class _CircleActionButton extends StatelessWidget {
-  const _CircleActionButton({required this.icon, required this.onTap, required this.active});
+  const _CircleActionButton({
+    required this.icon,
+    required this.onTap,
+    required this.active,
+  });
   final IconData icon;
   final VoidCallback onTap;
   final bool active;
@@ -563,12 +705,27 @@ class _CircleActionButton extends StatelessWidget {
         width: 54,
         height: 54,
         decoration: BoxDecoration(
-          color: active ? SpaceColors.neonPurple.withOpacity(0.2) : const Color(0xFF2A2A4A),
+          color: active
+              ? SpaceColors.neonPurple.withOpacity(0.2)
+              : const Color(0xFF2A2A4A),
           shape: BoxShape.circle,
-          border: Border.all(color: active ? SpaceColors.neonPurple : const Color(0x4CA78BFA)),
-          boxShadow: active ? [BoxShadow(color: SpaceColors.neonPurple.withOpacity(0.3), blurRadius: 10)] : null,
+          border: Border.all(
+            color: active ? SpaceColors.neonPurple : const Color(0x4CA78BFA),
+          ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: SpaceColors.neonPurple.withOpacity(0.3),
+                    blurRadius: 10,
+                  ),
+                ]
+              : null,
         ),
-        child: Icon(icon, color: active ? Colors.white : SpaceColors.white.withOpacity(0.7), size: 24),
+        child: Icon(
+          icon,
+          color: active ? Colors.white : SpaceColors.white.withOpacity(0.7),
+          size: 24,
+        ),
       ),
     );
   }
@@ -587,9 +744,23 @@ class _SpacePendingBanner extends StatelessWidget {
       ),
       child: const Row(
         children: [
-          SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5, color: SpaceColors.neonPurple)),
+          SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: SpaceColors.neonPurple,
+            ),
+          ),
           SizedBox(width: 14),
-          Text('AI가 내용을 분석 중입니다...', style: TextStyle(color: SpaceColors.neonPurple, fontSize: 14, fontWeight: FontWeight.w500)),
+          Text(
+            'AI가 내용을 분석 중입니다...',
+            style: TextStyle(
+              color: SpaceColors.neonPurple,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );

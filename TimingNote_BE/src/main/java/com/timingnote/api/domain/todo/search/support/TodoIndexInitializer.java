@@ -76,13 +76,10 @@ public class TodoIndexInitializer {
     }
 
     private void attachAliasIfMissing(String physical, String alias) {
-        IndexOperations aliasOps = elasticsearchOperations.indexOps(IndexCoordinates.of(alias));
-        boolean aliasResolves = aliasOps.exists();
-        if (aliasResolves) {
-            log.debug("[Search] alias 이미 존재 — skip attach: {}", alias);
-            return;
-        }
-
+        // ES의 alias add는 멱등(이미 동일 alias가 부착돼 있어도 no-op)이라
+        // 사전 존재 체크 없이 바로 부착 시도하는 게 가장 단순하고 안전하다.
+        // (이전엔 getAliases(physical)로 사전 체크했으나, 인덱스에 alias가 하나도 없을 때
+        //  ES가 "alias [...] missing" 예외를 던져 부착 자체가 막혔음)
         AliasActions actions = new AliasActions(
                 new AliasAction.Add(
                         AliasActionParameters.builder()
@@ -91,8 +88,18 @@ public class TodoIndexInitializer {
                                 .build()
                 )
         );
-        elasticsearchOperations.indexOps(IndexCoordinates.of(physical)).alias(actions);
-        log.info("[Search] alias 부착 완료: {} → {}", alias, physical);
+
+        try {
+            elasticsearchOperations.indexOps(IndexCoordinates.of(physical)).alias(actions);
+            log.info("[Search] alias 부착 완료: {} → {}", alias, physical);
+        } catch (Exception e) {
+            // 가장 흔한 실패 원인: alias 이름과 동일한 인덱스가 dynamic mapping으로
+            // 자동 생성되어 alias 슬롯을 점유 중. 운영 명령으로 정리 필요.
+            log.error(
+                    "[Search] alias 부착 실패 — '{}' 이름의 인덱스가 별도로 존재할 가능성이 높습니다. " +
+                            "ES에 'DELETE /{}' 실행 후 앱 재시작 필요. cause={}",
+                    alias, alias, e.getMessage(), e);
+        }
     }
 
     private String readResource(String path) throws Exception {
