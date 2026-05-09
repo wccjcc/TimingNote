@@ -1,14 +1,12 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:timing_note/core/network/api_exception.dart';
+import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/features/mypage/model/user_place.dart';
 import 'package:timing_note/features/mypage/model/user_settings.dart';
 import 'package:timing_note/features/mypage/service/user_place_service.dart';
 import 'package:timing_note/features/mypage/service/user_settings_service.dart';
 import 'package:timing_note/shared/theme/colors.dart';
 import 'package:timing_note/shared/theme/typography.dart';
-import 'package:timing_note/shared/widgets/app_error_view.dart';
-import 'package:timing_note/shared/widgets/app_loading_view.dart';
 import 'package:timing_note/shared/widgets/cosmic_background.dart';
 import 'package:timing_note/shared/widgets/space_card.dart';
 import 'package:timing_note/shared/widgets/status_badge.dart';
@@ -28,7 +26,6 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   bool _isLoadingSettings = true;
   bool _isSavingRadius = false;
-  String? _settingsErrorMessage;
 
   Future<List<UserPlace>> _placesFuture = Future.value(const []);
 
@@ -52,7 +49,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   Future<void> _loadSettings() async {
     try {
-      final settings = await ref.read(userSettingsServiceProvider).getSettings();
+      final settings = await ref
+          .read(userSettingsServiceProvider)
+          .getSettings();
       if (!mounted) return;
 
       setState(() {
@@ -61,31 +60,24 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
         _radiusMeter = settings.radiusM.toDouble();
         _savedRadiusMeter = settings.radiusM;
         _isLoadingSettings = false;
-        _settingsErrorMessage = null;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      String errorMessage = '설정 정보를 불러오지 못했어요.';
-      if (e is ApiException) {
-        if (e.statusCode == 404 && e.message.trim().isNotEmpty) {
-          errorMessage = e.message;
-        } else if (e.code == 'NETWORK_ERROR') {
-          errorMessage = '서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.';
-        }
-      }
       setState(() {
         _isLoadingSettings = false;
-        _settingsErrorMessage = errorMessage;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('설정 값을 불러오지 못했습니다. 기본값으로 표시합니다.')),
+      );
     }
   }
 
   Future<void> _deletePlace(int userPlaceId) async {
     await ref.read(userPlaceServiceProvider).deleteUserPlace(userPlaceId);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('장소가 삭제되었습니다.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('장소가 삭제되었습니다.')));
     await _refreshPlaces();
   }
 
@@ -93,9 +85,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     final nextValue = !_locationAlertEnabled;
     setState(() => _locationAlertEnabled = nextValue);
     try {
-      final updated = await ref.read(userSettingsServiceProvider).updateSettings(
-            locationAlertEnabled: nextValue,
-          );
+      final updated = await ref
+          .read(userSettingsServiceProvider)
+          .updateSettings(locationAlertEnabled: nextValue);
       if (!mounted) return;
       setState(() {
         _locationAlertEnabled = updated.locationAlertEnabled;
@@ -103,9 +95,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _locationAlertEnabled = !nextValue);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('위치 알림 설정 저장에 실패했습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('위치 알림 설정 저장에 실패했습니다.')));
     }
   }
 
@@ -113,9 +105,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     final nextValue = !_pushAlertEnabled;
     setState(() => _pushAlertEnabled = nextValue);
     try {
-      final updated = await ref.read(userSettingsServiceProvider).updateSettings(
-            pushAlertEnabled: nextValue,
-          );
+      final updated = await ref
+          .read(userSettingsServiceProvider)
+          .updateSettings(pushAlertEnabled: nextValue);
       if (!mounted) return;
       setState(() {
         _pushAlertEnabled = updated.pushAlertEnabled;
@@ -123,9 +115,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _pushAlertEnabled = !nextValue);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('푸시 알림 설정 저장에 실패했습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('푸시 알림 설정 저장에 실패했습니다.')));
     }
   }
 
@@ -140,15 +132,18 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     });
 
     try {
-      final updated = await ref.read(userSettingsServiceProvider).updateSettings(
-            radiusM: newRadius,
-          );
+      final updated = await ref
+          .read(userSettingsServiceProvider)
+          .updateSettings(radiusM: newRadius);
       if (!mounted) return;
       setState(() {
         _radiusMeter = updated.radiusM.toDouble();
         _savedRadiusMeter = updated.radiusM;
         _isSavingRadius = false;
       });
+      // 서버에 저장된 새 반경을 즉시 iOS/Android geofence 등록값으로 반영한다.
+      // syncSlots()는 최신 slot.radiusM을 다시 받아 네이티브 감시 영역을 재등록한다.
+      await ref.read(geofenceRuntimeProvider).syncSlots();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -163,38 +158,6 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingSettings) {
-      return const Scaffold(
-        backgroundColor: SpaceColors.space950,
-        body: CosmicBackground(
-          child: SafeArea(
-            child: AppLoadingView(message: '설정 정보를 동기화하는 중...'),
-          ),
-        ),
-      );
-    }
-
-    if (_settingsErrorMessage != null) {
-      return Scaffold(
-        backgroundColor: SpaceColors.space950,
-        body: CosmicBackground(
-          child: SafeArea(
-            child: AppErrorView(
-              title: '설정 정보를 불러오지 못했어요',
-              message: _settingsErrorMessage!,
-              onRetry: () {
-                setState(() {
-                  _isLoadingSettings = true;
-                  _settingsErrorMessage = null;
-                });
-                _loadSettings();
-              },
-            ),
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: SpaceColors.space950,
       body: CosmicBackground(
@@ -270,8 +233,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
             title: '위치 알림 상태',
             subtitle: '지오펜스 동작을 위한 위치 권한',
             badgeText: _locationAlertEnabled ? 'ONLINE' : 'OFFLINE',
-            badgeColor:
-                _locationAlertEnabled ? SpaceColors.neonPurple : Colors.grey,
+            badgeColor: _locationAlertEnabled
+                ? SpaceColors.neonPurple
+                : Colors.grey,
             onTap: _isLoadingSettings ? null : _toggleLocationAlert,
           ),
           const Divider(height: 1, color: Color(0x22A78BFA)),
@@ -324,8 +288,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 activeTrackColor: SpaceColors.neonPurple.withValues(alpha: 0.6),
-                inactiveTrackColor:
-                    SpaceColors.neonPurple.withValues(alpha: 0.15),
+                inactiveTrackColor: SpaceColors.neonPurple.withValues(
+                  alpha: 0.15,
+                ),
                 thumbColor: SpaceColors.neonPurple,
                 overlayColor: SpaceColors.neonPurple.withValues(alpha: 0.18),
                 trackHeight: 8,
@@ -361,8 +326,11 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       title: 'Registered Planets',
       trailing: IconButton(
         onPressed: _refreshPlaces,
-        icon:
-            const Icon(Icons.refresh, color: SpaceColors.neonLavender, size: 18),
+        icon: const Icon(
+          Icons.refresh,
+          color: SpaceColors.neonLavender,
+          size: 18,
+        ),
         tooltip: '새로고침',
       ),
       child: FutureBuilder<List<UserPlace>>(
@@ -382,7 +350,10 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
                 children: [
                   const Text('내 장소를 불러오지 못했습니다.'),
                   const SizedBox(height: 8),
-                  TextButton(onPressed: _refreshPlaces, child: const Text('다시 시도')),
+                  TextButton(
+                    onPressed: _refreshPlaces,
+                    child: const Text('다시 시도'),
+                  ),
                 ],
               ),
             );
@@ -404,8 +375,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
                       _PlaceTile(
                         title: place.aliasName,
                         subtitle: place.displayAddress,
-                        icon:
-                            index == 0 ? Icons.home_outlined : Icons.place_outlined,
+                        icon: index == 0
+                            ? Icons.home_outlined
+                            : Icons.place_outlined,
                         iconColor: index == 0
                             ? SpaceColors.neonLavender
                             : SpaceColors.neonViolet,
@@ -437,14 +409,18 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
           child: Wrap(
             children: [
               ListTile(
-                leading:
-                    const Icon(Icons.edit, color: SpaceColors.neonLavender),
+                leading: const Icon(
+                  Icons.edit,
+                  color: SpaceColors.neonLavender,
+                ),
                 title: const Text('별칭 수정'),
                 onTap: () => Navigator.of(context).pop('edit'),
               ),
               ListTile(
-                leading:
-                    const Icon(Icons.delete_outline, color: Colors.redAccent),
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: Colors.redAccent,
+                ),
                 title: const Text('장소 삭제'),
                 onTap: () => Navigator.of(context).pop('delete'),
               ),
@@ -513,10 +489,7 @@ class _SettingGroup extends StatelessWidget {
             ],
           ),
         ),
-        SpaceCard(
-          padding: EdgeInsets.zero,
-          child: child,
-        ),
+        SpaceCard(padding: EdgeInsets.zero, child: child),
       ],
     );
   }
@@ -569,17 +542,17 @@ class _PermissionTile extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontSize: 14,
-                          color: SpaceColors.white,
-                        ),
+                      fontSize: 14,
+                      color: SpaceColors.white,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: SpaceColors.neonLavender.withValues(alpha: 0.45),
-                          fontSize: 11,
-                        ),
+                      color: SpaceColors.neonLavender.withValues(alpha: 0.45),
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ),
@@ -654,8 +627,9 @@ class _PlaceTile extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style:
-                      Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(fontSize: 14),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -663,8 +637,8 @@ class _PlaceTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: SpaceColors.neonLavender.withValues(alpha: 0.45),
-                      ),
+                    color: SpaceColors.neonLavender.withValues(alpha: 0.45),
+                  ),
                 ),
               ],
             ),
@@ -725,7 +699,9 @@ class _AddCircle extends StatelessWidget {
       height: 36,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: SpaceColors.neonLavender.withValues(alpha: 0.35)),
+        border: Border.all(
+          color: SpaceColors.neonLavender.withValues(alpha: 0.35),
+        ),
       ),
       child: const Icon(Icons.add, size: 18, color: SpaceColors.neonLavender),
     );
@@ -748,9 +724,9 @@ class _SimpleActionTile extends StatelessWidget {
               child: Text(
                 label,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontSize: 13,
-                      color: SpaceColors.neonLavender,
-                    ),
+                  fontSize: 13,
+                  color: SpaceColors.neonLavender,
+                ),
               ),
             ),
             Icon(
@@ -766,10 +742,7 @@ class _SimpleActionTile extends StatelessWidget {
 }
 
 class _VersionTile extends StatelessWidget {
-  const _VersionTile({
-    required this.label,
-    required this.value,
-  });
+  const _VersionTile({required this.label, required this.value});
 
   final String label;
   final String value;
@@ -784,9 +757,9 @@ class _VersionTile extends StatelessWidget {
             child: Text(
               label,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontSize: 13,
-                    color: SpaceColors.neonLavender,
-                  ),
+                fontSize: 13,
+                color: SpaceColors.neonLavender,
+              ),
             ),
           ),
           Text(
