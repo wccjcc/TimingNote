@@ -131,7 +131,10 @@ class TodoDetailScreen extends ConsumerWidget {
                       scrollDirection: Axis.horizontal,
                       itemCount: detail.imageUrls.length,
                       separatorBuilder: (_, __) => const SizedBox(width: 12),
-                      itemBuilder: (_, i) => _ImageThumbnail(url: detail.imageUrls[i]),
+                      itemBuilder: (_, i) => _ImageThumbnail(
+                        imageUrls: detail.imageUrls,
+                        initialIndex: i,
+                      ),
                     ),
                   ),
                 ],
@@ -431,17 +434,115 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _ImageThumbnail extends StatelessWidget {
-  const _ImageThumbnail({required this.url});
-  final String url;
+  const _ImageThumbnail({
+    required this.imageUrls,
+    required this.initialIndex,
+  });
+  final List<String> imageUrls;
+  final int initialIndex;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 160,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: SpaceColors.white10),
-        image: DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+    final url = imageUrls[initialIndex];
+    return GestureDetector(
+      onTap: () => _openFullScreenViewer(context),
+      child: Container(
+        width: 160,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: SpaceColors.white10),
+          image: DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+        ),
+      ),
+    );
+  }
+
+  void _openFullScreenViewer(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => _ImageGalleryViewer(
+        imageUrls: imageUrls,
+        initialIndex: initialIndex,
+      ),
+    );
+  }
+}
+
+class _ImageGalleryViewer extends StatefulWidget {
+  const _ImageGalleryViewer({
+    required this.imageUrls,
+    required this.initialIndex,
+  });
+
+  final List<String> imageUrls;
+  final int initialIndex;
+
+  @override
+  State<_ImageGalleryViewer> createState() => _ImageGalleryViewerState();
+}
+
+class _ImageGalleryViewerState extends State<_ImageGalleryViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: EdgeInsets.zero,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.imageUrls.length,
+            onPageChanged: (index) => setState(() => _currentIndex = index),
+            itemBuilder: (_, index) {
+              final imageUrl = widget.imageUrls[index];
+              return InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: Center(
+                  child: Image.network(
+                    imageUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Icon(Icons.broken_image_outlined, color: Colors.white38, size: 40),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          Positioned(
+            top: 16,
+            left: 20,
+            child: Text(
+              '${_currentIndex + 1} / ${widget.imageUrls.length}',
+              style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ],
       ),
     );
   }

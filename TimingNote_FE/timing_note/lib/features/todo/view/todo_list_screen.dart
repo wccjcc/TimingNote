@@ -406,7 +406,7 @@ class _TodoSpaceTile extends StatelessWidget {
                     ),
                     if (item.thumbnailUrl != null) ...[
                       const SizedBox(width: 12),
-                      _buildThumbnailBox(isDone),
+                      _buildThumbnailBox(isDone, item.thumbnailUrl!),
                     ],
                   ],
                 ),
@@ -440,7 +440,7 @@ class _TodoSpaceTile extends StatelessWidget {
     return '$place (반경 200m)';
   }
 
-  Widget _buildThumbnailBox(bool isDone) {
+  Widget _buildThumbnailBox(bool isDone, String imageUrl) {
     return Container(
       width: 48,
       height: 48,
@@ -453,7 +453,18 @@ class _TodoSpaceTile extends StatelessWidget {
           colors: isDone ? [Colors.transparent, Colors.transparent] : [SpaceColors.white20, SpaceColors.white10],
         ),
       ),
-      child: Icon(Icons.image_outlined, size: 20, color: isDone ? SpaceColors.white10 : SpaceColors.white20),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(11),
+        child: Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Icon(
+            Icons.image_outlined,
+            size: 20,
+            color: isDone ? SpaceColors.white10 : SpaceColors.white20,
+          ),
+        ),
+      ),
     );
   }
 }
