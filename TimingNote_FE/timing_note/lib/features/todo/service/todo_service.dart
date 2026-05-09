@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:developer' as developer;
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -36,6 +37,24 @@ class TodoService {
     return envelope.data!;
   }
 
+  Future<Map<String, String>> _issueImageDownloadUrls({
+    required List<String> objectKeys,
+  }) async {
+    if (objectKeys.isEmpty) return const {};
+
+    final envelope = await _client.post<_PresignedDownloadUrlsResponse>(
+      ApiEndpoints.imageDownloadUrls,
+      data: {
+        'objectKeys': objectKeys,
+      },
+      dataParser: (json) => _PresignedDownloadUrlsResponse.fromJson(
+        json as Map<String, dynamic>,
+      ),
+    );
+
+    return envelope.data!.toMap();
+  }
+
   /// Presigned PUT URL로 S3에 바이너리를 직접 업로드하고 objectKey를 반환
   Future<String> uploadImageToS3({
     required XFile imageFile,
@@ -52,16 +71,26 @@ class TodoService {
     // 2) 발급받은 URL로 S3 PUT 업로드
     // 앱 API용 Dio(baseUrl 포함)와 분리해 절대 URL 업로드를 안전하게 수행한다.
     final uploadDio = Dio();
-    await uploadDio.put<void>(
-      presigned.uploadUrl,
-      data: bytes,
-      options: Options(
-        headers: {'Content-Type': contentType},
-        contentType: contentType,
-        responseType: ResponseType.plain,
-        validateStatus: (code) => code != null && code >= 200 && code < 300,
-      ),
-    );
+    try {
+      await uploadDio.put<void>(
+        presigned.uploadUrl,
+        data: bytes,
+        options: Options(
+          headers: {'Content-Type': contentType},
+          contentType: contentType,
+          responseType: ResponseType.plain,
+          validateStatus: (code) => code != null && code >= 200 && code < 300,
+        ),
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final body = e.response?.data;
+      developer.log(
+        '[S3 Upload Fail] status=$status, type=${e.type}, message=${e.message}, body=$body',
+        name: 'TodoService.uploadImageToS3',
+      );
+      throw Exception('S3_UPLOAD_FAILED(status=$status, type=${e.type})');
+    }
 
     // 3) Todo update payload에는 URL이 아니라 objectKey를 저장한다.
     return presigned.objectKey;
@@ -121,8 +150,23 @@ class TodoService {
       dataParser: (json) =>
           TodoListResult.fromJson(json as Map<String, dynamic>),
     );
+    final result = envelope.data!;
+    final thumbnailKeys = result.items
+        .map((e) => e.thumbnailUrl)
+        .whereType<String>()
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    final downloadUrlMap = await _issueImageDownloadUrls(objectKeys: thumbnailKeys);
 
-    return envelope.data!;
+    final resolvedItems = result.items.map((item) {
+      final key = item.thumbnailUrl;
+      if (key == null || key.trim().isEmpty) return item;
+      final downloadUrl = downloadUrlMap[key];
+      if (downloadUrl == null || downloadUrl.isEmpty) return item;
+      return item.copyWith(thumbnailUrl: downloadUrl);
+    }).toList();
+
+    return TodoListResult(items: resolvedItems, nextCursor: result.nextCursor);
   }
 
   // ── 상세 조회 ────────────────────────────────────────────────────
@@ -132,7 +176,14 @@ class TodoService {
       dataParser: (json) =>
           TodoDetail.fromJson(json as Map<String, dynamic>),
     );
-    return envelope.data!;
+    final detail = envelope.data!;
+    if (detail.imageUrls.isEmpty) return detail;
+
+    final downloadUrlMap = await _issueImageDownloadUrls(objectKeys: detail.imageUrls);
+    final resolved = detail.imageUrls
+        .map((key) => downloadUrlMap[key] ?? key)
+        .toList();
+    return detail.copyWith(imageUrls: resolved);
   }
 
   // ── 생성 ─────────────────────────────────────────────────────────
@@ -383,6 +434,46 @@ class _PresignedUploadInfo {
     return _PresignedUploadInfo(
       objectKey: json['objectKey'] as String? ?? '',
       uploadUrl: json['uploadUrl'] as String? ?? '',
+    );
+  }
+}
+
+class _PresignedDownloadUrlsResponse {
+  const _PresignedDownloadUrlsResponse({required this.items});
+
+  final List<_PresignedDownloadUrlItem> items;
+
+  factory _PresignedDownloadUrlsResponse.fromJson(Map<String, dynamic> json) {
+    return _PresignedDownloadUrlsResponse(
+      items: (json['items'] as List<dynamic>? ?? const [])
+          .map((e) => _PresignedDownloadUrlItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  Map<String, String> toMap() {
+    final map = <String, String>{};
+    for (final item in items) {
+      if (item.objectKey.isEmpty || item.downloadUrl.isEmpty) continue;
+      map[item.objectKey] = item.downloadUrl;
+    }
+    return map;
+  }
+}
+
+class _PresignedDownloadUrlItem {
+  const _PresignedDownloadUrlItem({
+    required this.objectKey,
+    required this.downloadUrl,
+  });
+
+  final String objectKey;
+  final String downloadUrl;
+
+  factory _PresignedDownloadUrlItem.fromJson(Map<String, dynamic> json) {
+    return _PresignedDownloadUrlItem(
+      objectKey: json['objectKey'] as String? ?? '',
+      downloadUrl: json['downloadUrl'] as String? ?? '',
     );
   }
 }

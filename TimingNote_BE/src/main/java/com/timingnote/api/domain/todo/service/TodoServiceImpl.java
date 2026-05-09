@@ -10,6 +10,7 @@ import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.notification.service.GeofenceRecalculateOutboxService;
 import com.timingnote.api.domain.place.service.PlaceService;
+import com.timingnote.api.domain.image.service.ImageFinalizeService;
 import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
@@ -71,6 +72,7 @@ public class TodoServiceImpl implements TodoService {
     private final UserPlaceRepository userPlaceRepository;
     private final AiClient aiClient;
     private final PlaceService placeService;
+    private final ImageFinalizeService imageFinalizeService;
     // AI 비동기 콜백의 트랜잭션 경계 위임용 외부 빈 (AOP 프록시 경유 목적)
     private final TodoStructurePersister structurePersister;
     // todo CRUD 트랜잭션에 outbox INSERT가 합류 → 롤백 원자성 확보
@@ -198,10 +200,12 @@ public class TodoServiceImpl implements TodoService {
         if (request.getImageUrls() != null) {
             todoInputRepository.deleteAllByTodo_IdAndImageUrlIsNotNull(todoId);
             if (!request.getImageUrls().isEmpty()) {
+                // 수정 완료 시점에 temp 이미지 키를 최종 original 키로 확정
+                List<String> finalizedImageKeys = imageFinalizeService.finalizeImageKeys(todoId, request.getImageUrls());
                 todoInputRepository.save(TodoInput.builder()
                         .todo(todo)
                         .inputType(InputType.IMAGE)
-                        .imageUrl(request.getImageUrls())
+                        .imageUrl(finalizedImageKeys)
                         .build());
             }
         }
