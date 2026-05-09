@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/location/location_service.dart';
@@ -13,6 +12,7 @@ import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../model/selected_kakao_place.dart';
 import '../service/place_search_service.dart';
+import '../widgets/native_kakao_map.dart';
 import '../widgets/user_place_sheet.dart';
 
 // ── 디자인 상수 (우주 테마 통일) ─────────────────────────────────────
@@ -20,7 +20,6 @@ const _kBgDark = Color(0xFF050510);
 const _kSurface = Color(0xE50F0F1A);
 const _kBorderWhite = Color(0x1AFFFFFF);
 const _kPurpleAccent = Color(0xFFA78BFA);
-const _kPinkAccent = Color(0xFFF472B6);
 
 // 서울 시청 (기본 초기 위치)
 const _kDefaultLat = 37.5665;
@@ -41,7 +40,7 @@ class PlaceSearchScreen extends ConsumerStatefulWidget {
 }
 
 class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
-  KakaoMapController? _mapController;
+  NativeKakaoMapController? _mapController;
   LatLng _center = LatLng(_kDefaultLat, _kDefaultLng);
   LatLng? _pendingPanTo; // 지도 준비 전에 위치가 먼저 오면 여기 보관
   LatLng? _lastReverseGeocoded; // 마지막으로 역지오코딩한 좌표
@@ -125,10 +124,14 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
           .reverseGeocode(lat, lng);
       if (!mounted) return;
       _lastReverseGeocoded = LatLng(lat, lng);
+      final resolvedAddress = address ?? '주소를 가져올 수 없습니다';
       setState(() {
-        _currentAddress = address ?? '주소를 가져올 수 없습니다';
+        _currentAddress = resolvedAddress;
         _isReverseGeocoding = false;
-        if (_customNameController.text.isEmpty) {
+        // 핀을 직접 움직이는 모드에서는 현재 핀 주소가 저장 이름 입력칸에도 따라가게 한다.
+        if (_selectedFromSearch == null) {
+          _customNameController.text = address ?? '';
+        } else if (_customNameController.text.isEmpty) {
           _customNameController.text = address ?? '';
         }
       });
@@ -191,66 +194,79 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => UserPlaceSheet(
-        userPlaceService: ref.read(userPlaceServiceProvider),
-      ),
+      builder: (_) =>
+          UserPlaceSheet(userPlaceService: ref.read(userPlaceServiceProvider)),
     );
     if (selected == null || !mounted) return;
 
-    context.pop(SelectedAliasPlace(
-      userPlaceId: selected.id,
-      aliasName: selected.aliasName,
-      placeLatitude: selected.latitude,
-      placeLongitude: selected.longitude,
-      userLatitude: _userLatitude,
-      userLongitude: _userLongitude,
-    ));
+    context.pop(
+      SelectedAliasPlace(
+        userPlaceId: selected.id,
+        aliasName: selected.aliasName,
+        placeLatitude: selected.latitude,
+        placeLongitude: selected.longitude,
+        userLatitude: _userLatitude,
+        userLongitude: _userLongitude,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+
     return Scaffold(
       backgroundColor: _kBgDark,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           // ── 1. 카카오 지도 (전체 화면) ─────────────────────────────
-          if (kIsWeb)
-            Container(
-              color: const Color(0xFF1A1A2E),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.map_outlined, color: Colors.white24, size: 56),
-                    SizedBox(height: 12),
-                    Text('지도 미리보기는 모바일 앱에서 확인 가능합니다', style: TextStyle(color: Colors.white38, fontSize: 13)),
-                  ],
-                ),
-              ),
-            )
-          else
-            KakaoMap(
-              onMapCreated: (controller) {
-                _mapController = controller;
-                if (_pendingPanTo != null) {
-                  controller.panTo(_pendingPanTo!);
-                  _pendingPanTo = null;
-                }
-              },
-              center: _center,
-              currentLevel: 4,
-              onCameraIdle: _onCameraIdle,
-              onDragChangeCallback: (latLng, zoomLevel, dragType) {
-                if (dragType == DragType.start) _onCameraMoveStart();
-              },
-            ),
+          Positioned.fill(
+            child: kIsWeb
+                ? Container(
+                    color: const Color(0xFF1A1A2E),
+                    child: const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.map_outlined,
+                            color: Colors.white24,
+                            size: 56,
+                          ),
+                          SizedBox(height: 12),
+                          Text(
+                            '지도 미리보기는 모바일 앱에서 확인 가능합니다',
+                            style: TextStyle(
+                              color: Colors.white38,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : NativeKakaoMap(
+                    onMapCreated: (controller) {
+                      _mapController = controller;
+                      if (_pendingPanTo != null) {
+                        controller.panTo(_pendingPanTo!);
+                        _pendingPanTo = null;
+                      }
+                    },
+                    center: _center,
+                    initialLevel: 15,
+                    onCameraIdle: _onCameraIdle,
+                    onCameraMoveStarted: _onCameraMoveStart,
+                  ),
+          ),
 
           // ── 2. 중앙 핀 오버레이 ────────────────────────────────────
           const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.location_on, color: _kPinkAccent, size: 44),
+                Icon(Icons.location_on, color: _kPurpleAccent, size: 44),
                 SizedBox(height: 2),
                 _PinShadow(),
               ],
@@ -259,23 +275,29 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
 
           // ── 3. SafeArea 콘텐츠 ─────────────────────────────────────
           SafeArea(
-            child: Column(
-              children: [
-                // 상단 바
-                _TopBar(
-                  onBack: () => context.pop(),
-                  onSearchTap: () => _openSearchSheet(),
-                  onUserPlaceTap: () => _openUserPlaceSheet(),
-                ),
-                const Spacer(),
-                // 하단 패널
-                _BottomPanel(
-                  address: _currentAddress,
-                  isLoading: _isReverseGeocoding,
-                  nameController: _customNameController,
-                  onSave: _save,
-                ),
-              ],
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: _TopBar(
+                onBack: () => context.pop(),
+                onSearchTap: () => _openSearchSheet(),
+                onUserPlaceTap: () => _openUserPlaceSheet(),
+              ),
+            ),
+          ),
+
+          // Scaffold 크기는 고정한 채, 키보드가 올라올 때 입력 패널만 위로 피한다.
+          // 패널 내부 패딩을 늘리면 배경이 키보드 바로 위까지 채워져 빈 틈이 생기지 않는다.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _BottomPanel(
+              address: _currentAddress,
+              isLoading: _isReverseGeocoding,
+              nameController: _customNameController,
+              keyboardInset: keyboardInset,
+              onSave: _save,
             ),
           ),
         ],
@@ -289,7 +311,8 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _SearchSheet(
-        initialKeyword: widget.initialKeyword ?? _selectedFromSearch?.placeName ?? '',
+        initialKeyword:
+            widget.initialKeyword ?? _selectedFromSearch?.placeName ?? '',
         currentLat: _center.latitude,
         currentLng: _center.longitude,
         placeSearchService: ref.read(placeSearchServiceProvider),
@@ -320,7 +343,11 @@ class _TopBar extends StatelessWidget {
         children: [
           // 뒤로가기
           _GlassButton(
-            child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+            child: const Icon(
+              Icons.arrow_back_ios_new,
+              color: Colors.white,
+              size: 18,
+            ),
             onTap: onBack,
           ),
           const SizedBox(width: 8),
@@ -329,7 +356,10 @@ class _TopBar extends StatelessWidget {
             child: GestureDetector(
               onTap: onSearchTap,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
                 decoration: BoxDecoration(
                   color: _kSurface,
                   borderRadius: BorderRadius.circular(14),
@@ -351,7 +381,14 @@ class _TopBar extends StatelessWidget {
           const SizedBox(width: 8),
           // 내 장소 버튼 — 사용자 등록 별칭 목록에서 선택
           _GlassButton(
-            child: const Text('내 장소', style: TextStyle(color: _kPurpleAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            child: const Text(
+              '내 장소',
+              style: TextStyle(
+                color: _kPurpleAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             onTap: onUserPlaceTap,
           ),
         ],
@@ -366,18 +403,22 @@ class _BottomPanel extends StatelessWidget {
     required this.address,
     required this.isLoading,
     required this.nameController,
+    required this.keyboardInset,
     required this.onSave,
   });
 
   final String? address;
   final bool isLoading;
   final TextEditingController nameController;
+  final double keyboardInset;
   final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 32 + keyboardInset),
       decoration: BoxDecoration(
         color: _kSurface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -390,7 +431,7 @@ class _BottomPanel extends StatelessWidget {
           // 주소
           Row(
             children: [
-              const Icon(Icons.location_on, color: _kPinkAccent, size: 16),
+              const Icon(Icons.location_on, color: _kPurpleAccent, size: 16),
               const SizedBox(width: 6),
               Expanded(
                 child: isLoading
@@ -403,7 +444,10 @@ class _BottomPanel extends StatelessWidget {
                       )
                     : Text(
                         address ?? '위치를 이동하여 주소를 확인하세요',
-                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -436,11 +480,13 @@ class _BottomPanel extends StatelessWidget {
             height: 52,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: _kPinkAccent,
+                backgroundColor: _kPurpleAccent,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 elevation: 6,
-                shadowColor: _kPinkAccent.withOpacity(0.4),
+                shadowColor: _kPurpleAccent.withOpacity(0.4),
               ),
               onPressed: onSave,
               child: const Text(
@@ -511,9 +557,10 @@ class _SearchSheetState extends State<_SearchSheet> {
   Future<void> _addRecentSearch(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return;
-    final updated = [trimmed, ..._recentSearches.where((s) => s != trimmed)]
-        .take(_kMaxRecentSearches)
-        .toList();
+    final updated = [
+      trimmed,
+      ..._recentSearches.where((s) => s != trimmed),
+    ].take(_kMaxRecentSearches).toList();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_kRecentSearchesKey, updated);
     if (mounted) setState(() => _recentSearches = updated);
@@ -538,7 +585,10 @@ class _SearchSheetState extends State<_SearchSheet> {
       setState(() => _results = []);
       return;
     }
-    _debounce = Timer(const Duration(milliseconds: 350), () => _doSearch(value));
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _doSearch(value),
+    );
   }
 
   Future<void> _doSearch(String query) async {
@@ -583,7 +633,14 @@ class _SearchSheetState extends State<_SearchSheet> {
         children: [
           // 핸들
           const SizedBox(height: 12),
-          Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2))),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
           const SizedBox(height: 16),
 
           // 검색바 행
@@ -601,18 +658,27 @@ class _SearchSheetState extends State<_SearchSheet> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.search, color: Colors.white38, size: 18),
+                        const Icon(
+                          Icons.search,
+                          color: Colors.white38,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextField(
                             controller: _controller,
                             autofocus: true,
-                            style: const TextStyle(color: Colors.white, fontSize: 15),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                            ),
                             decoration: const InputDecoration(
                               hintText: '주소, 장소, 상호명 검색',
                               hintStyle: TextStyle(color: Colors.white24),
                               border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(vertical: 13),
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: 13,
+                              ),
                             ),
                             onChanged: _onChanged,
                             textInputAction: TextInputAction.search,
@@ -625,7 +691,11 @@ class _SearchSheetState extends State<_SearchSheet> {
                               _controller.clear();
                               setState(() => _results = []);
                             },
-                            child: const Icon(Icons.close, color: Colors.white38, size: 18),
+                            child: const Icon(
+                              Icons.close,
+                              color: Colors.white38,
+                              size: 18,
+                            ),
                           ),
                       ],
                     ),
@@ -634,7 +704,10 @@ class _SearchSheetState extends State<_SearchSheet> {
                 const SizedBox(width: 10),
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
-                  child: const Text('취소', style: TextStyle(color: Colors.white54, fontSize: 14)),
+                  child: const Text(
+                    '취소',
+                    style: TextStyle(color: Colors.white54, fontSize: 14),
+                  ),
                 ),
               ],
             ),
@@ -663,10 +736,20 @@ class _SearchSheetState extends State<_SearchSheet> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('최근 검색', style: TextStyle(color: Colors.white54, fontSize: 13, fontWeight: FontWeight.bold)),
+                const Text(
+                  '최근 검색',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 GestureDetector(
                   onTap: _clearRecentSearches,
-                  child: const Text('전체 삭제', style: TextStyle(color: Colors.white30, fontSize: 12)),
+                  child: const Text(
+                    '전체 삭제',
+                    style: TextStyle(color: Colors.white30, fontSize: 12),
+                  ),
                 ),
               ],
             ),
@@ -675,31 +758,46 @@ class _SearchSheetState extends State<_SearchSheet> {
               spacing: 8,
               runSpacing: 8,
               children: _recentSearches
-                  .map((kw) => GestureDetector(
-                        onTap: () {
-                          _controller.text = kw;
-                          _doSearch(kw);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.06),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: _kBorderWhite),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(kw, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                              const SizedBox(width: 6),
-                              GestureDetector(
-                                onTap: () => _removeRecentSearch(kw),
-                                child: const Icon(Icons.close, size: 14, color: Colors.white30),
-                              ),
-                            ],
-                          ),
+                  .map(
+                    (kw) => GestureDetector(
+                      onTap: () {
+                        _controller.text = kw;
+                        _doSearch(kw);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 7,
                         ),
-                      ))
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: _kBorderWhite),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              kw,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () => _removeRecentSearch(kw),
+                              child: const Icon(
+                                Icons.close,
+                                size: 14,
+                                color: Colors.white30,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
             const SizedBox(height: 28),
@@ -728,15 +826,23 @@ class _SearchSheetState extends State<_SearchSheet> {
             padding: const EdgeInsets.only(left: 16, bottom: 12),
             child: Row(
               children: [
-                _SortChip(label: '거리순', selected: _sortByDistance, onTap: () {
-                  setState(() => _sortByDistance = true);
-                  _doSearch(_controller.text);
-                }),
+                _SortChip(
+                  label: '거리순',
+                  selected: _sortByDistance,
+                  onTap: () {
+                    setState(() => _sortByDistance = true);
+                    _doSearch(_controller.text);
+                  },
+                ),
                 const SizedBox(width: 8),
-                _SortChip(label: '정확도순', selected: !_sortByDistance, onTap: () {
-                  setState(() => _sortByDistance = false);
-                  _doSearch(_controller.text);
-                }),
+                _SortChip(
+                  label: '정확도순',
+                  selected: !_sortByDistance,
+                  onTap: () {
+                    setState(() => _sortByDistance = false);
+                    _doSearch(_controller.text);
+                  },
+                ),
               ],
             ),
           ),
@@ -756,8 +862,12 @@ class _SearchSheetState extends State<_SearchSheet> {
         Expanded(
           child: ListView.separated(
             itemCount: _results.length,
-            separatorBuilder: (_, __) => const Divider(height: 1, color: _kBorderWhite, indent: 60),
-            itemBuilder: (_, i) => _ResultTile(item: _results[i], onTap: () => _select(_results[i])),
+            separatorBuilder: (_, __) =>
+                const Divider(height: 1, color: _kBorderWhite, indent: 60),
+            itemBuilder: (_, i) => _ResultTile(
+              item: _results[i],
+              onTap: () => _select(_results[i]),
+            ),
           ),
         ),
       ],
@@ -781,14 +891,18 @@ class _ResultTile extends StatelessWidget {
         width: 36,
         height: 36,
         decoration: BoxDecoration(
-          color: _kPinkAccent.withOpacity(0.15),
+          color: _kPurpleAccent.withOpacity(0.15),
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.location_on, color: _kPinkAccent, size: 18),
+        child: const Icon(Icons.location_on, color: _kPurpleAccent, size: 18),
       ),
       title: Text(
         item.placeName,
-        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       subtitle: item.roadAddressName != null
           ? Text(
@@ -808,7 +922,11 @@ class _ResultTile extends StatelessWidget {
 
 // ── 정렬 칩 ───────────────────────────────────────────────────────────
 class _SortChip extends StatelessWidget {
-  const _SortChip({required this.label, required this.selected, required this.onTap});
+  const _SortChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -821,9 +939,9 @@ class _SortChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: selected ? _kPinkAccent : Colors.white.withOpacity(0.06),
+          color: selected ? _kPurpleAccent : Colors.white.withOpacity(0.06),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? _kPinkAccent : _kBorderWhite),
+          border: Border.all(color: selected ? _kPurpleAccent : _kBorderWhite),
         ),
         child: Text(
           label,
@@ -878,4 +996,3 @@ class _PinShadow extends StatelessWidget {
     );
   }
 }
-
