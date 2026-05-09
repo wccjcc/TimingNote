@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
@@ -23,10 +23,10 @@ class GeofenceRuntime {
     required GeofenceRegionStore regionStore,
     required GeofenceSseClient geofenceSseClient,
     required NotificationService notificationService,
-  })  : _geofenceService = geofenceService,
-        _regionStore = regionStore,
-        _geofenceSseClient = geofenceSseClient,
-        _notificationService = notificationService;
+  }) : _geofenceService = geofenceService,
+       _regionStore = regionStore,
+       _geofenceSseClient = geofenceSseClient,
+       _notificationService = notificationService;
 
   final GeofenceService _geofenceService;
   final GeofenceRegionStore _regionStore;
@@ -56,12 +56,16 @@ class GeofenceRuntime {
         onTransition: _handleTransition,
       );
     } else {
-      _logger.i('[GEOFENCE_MONITORING_STARTED] no cached regions, waiting server slots');
+      _logger.i(
+        '[GEOFENCE_MONITORING_STARTED] no cached regions, waiting server slots',
+      );
     }
 
     _started = true;
     if (storedRegions.isNotEmpty) {
-      _logger.i('[GEOFENCE_MONITORING_STARTED] regions=${storedRegions.length}');
+      _logger.i(
+        '[GEOFENCE_MONITORING_STARTED] regions=${storedRegions.length}',
+      );
     }
 
     await _startSlotsSignalSync();
@@ -113,12 +117,22 @@ class GeofenceRuntime {
 
     await _sseSignalSubscription?.cancel();
     _sseSignalSubscription = _geofenceSseClient.signals.listen((signal) {
+      // 서버는 SSE 연결 직후 "connected" 이벤트를 보내 연결 수립만 알려줍니다.
+      // 슬롯 변경이 아닌 연결 확인 이벤트까지 새로고침 트리거로 쓰면,
+      // 재연결/화면 전환 시 불필요한 GET /geofence/slots 요청이 반복됩니다.
+      if (signal.event != 'slots-updated') {
+        _logger.i('[GEOFENCE_SSE_SIGNAL] event=${signal.event} action=ignored');
+        return;
+      }
+
       _slotsRefreshDebounceTimer?.cancel();
       _slotsRefreshDebounceTimer = Timer(const Duration(seconds: 1), () {
         _refreshSlots();
       });
 
-      _logger.i('[GEOFENCE_SSE_SIGNAL] event=${signal.event}');
+      _logger.i(
+        '[GEOFENCE_SSE_SIGNAL] event=${signal.event} action=refresh_scheduled',
+      );
     });
   }
 
@@ -136,12 +150,14 @@ class GeofenceRuntime {
           .where((slot) => slot.active)
           .where((slot) => slot.latitude != null && slot.longitude != null)
           .where((slot) => slot.radiusM != null && slot.radiusM! > 0)
-          .map((slot) => GeofenceRegion(
-                id: 'slot_${slot.slotId}',
-                latitude: slot.latitude!,
-                longitude: slot.longitude!,
-                radius: slot.radiusM!.toDouble(),
-              ))
+          .map(
+            (slot) => GeofenceRegion(
+              id: 'slot_${slot.slotId}',
+              latitude: slot.latitude!,
+              longitude: slot.longitude!,
+              radius: slot.radiusM!.toDouble(),
+            ),
+          )
           .toList(growable: false);
 
       if (regions.isEmpty) {
@@ -177,14 +193,18 @@ class GeofenceRuntime {
   /// 정책:
   /// - ENTER 이벤트에서만 호출(도착 시점 알림)
   /// - geofenceId는 slot_{id} 형식으로 가정
-  Future<void> _handleTransition(GeofenceTransitionEvent transitionEvent) async {
+  Future<void> _handleTransition(
+    GeofenceTransitionEvent transitionEvent,
+  ) async {
     if (transitionEvent.transition != GeofenceTransitionType.enter) {
       return;
     }
 
     final slotId = _extractSlotId(transitionEvent.geofenceId);
     if (slotId == null) {
-      _logger.w('[GEOFENCE_NOTI_SKIP] invalid geofenceId=${transitionEvent.geofenceId}');
+      _logger.w(
+        '[GEOFENCE_NOTI_SKIP] invalid geofenceId=${transitionEvent.geofenceId}',
+      );
       return;
     }
 
@@ -204,7 +224,9 @@ class GeofenceRuntime {
   }
 }
 
-final locationPermissionServiceProvider = Provider<LocationPermissionService>((ref) {
+final locationPermissionServiceProvider = Provider<LocationPermissionService>((
+  ref,
+) {
   return LocationPermissionService();
 });
 
