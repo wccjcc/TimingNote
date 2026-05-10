@@ -62,6 +62,8 @@ class TodoItem {
     required this.createdAt,
     this.category,
     this.resolvedPlaceLabel,
+    this.placeLatitude,
+    this.placeLongitude,
     this.completedAt,
     this.thumbnailUrl,
   });
@@ -74,6 +76,8 @@ class TodoItem {
   final String structureStatus;
   final String? category;
   final String? resolvedPlaceLabel;
+  final double? placeLatitude;
+  final double? placeLongitude;
   final bool alertEnabled;
   final DateTime? completedAt;
   final DateTime createdAt;
@@ -81,6 +85,7 @@ class TodoItem {
 
   bool get isPending => structureStatus == StructureStatus.pending;
   bool get isDone => status == TodoStatus.done;
+  bool get hasPlaceCoords => placeLatitude != null && placeLongitude != null;
 
   factory TodoItem.fromJson(Map<String, dynamic> json) {
     return TodoItem(
@@ -92,6 +97,8 @@ class TodoItem {
       structureStatus: json['structureStatus'] as String,
       category: json['category'] as String?,
       resolvedPlaceLabel: json['resolvedPlaceLabel'] as String?,
+      placeLatitude: (json['placeLatitude'] as num?)?.toDouble(),
+      placeLongitude: (json['placeLongitude'] as num?)?.toDouble(),
       alertEnabled: json['alertEnabled'] as bool,
       completedAt: json['completedAt'] == null
           ? null
@@ -117,6 +124,8 @@ class TodoItem {
       structureStatus: structureStatus,
       category: category,
       resolvedPlaceLabel: resolvedPlaceLabel,
+      placeLatitude: placeLatitude,
+      placeLongitude: placeLongitude,
       alertEnabled: alertEnabled ?? this.alertEnabled,
       completedAt: completedAt ?? this.completedAt,
       createdAt: createdAt,

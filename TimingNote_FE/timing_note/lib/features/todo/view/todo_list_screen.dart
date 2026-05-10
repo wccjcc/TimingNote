@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/location/location_distance.dart';
+import '../../../../core/location/location_provider.dart';
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/app_error_view.dart';
 import '../../../../shared/widgets/app_loading_view.dart';
@@ -358,6 +360,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
           if (activeItems.isNotEmpty) ...[
             ...activeItems.map((item) => _TodoSpaceTile(
                   item: item,
+                  currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
                   onTap: () => context.push('/todos/${item.id}'),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
@@ -389,6 +392,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
             ),
             ...doneItems.map((item) => _TodoSpaceTile(
                   item: item,
+                  currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
                   onTap: () => context.push('/todos/${item.id}'),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
@@ -414,6 +418,7 @@ class _TodoSpaceTile extends StatelessWidget {
     required this.onTap,
     required this.onToggleStatus,
     required this.onToggleAlert,
+    this.currentGps,
     this.showCategory = true,
   });
 
@@ -421,6 +426,8 @@ class _TodoSpaceTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleStatus;
   final VoidCallback onToggleAlert;
+  // 마지막으로 알고 있는 사용자 위치 — null이면 거리 표기를 생략하고 라벨만 보여준다.
+  final GpsSnapshot? currentGps;
   final bool showCategory;
 
   @override
@@ -502,7 +509,7 @@ class _TodoSpaceTile extends StatelessWidget {
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  _buildRadiusInfo(),
+                                  _buildPlaceWithDistance(),
                                   style: TextStyle(
                                     color: badgeColor,
                                     fontSize: 11,
@@ -548,9 +555,19 @@ class _TodoSpaceTile extends StatelessWidget {
     }
   }
 
-  String _buildRadiusInfo() {
+  String _buildPlaceWithDistance() {
     final place = item.resolvedPlaceLabel ?? '행성 탐사 중';
-    return '$place (반경 200m)';
+    final gps = currentGps;
+    if (gps == null || !item.hasPlaceCoords) {
+      return place;
+    }
+    final meters = haversineMeters(
+      gps.latitude,
+      gps.longitude,
+      item.placeLatitude!,
+      item.placeLongitude!,
+    );
+    return '$place (${formatDistance(meters)})';
   }
 
   Widget _buildThumbnailBox(bool isDone, String imageUrl) {
