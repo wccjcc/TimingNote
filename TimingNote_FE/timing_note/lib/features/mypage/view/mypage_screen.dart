@@ -10,6 +10,7 @@ import 'package:timing_note/shared/theme/colors.dart';
 import 'package:timing_note/shared/theme/typography.dart';
 import 'package:timing_note/shared/widgets/cosmic_background.dart';
 import 'package:timing_note/shared/widgets/space_card.dart';
+import 'package:timing_note/shared/widgets/space_toast.dart';
 import 'package:timing_note/shared/widgets/status_badge.dart';
 
 class MyPageScreen extends ConsumerStatefulWidget {
@@ -67,8 +68,10 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       setState(() {
         _isLoadingSettings = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('설정 값을 불러오지 못했습니다. 기본값으로 표시합니다.')),
+      SpaceToast.show(
+        context,
+        message: '설정을 불러오지 못해 기본값으로 표시했어요',
+        kind: ToastKind.info,
       );
     }
   }
@@ -87,9 +90,11 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _locationAlertEnabled = !nextValue);
-      ScaffoldMessenger.of(
+      SpaceToast.show(
         context,
-      ).showSnackBar(const SnackBar(content: Text('위치 알림 설정 저장에 실패했습니다.')));
+        message: '위치 알림 설정 저장에 실패했어요',
+        kind: ToastKind.error,
+      );
     }
   }
 
@@ -107,9 +112,11 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _pushAlertEnabled = !nextValue);
-      ScaffoldMessenger.of(
+      SpaceToast.show(
         context,
-      ).showSnackBar(const SnackBar(content: Text('푸시 알림 설정 저장에 실패했습니다.')));
+        message: '푸시 알림 설정 저장에 실패했어요',
+        kind: ToastKind.error,
+      );
     }
   }
 
@@ -142,8 +149,10 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
         _radiusMeter = _savedRadiusMeter.toDouble();
         _isSavingRadius = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('반경 저장에 실패했습니다. 다시 시도해 주세요.')),
+      SpaceToast.show(
+        context,
+        message: '반경 저장에 실패했어요. 다시 시도해 주세요',
+        kind: ToastKind.error,
       );
     }
   }

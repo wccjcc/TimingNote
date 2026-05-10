@@ -9,7 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/location/location_service.dart';
 import '../../../core/location/location_permission_service.dart';
-import '../../../core/network/api_exception.dart';
+import '../../../core/network/api_error_message.dart';
+import '../../../shared/widgets/space_toast.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../../mypage/widget/alias_input_sheet.dart';
@@ -260,30 +261,12 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isCreatingAlias = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_humanCreateError(e))),
+      SpaceToast.show(
+        context,
+        message: humanizeApiError(e, action: '등록'),
+        kind: ToastKind.error,
       );
     }
-  }
-
-  // P5: ApiException code별 사람-친화 메시지
-  String _humanCreateError(Object e) {
-    if (e is ApiException) {
-      switch (e.code) {
-        case 'LIMIT_EXCEEDED':
-          return '내 장소는 최대 개수까지 등록되어 있어요';
-        case 'ALIAS_DUPLICATED':
-          return '이미 사용 중인 별칭이에요';
-        case 'NETWORK_ERROR':
-          return '네트워크 연결을 확인해 주세요';
-      }
-      if (e.message.isNotEmpty &&
-          e.code != 'API_ERROR' &&
-          e.code != 'PARSING_ERROR') {
-        return e.message;
-      }
-    }
-    return '등록에 실패했어요. 잠시 후 다시 시도해 주세요';
   }
 
   /// 내 장소 시트 — 사용자 등록 별칭 목록에서 선택
@@ -319,8 +302,10 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       canPop: !_isCreatingAlias,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop || !mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('등록 중이에요. 잠시만 기다려 주세요')),
+        SpaceToast.show(
+          context,
+          message: '등록 중이에요. 잠시만 기다려 주세요',
+          kind: ToastKind.info,
         );
       },
       child: Scaffold(
