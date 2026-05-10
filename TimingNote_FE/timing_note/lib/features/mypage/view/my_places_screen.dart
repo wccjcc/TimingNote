@@ -1,11 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/network/api_exception.dart';
+import '../../../core/network/api_error_message.dart';
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
 import '../../../shared/widgets/app_error_view.dart';
@@ -13,6 +11,7 @@ import '../../../shared/widgets/app_loading_view.dart';
 import '../../../shared/widgets/cosmic_background.dart';
 import '../../../shared/widgets/neon_button.dart';
 import '../../../shared/widgets/space_card.dart';
+import '../../../shared/widgets/space_toast.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../model/user_place.dart';
 import '../service/user_place_service.dart';
@@ -34,20 +33,10 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
   bool _isLoading = true;
   Object? _loadError;
 
-  // 직전에 추가/변경된 항목 id — 1.5초간 강조 표시 (P7)
-  int? _recentlyChangedId;
-  Timer? _highlightTimer;
-
   @override
   void initState() {
     super.initState();
     _loadInitial();
-  }
-
-  @override
-  void dispose() {
-    _highlightTimer?.cancel();
-    super.dispose();
   }
 
   Future<void> _loadInitial() async {
@@ -82,28 +71,21 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_humanErrorMessage(e, action: '새로고침'))),
+      SpaceToast.show(
+        context,
+        message: humanizeApiError(e, action: '새로고침'),
+        kind: ToastKind.error,
       );
     }
-  }
-
-  void _markChanged(int id) {
-    _highlightTimer?.cancel();
-    setState(() => _recentlyChangedId = id);
-    _highlightTimer = Timer(const Duration(milliseconds: 1600), () {
-      if (!mounted) return;
-      setState(() => _recentlyChangedId = null);
-    });
   }
 
   // ── Add ─────────────────────────────────────────────────────────────────
   Future<void> _onAddTapped(int currentCount) async {
     if (currentCount >= kMyPlacesLimit) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('내 장소는 최대 $kMyPlacesLimit개까지 등록할 수 있어요'),
-        ),
+      SpaceToast.show(
+        context,
+        message: '내 장소는 최대 $kMyPlacesLimit개까지 등록할 수 있어요',
+        kind: ToastKind.info,
       );
       return;
     }
@@ -116,7 +98,6 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
       final next = [created, ...?_places];
       _places = next;
     });
-    _markChanged(created.id);
   }
 
   // ── Rename (PATCH) ──────────────────────────────────────────────────────
@@ -144,14 +125,13 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
             .toList(growable: false);
       });
       HapticFeedback.lightImpact(); // P3
-      _markChanged(updated.id); // P7
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('별칭이 변경되었습니다.')),
-      );
+      SpaceToast.show(context, message: '별칭이 변경되었어요');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_humanErrorMessage(e, action: '별칭 변경'))),
+      SpaceToast.show(
+        context,
+        message: humanizeApiError(e, action: '별칭 변경'),
+        kind: ToastKind.error,
       );
     }
   }
@@ -175,9 +155,7 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
       await ref.read(userPlaceServiceProvider).deleteUserPlace(place.id);
       if (!mounted) return;
       HapticFeedback.mediumImpact(); // P3
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('장소가 삭제되었습니다.')),
-      );
+      SpaceToast.show(context, message: '장소가 삭제되었어요');
     } catch (e) {
       if (!mounted) return;
       // 실패 시 원래 자리에 복원 (P1 롤백)
@@ -187,8 +165,10 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
         restored.insert(safeIndex, place);
         _places = restored;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_humanErrorMessage(e, action: '삭제'))),
+      SpaceToast.show(
+        context,
+        message: humanizeApiError(e, action: '삭제'),
+        kind: ToastKind.error,
       );
     }
   }
@@ -298,24 +278,6 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
     return SpaceColors.neonLavender;
   }
 
-  String _humanErrorMessage(Object e, {required String action}) {
-    if (e is ApiException) {
-      switch (e.code) {
-        case 'LIMIT_EXCEEDED':
-          return '내 장소는 최대 $kMyPlacesLimit개까지 등록할 수 있어요';
-        case 'ALIAS_DUPLICATED':
-          return '이미 사용 중인 별칭이에요';
-        case 'NETWORK_ERROR':
-          return '네트워크 연결을 확인해 주세요';
-      }
-      if (e.message.isNotEmpty &&
-          e.code != 'API_ERROR' &&
-          e.code != 'PARSING_ERROR') {
-        return e.message;
-      }
-    }
-    return '$action에 실패했어요. 잠시 후 다시 시도해 주세요';
-  }
 
   // ── Build ───────────────────────────────────────────────────────────────
   @override
@@ -432,7 +394,6 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
             );
           }
           final place = places[index];
-          final isHighlighted = _recentlyChangedId == place.id;
           return Dismissible(
             key: ValueKey('user-place-${place.id}'),
             direction: DismissDirection.endToStart,
@@ -442,7 +403,6 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
             child: _PlaceCard(
               place: place,
               indexHint: index,
-              isHighlighted: isHighlighted,
               onMoreTap: () => _onMoreTapped(place, places),
             ),
           );
@@ -468,13 +428,11 @@ class _PlaceCard extends StatelessWidget {
   const _PlaceCard({
     required this.place,
     required this.indexHint,
-    required this.isHighlighted,
     required this.onMoreTap,
   });
 
   final UserPlace place;
   final int indexHint;
-  final bool isHighlighted;
   final VoidCallback onMoreTap;
 
   IconData get _icon =>
@@ -484,29 +442,10 @@ class _PlaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // P7: 최근 변경된 항목은 잠깐 보랏빛 글로우로 강조
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeOutCubic,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: isHighlighted
-            ? [
-                BoxShadow(
-                  color: SpaceColors.neonPurple.withValues(alpha: 0.45),
-                  blurRadius: 18,
-                  spreadRadius: 1,
-                ),
-              ]
-            : const [],
-      ),
-      child: SpaceCard(
-        padding: const EdgeInsets.all(14),
-        borderColor: isHighlighted
-            ? SpaceColors.neonPurple.withValues(alpha: 0.7)
-            : null,
-        child: Row(
-          children: [
+    return SpaceCard(
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
             Container(
               width: 42,
               height: 42,
@@ -571,8 +510,7 @@ class _PlaceCard extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 }
 
