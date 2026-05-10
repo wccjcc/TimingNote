@@ -21,6 +21,10 @@ String humanizeApiError(Object e, {required String action}) {
     // USER 도메인
     case 'USER-409-1': // USER_PLACE_NAME_DUPLICATED
       return '이미 사용 중인 별칭이에요';
+    case 'USER-409-2': // USER_PLACE_LIMIT_EXCEEDED
+      // BE가 동적으로 한도를 메시지에 담아 보내므로 메시지 우선 (없으면 폴백)
+      if (_hasUsableMessage(e)) return e.message;
+      return '내 장소 등록 한도를 초과했어요';
     case 'USER-404-2': // USER_PLACE_NOT_FOUND
       return '해당 장소를 찾을 수 없어요';
     case 'USER-404-1': // USER_NOT_FOUND
