@@ -163,9 +163,17 @@ public class TodoStructurePersister {
      * <p>주의: PlaceService 호출이 포함되므로 트랜잭션 내 HTTP 호출이 발생한다.
      * 현재 규모에서는 허용 가능하며, 향후 HTTP/DB 분리 리팩토링 대상.
      */
-    private void linkPlace(Todo todo, AiPlaceType placeType,
+    private void linkPlace(Todo todo, AiPlaceType aiPlaceType,
                            String placeText, Double latitude, Double longitude,
                            Long userPlaceId) {
+        // AI 분류를 BE에서 보수적으로 검증 — 단일 브랜드명을 SPECIFIC으로 잘못 분류한 케이스 보정.
+        // 동네 단일 매장은 영향받지 않음 (화이트리스트 기반).
+        AiPlaceType placeType = AiPlaceTypeValidator.validate(aiPlaceType, placeText);
+        if (placeType != aiPlaceType) {
+            log.info("[Place] placeType 보정: {} → {} (placeText='{}', todoId={})",
+                    aiPlaceType, placeType, placeText, todo.getId());
+        }
+
         if (placeType == AiPlaceType.SPECIFIC && StringUtils.hasText(placeText)) {
             placeService.resolveSpecificPlace(placeText, latitude, longitude)
                     .ifPresent(place -> todo.updatePrimaryPlaceId(place.getId()));
