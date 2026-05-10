@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/home/view/home_screen.dart';
 import '../features/map/view/map_screen.dart';
+import '../features/mypage/view/my_places_screen.dart';
 import '../features/mypage/view/mypage_screen.dart';
 import '../features/notification/view/notification_screen.dart';
 import '../features/todo/view/place_search_screen.dart';
@@ -88,12 +89,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       // 장소 검색/지도 선택/내 장소 — push<SelectedPlace>('/place-search?keyword=xxx')
+      // alias 등록 모드 — push<UserPlace>('/place-search?mode=alias')
       GoRoute(
         path: '/place-search',
         builder: (context, state) {
           final keyword = state.uri.queryParameters['keyword'];
-          return PlaceSearchScreen(initialKeyword: keyword);
+          final modeParam = state.uri.queryParameters['mode'];
+          final mode = modeParam == 'alias'
+              ? PlaceSearchMode.alias
+              : PlaceSearchMode.todo;
+          return PlaceSearchScreen(initialKeyword: keyword, mode: mode);
         },
+      ),
+      // 내 장소 관리 (목록 + CRUD)
+      GoRoute(
+        path: '/my/places',
+        builder: (context, state) => const MyPlacesScreen(),
       ),
     ],
   );
