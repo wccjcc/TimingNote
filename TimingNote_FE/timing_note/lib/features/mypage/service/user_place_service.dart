@@ -9,6 +9,12 @@ final userPlaceServiceProvider = Provider<UserPlaceService>((ref) {
   return UserPlaceService(apiClient: ref.read(apiClientProvider));
 });
 
+/// 내 장소 목록의 단일 원천. 등록/수정/삭제 후 ref.invalidate(userPlacesProvider)로 갱신한다.
+/// HomeScreen 별 태그, TodoInputScreen, UserPlaceSheet, MyPlacesScreen이 모두 같은 인스턴스를 본다.
+final userPlacesProvider = FutureProvider<List<UserPlace>>((ref) async {
+  return ref.read(userPlaceServiceProvider).getUserPlaces();
+});
+
 class UserPlaceService {
   UserPlaceService({required ApiClient apiClient}) : _client = apiClient;
 
