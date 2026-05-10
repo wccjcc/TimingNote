@@ -21,6 +21,7 @@ public enum ErrorCode {
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER-404-1", "사용자를 찾을 수 없어요."),
     USER_PLACE_NOT_FOUND(HttpStatus.NOT_FOUND, "USER-404-2", "등록된 장소를 찾을 수 없어요."),
     USER_PLACE_NAME_DUPLICATED(HttpStatus.CONFLICT, "USER-409-1", "이미 사용 중인 장소 별칭이에요."),
+    USER_PLACE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "USER-409-2", "내 장소 등록 한도를 초과했어요."),
     //SETTING
     SETTINGS_NOT_FOUND(HttpStatus.NOT_FOUND,"SETTING-404-1","사용자 설정이 존재하지 않습니다."),
 
