@@ -13,6 +13,9 @@ public class GooglePlace {
     private LatLng location;
     private String businessStatus;
     private String nationalPhoneNumber;
+    // 카테고리 cross-check용 (Kakao categoryGroupCode와 매칭) - Google Place Types primary
+    private String primaryType;
+    private String formattedAddress;
 
     @Getter
     @NoArgsConstructor
