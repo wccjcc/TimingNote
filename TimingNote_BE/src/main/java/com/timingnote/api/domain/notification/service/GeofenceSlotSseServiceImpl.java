@@ -21,16 +21,16 @@ public class GeofenceSlotSseServiceImpl implements GeofenceSlotSseService {
     public SseEmitter subscribe(Long userId) {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
         emittersByUserId.computeIfAbsent(userId, key -> new CopyOnWriteArrayList<>()).add(emitter);
-        emitter.onCompletion(() -> removeEmitter(userId, emitter));
-        emitter.onTimeout(() -> removeEmitter(userId, emitter));
-        emitter.onError(ex -> removeEmitter(userId, emitter));
+        emitter.onCompletion(() -> removeEmitter(userId, emitter, "completion"));
+        emitter.onTimeout(() -> removeEmitter(userId, emitter, "timeout"));
+        emitter.onError(ex -> removeEmitter(userId, emitter, "error"));
 
         try {
             emitter.send(SseEmitter.event()
                     .name("connected")
                     .data(Map.of("userId", userId, "connectedAt", OffsetDateTime.now().toString())));
-        } catch (IOException ex) {
-            removeEmitter(userId, emitter);
+        } catch (IOException | IllegalStateException ex) {
+            removeEmitter(userId, emitter, "connect-send-failure");
         }
         return emitter;
     }
@@ -48,22 +48,23 @@ public class GeofenceSlotSseServiceImpl implements GeofenceSlotSseService {
                         .data(Map.of(
                                 "lastCalculatedAt", lastCalculatedAt == null ? null : lastCalculatedAt.toString()
                         )));
-            } catch (IOException ex) {
-                removeEmitter(userId, emitter);
-                log.debug("Removed broken SSE emitter. userId={}", userId);
+            } catch (IOException | IllegalStateException ex) {
+                removeEmitter(userId, emitter, "slots-updated-send-failure");
             }
         }
     }
 
-    private void removeEmitter(Long userId, SseEmitter emitter) {
+    private void removeEmitter(Long userId, SseEmitter emitter, String reason) {
         List<SseEmitter> emitters = emittersByUserId.get(userId);
         if (emitters == null) {
             return;
         }
-        emitters.remove(emitter);
+        boolean removed = emitters.remove(emitter);
         if (emitters.isEmpty()) {
             emittersByUserId.remove(userId);
         }
+        if (removed) {
+            log.debug("Removed SSE emitter. userId={} reason={} remaining={}", userId, reason, emitters.size());
+        }
     }
 }
-
