@@ -27,10 +27,7 @@ class TodoService {
   }) async {
     final envelope = await _client.post<_PresignedUploadInfo>(
       ApiEndpoints.imageUploadUrl,
-      data: {
-        'contentType': contentType,
-        'fileSize': fileSize,
-      },
+      data: {'contentType': contentType, 'fileSize': fileSize},
       dataParser: (json) =>
           _PresignedUploadInfo.fromJson(json as Map<String, dynamic>),
     );
@@ -44,21 +41,16 @@ class TodoService {
 
     final envelope = await _client.post<_PresignedDownloadUrlsResponse>(
       ApiEndpoints.imageDownloadUrls,
-      data: {
-        'objectKeys': objectKeys,
-      },
-      dataParser: (json) => _PresignedDownloadUrlsResponse.fromJson(
-        json as Map<String, dynamic>,
-      ),
+      data: {'objectKeys': objectKeys},
+      dataParser: (json) =>
+          _PresignedDownloadUrlsResponse.fromJson(json as Map<String, dynamic>),
     );
 
     return envelope.data!.toMap();
   }
 
   /// Presigned PUT URL로 S3에 바이너리를 직접 업로드하고 objectKey를 반환
-  Future<String> uploadImageToS3({
-    required XFile imageFile,
-  }) async {
+  Future<String> uploadImageToS3({required XFile imageFile}) async {
     final bytes = await imageFile.readAsBytes();
     final contentType = _resolveContentType(imageFile.name);
 
@@ -141,7 +133,8 @@ class TodoService {
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (course != null) 'course': course,
-      if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (occurredAt != null)
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
     };
 
     final envelope = await _client.get<TodoListResult>(
@@ -156,7 +149,9 @@ class TodoService {
         .whereType<String>()
         .where((e) => e.trim().isNotEmpty)
         .toList();
-    final downloadUrlMap = await _issueImageDownloadUrls(objectKeys: thumbnailKeys);
+    final downloadUrlMap = await _issueImageDownloadUrls(
+      objectKeys: thumbnailKeys,
+    );
 
     final resolvedItems = result.items.map((item) {
       final key = item.thumbnailUrl;
@@ -173,13 +168,14 @@ class TodoService {
   Future<TodoDetail> getDetail(int todoId) async {
     final envelope = await _client.get<TodoDetail>(
       '${ApiEndpoints.todos}/$todoId',
-      dataParser: (json) =>
-          TodoDetail.fromJson(json as Map<String, dynamic>),
+      dataParser: (json) => TodoDetail.fromJson(json as Map<String, dynamic>),
     );
     final detail = envelope.data!;
     if (detail.imageUrls.isEmpty) return detail;
 
-    final downloadUrlMap = await _issueImageDownloadUrls(objectKeys: detail.imageUrls);
+    final downloadUrlMap = await _issueImageDownloadUrls(
+      objectKeys: detail.imageUrls,
+    );
     final resolved = detail.imageUrls
         .map((key) => downloadUrlMap[key] ?? key)
         .toList();
@@ -204,7 +200,8 @@ class TodoService {
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (course != null) 'course': course,
-      if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (occurredAt != null)
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
       if (userPlaceId != null) 'userPlaceId': userPlaceId,
     };
 
@@ -223,14 +220,14 @@ class TodoService {
   Future<TodoDetail> update(
     int todoId, {
     String? content,
-    String? category,                           // ""이면 제거
-    String? placeText,                          // ""이면 제거, non-empty면 GENERIC 전환
-    double? latitude,                           // placeText non-empty 시 후보 검색에 사용
+    String? category, // ""이면 제거
+    String? placeText, // ""이면 제거, non-empty면 GENERIC 전환
+    double? latitude, // placeText non-empty 시 후보 검색에 사용
     double? longitude,
     double? course,
     DateTime? occurredAt,
-    List<String>? imageUrls,                    // []이면 전체 삭제
-    String? sharedUrl,                          // ""이면 제거
+    List<String>? imageUrls, // []이면 전체 삭제
+    String? sharedUrl, // ""이면 제거
     List<TimeConditionRequest>? timeConditions, // []이면 전체 삭제
   }) async {
     final hasPlaceText = placeText != null && placeText.isNotEmpty;
@@ -252,8 +249,7 @@ class TodoService {
     final envelope = await _client.patch<TodoDetail>(
       '${ApiEndpoints.todos}/$todoId',
       data: body,
-      dataParser: (json) =>
-          TodoDetail.fromJson(json as Map<String, dynamic>),
+      dataParser: (json) => TodoDetail.fromJson(json as Map<String, dynamic>),
     );
     return envelope.data!;
   }
@@ -273,7 +269,8 @@ class TodoService {
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (course != null) 'course': course,
-      if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (occurredAt != null)
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
     };
     await _client.patch<void>(
       '${ApiEndpoints.todos}/$todoId/alert',
@@ -295,7 +292,8 @@ class TodoService {
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (course != null) 'course': course,
-      if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (occurredAt != null)
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
     };
     await _client.patch<void>(
       '${ApiEndpoints.todos}/$todoId/status',
@@ -319,7 +317,8 @@ class TodoService {
         if (latitude != null) 'latitude': latitude,
         if (longitude != null) 'longitude': longitude,
         if (course != null) 'course': course,
-        if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+        if (occurredAt != null)
+          'occurredAt': occurredAt.toUtc().toIso8601String(),
       },
     );
   }
@@ -339,7 +338,8 @@ class TodoService {
         if (latitude != null) 'latitude': latitude,
         if (longitude != null) 'longitude': longitude,
         if (course != null) 'course': course,
-        if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+        if (occurredAt != null)
+          'occurredAt': occurredAt.toUtc().toIso8601String(),
       },
     );
   }
@@ -359,7 +359,8 @@ class TodoService {
       if (userLatitude != null) 'latitude': userLatitude,
       if (userLongitude != null) 'longitude': userLongitude,
       if (course != null) 'course': course,
-      if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (occurredAt != null)
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
     };
 
     final envelope = await _client.post<TodoDetail>(
@@ -387,9 +388,12 @@ class TodoService {
       'latitude': place.placeLatitude,
       'longitude': place.placeLongitude,
       if (place.addressName != null) 'addressName': place.addressName,
-      if (place.roadAddressName != null) 'roadAddressName': place.roadAddressName,
-      if (place.categoryGroupCode != null) 'categoryGroupCode': place.categoryGroupCode,
-      if (place.categoryGroupName != null) 'categoryGroupName': place.categoryGroupName,
+      if (place.roadAddressName != null)
+        'roadAddressName': place.roadAddressName,
+      if (place.categoryGroupCode != null)
+        'categoryGroupCode': place.categoryGroupCode,
+      if (place.categoryGroupName != null)
+        'categoryGroupName': place.categoryGroupName,
       if (place.phone != null) 'phone': place.phone,
       if (place.placeUrl != null) 'placeUrl': place.placeUrl,
     };
@@ -399,7 +403,8 @@ class TodoService {
       if (userLatitude != null) 'latitude': userLatitude,
       if (userLongitude != null) 'longitude': userLongitude,
       if (course != null) 'course': course,
-      if (occurredAt != null) 'occurredAt': occurredAt.toUtc().toIso8601String(),
+      if (occurredAt != null)
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
     };
 
     final envelope = await _client.post<TodoDetail>(
@@ -446,7 +451,10 @@ class _PresignedDownloadUrlsResponse {
   factory _PresignedDownloadUrlsResponse.fromJson(Map<String, dynamic> json) {
     return _PresignedDownloadUrlsResponse(
       items: (json['items'] as List<dynamic>? ?? const [])
-          .map((e) => _PresignedDownloadUrlItem.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) =>
+                _PresignedDownloadUrlItem.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
     );
   }

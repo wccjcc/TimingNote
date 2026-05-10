@@ -63,7 +63,7 @@ public class UserPlaceServiceImpl implements UserPlaceService {
     @Transactional
     public UserPlaceResponse updateUserPlace(Long userId, Long userPlaceId, UserPlaceUpdateRequest req) {
         UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(userPlaceId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
 
         userPlace.updateAliasName(req.getAliasName());
         log.info("[UserPlace] 별칭 수정: userPlaceId={} alias='{}'", userPlaceId, req.getAliasName());
@@ -75,7 +75,7 @@ public class UserPlaceServiceImpl implements UserPlaceService {
     @Transactional
     public void deleteUserPlace(Long userId, Long userPlaceId) {
         UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(userPlaceId, userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
 
         userPlaceRepository.delete(userPlace);
         log.info("[UserPlace] 삭제: userId={} userPlaceId={}", userId, userPlaceId);

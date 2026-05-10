@@ -2,18 +2,27 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/location/location_service.dart';
 import '../../../core/location/location_permission_service.dart';
+import '../../../core/network/api_error_message.dart';
+import '../../../shared/widgets/space_toast.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
+import '../../mypage/widget/alias_input_sheet.dart';
 import '../model/selected_kakao_place.dart';
 import '../service/place_search_service.dart';
 import '../widgets/native_kakao_map.dart';
 import '../widgets/user_place_sheet.dart';
+
+/// 검색 화면 진입 모드.
+/// - [todo]: 메모/할 일 작성 흐름. 결과는 SelectedPlace로 pop.
+/// - [alias]: 내 장소(ALIAS) 등록 흐름. 결과는 등록된 UserPlace로 pop.
+enum PlaceSearchMode { todo, alias }
 
 // ── 디자인 상수 (우주 테마 통일) ─────────────────────────────────────
 const _kBgDark = Color(0xFF050510);
@@ -27,13 +36,19 @@ const _kDefaultLng = 126.9780;
 
 /// 장소 검색 + 카카오 지도 선택 화면.
 ///
-/// 진입: context.push<SelectedPlace>('/place-search?keyword=이전장소명')
-/// 반환: context.pop(SelectedPlace) — 카카오/지도 선택 시 SelectedExternalPlace,
-///       내 장소 선택 시 SelectedAliasPlace, 취소 시 null
+/// - todo 모드: `context.push<SelectedPlace>('/place-search?keyword=이전장소명')`
+///   반환: SelectedExternalPlace(검색/지도 핀) 또는 SelectedAliasPlace(내 장소), 취소 시 null
+/// - alias 모드: `context.push<UserPlace>('/place-search?mode=alias')`
+///   반환: 등록 성공한 UserPlace, 취소 시 null
 class PlaceSearchScreen extends ConsumerStatefulWidget {
-  const PlaceSearchScreen({super.key, this.initialKeyword});
+  const PlaceSearchScreen({
+    super.key,
+    this.initialKeyword,
+    this.mode = PlaceSearchMode.todo,
+  });
 
   final String? initialKeyword;
+  final PlaceSearchMode mode;
 
   @override
   ConsumerState<PlaceSearchScreen> createState() => _PlaceSearchScreenState();
@@ -58,10 +73,29 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
   final _customNameController = TextEditingController();
   Timer? _rgTimer; // 역지오코딩 디바운스 타이머
 
+  // alias 모드에서만 사용 — 별칭 입력 시트의 중복 검증용 기존 별칭 목록
+  List<String> _existingAliases = const [];
+  bool _isCreatingAlias = false;
+
   @override
   void initState() {
     super.initState();
     _initLocation();
+    if (widget.mode == PlaceSearchMode.alias) {
+      _loadExistingAliases();
+    }
+  }
+
+  Future<void> _loadExistingAliases() async {
+    try {
+      final places = await ref.read(userPlaceServiceProvider).getUserPlaces();
+      if (!mounted) return;
+      setState(() {
+        _existingAliases = places.map((p) => p.aliasName).toList();
+      });
+    } catch (_) {
+      // 실패 시 빈 목록으로 두면 BE에서 ALIAS_DUPLICATED로 2차 방어
+    }
   }
 
   @override
@@ -159,11 +193,11 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
     }
   }
 
-  void _save() {
+  Future<void> _save() async {
     final name = _customNameController.text.trim();
     if (name.isEmpty) return;
 
-    SelectedExternalPlace result;
+    final SelectedExternalPlace result;
 
     if (_selectedFromSearch != null) {
       // 카카오 키워드 검색 결과: kakaoPlaceId 있음
@@ -185,7 +219,54 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       );
     }
 
+    if (widget.mode == PlaceSearchMode.alias) {
+      await _saveAsAlias(result);
+      return;
+    }
+
     context.pop(result);
+  }
+
+  // alias 모드 저장: 장소 확정 → 별칭 입력 시트 → createUserPlace → 새 UserPlace로 pop
+  Future<void> _saveAsAlias(SelectedExternalPlace place) async {
+    if (_isCreatingAlias) return;
+
+    final aliasResult = await showAliasInputSheet(
+      context: context,
+      existingAliases: _existingAliases,
+      placeName: place.placeName,
+      placeAddress: place.roadAddressName ?? place.addressName,
+    );
+    // null = 취소 또는 "다른 장소 다시 고르기" — 둘 다 사용자는 검색 화면에 남는다
+    if (aliasResult == null || !mounted) return;
+
+    setState(() => _isCreatingAlias = true);
+    try {
+      final created = await ref.read(userPlaceServiceProvider).createUserPlace(
+            aliasName: aliasResult,
+            kakaoPlaceId: place.kakaoPlaceId,
+            placeName: place.placeName,
+            latitude: place.placeLatitude,
+            longitude: place.placeLongitude,
+            addressName: place.addressName,
+            roadAddressName: place.roadAddressName,
+            categoryGroupCode: place.categoryGroupCode,
+            categoryGroupName: place.categoryGroupName,
+            phone: place.phone,
+            placeUrl: place.placeUrl,
+          );
+      if (!mounted) return;
+      HapticFeedback.lightImpact(); // P3
+      context.pop(created);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isCreatingAlias = false);
+      SpaceToast.show(
+        context,
+        message: humanizeApiError(e, action: '등록'),
+        kind: ToastKind.error,
+      );
+    }
   }
 
   /// 내 장소 시트 — 사용자 등록 별칭 목록에서 선택
@@ -215,9 +296,21 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
   Widget build(BuildContext context) {
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Scaffold(
-      backgroundColor: _kBgDark,
-      resizeToAvoidBottomInset: false,
+    // P4: 등록 중에는 뒤로가기 차단 — 창 닫혀도 background에서 createUserPlace가 진행되어
+    //     결과를 받을 곳이 사라지는 상황 방지
+    return PopScope(
+      canPop: !_isCreatingAlias,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || !mounted) return;
+        SpaceToast.show(
+          context,
+          message: '등록 중이에요. 잠시만 기다려 주세요',
+          kind: ToastKind.info,
+        );
+      },
+      child: Scaffold(
+        backgroundColor: _kBgDark,
+        resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           // ── 1. 카카오 지도 (전체 화면) ─────────────────────────────
@@ -281,7 +374,9 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
               child: _TopBar(
                 onBack: () => context.pop(),
                 onSearchTap: () => _openSearchSheet(),
-                onUserPlaceTap: () => _openUserPlaceSheet(),
+                onUserPlaceTap: widget.mode == PlaceSearchMode.alias
+                    ? null
+                    : () => _openUserPlaceSheet(),
               ),
             ),
           ),
@@ -297,11 +392,15 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
               isLoading: _isReverseGeocoding,
               nameController: _customNameController,
               keyboardInset: keyboardInset,
-              onSave: _save,
+              onSave: _isCreatingAlias ? null : _save,
+              saveLabel: widget.mode == PlaceSearchMode.alias
+                  ? (_isCreatingAlias ? '등록 중...' : '다음')
+                  : '이 위치 저장',
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -333,7 +432,8 @@ class _TopBar extends StatelessWidget {
 
   final VoidCallback onBack;
   final VoidCallback onSearchTap;
-  final VoidCallback onUserPlaceTap;
+  // null이면 "내 장소" 버튼을 노출하지 않는다 (alias 등록 모드)
+  final VoidCallback? onUserPlaceTap;
 
   @override
   Widget build(BuildContext context) {
@@ -378,19 +478,21 @@ class _TopBar extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          // 내 장소 버튼 — 사용자 등록 별칭 목록에서 선택
-          _GlassButton(
-            child: const Text(
-              '내 장소',
-              style: TextStyle(
-                color: _kPurpleAccent,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+          if (onUserPlaceTap != null) ...[
+            const SizedBox(width: 8),
+            // 내 장소 버튼 — 사용자 등록 별칭 목록에서 선택
+            _GlassButton(
+              child: const Text(
+                '내 장소',
+                style: TextStyle(
+                  color: _kPurpleAccent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
+              onTap: onUserPlaceTap!,
             ),
-            onTap: onUserPlaceTap,
-          ),
+          ],
         ],
       ),
     );
@@ -405,13 +507,16 @@ class _BottomPanel extends StatelessWidget {
     required this.nameController,
     required this.keyboardInset,
     required this.onSave,
+    this.saveLabel = '이 위치 저장',
   });
 
   final String? address;
   final bool isLoading;
   final TextEditingController nameController;
   final double keyboardInset;
-  final VoidCallback onSave;
+  // null이면 저장 버튼 비활성화 (alias 등록 진행 중 등)
+  final VoidCallback? onSave;
+  final String saveLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -489,9 +594,12 @@ class _BottomPanel extends StatelessWidget {
                 shadowColor: _kPurpleAccent.withOpacity(0.4),
               ),
               onPressed: onSave,
-              child: const Text(
-                '이 위치 저장',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              child: Text(
+                saveLabel,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
