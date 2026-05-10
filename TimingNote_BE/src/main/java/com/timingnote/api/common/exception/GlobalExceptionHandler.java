@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
@@ -91,9 +92,11 @@ public class GlobalExceptionHandler {
                 .body(ApiResponseDto.error(ErrorCode.MISSING_REQUEST_HEADER));
     }
 
-    /**
-     * 위에서 처리되지 않은 모든 예외 처리 (최종 방어선)
-     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException ex) {
+        log.debug("Async request is not usable (client disconnected): {}", ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponseDto<?>> handleUnhandledException(Exception ex) {
         log.error("Unhandled exception occurred", ex);

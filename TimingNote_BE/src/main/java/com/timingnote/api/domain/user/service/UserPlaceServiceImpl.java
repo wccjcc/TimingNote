@@ -22,6 +22,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class UserPlaceServiceImpl implements UserPlaceService {
 
+    /**
+     * 사용자당 등록 가능한 내 장소(ALIAS) 최대 개수.
+     * AI 프롬프트에 별칭 목록을 매번 주입하므로 토큰/매칭 정확도 측면에서 상한 필요.
+     * FE의 추가 버튼 disable 기준과 동일하게 유지해야 함.
+     */
+    private static final int MAX_USER_PLACES_PER_USER = 10;
+
     private final UserPlaceRepository userPlaceRepository;
     private final UserRepository userRepository;
     private final PlaceService placeService;
@@ -37,6 +44,16 @@ public class UserPlaceServiceImpl implements UserPlaceService {
     @Override
     @Transactional
     public UserPlaceResponse createUserPlace(Long userId, UserPlaceCreateRequest req) {
+        // 한도/중복 사전 검증. 동시성 race 시 DB UNIQUE(user_id, alias_name) 제약이 안전망.
+        if (userPlaceRepository.countByUser_Id(userId) >= MAX_USER_PLACES_PER_USER) {
+            throw new BusinessException(
+                    String.format("내 장소는 최대 %d개까지 등록할 수 있어요", MAX_USER_PLACES_PER_USER),
+                    ErrorCode.USER_PLACE_LIMIT_EXCEEDED);
+        }
+        if (userPlaceRepository.existsByUser_IdAndAliasName(userId, req.getAliasName())) {
+            throw new BusinessException(ErrorCode.USER_PLACE_NAME_DUPLICATED);
+        }
+
         // 장소 저장 또는 기존 장소 조회 (Kakao 검색 결과 or 지도 마커 핀)
         Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
                 req.getKakaoPlaceId(), req.getPlaceName(),
@@ -64,6 +81,13 @@ public class UserPlaceServiceImpl implements UserPlaceService {
     public UserPlaceResponse updateUserPlace(Long userId, Long userPlaceId, UserPlaceUpdateRequest req) {
         UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(userPlaceId, userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
+
+        // 같은 별칭으로의 no-op 수정은 통과시키되, 다른 user_place와 충돌하면 차단
+        if (!userPlace.getAliasName().equals(req.getAliasName())
+                && userPlaceRepository.existsByUser_IdAndAliasNameAndIdNot(
+                        userId, req.getAliasName(), userPlaceId)) {
+            throw new BusinessException(ErrorCode.USER_PLACE_NAME_DUPLICATED);
+        }
 
         userPlace.updateAliasName(req.getAliasName());
         log.info("[UserPlace] 별칭 수정: userPlaceId={} alias='{}'", userPlaceId, req.getAliasName());
