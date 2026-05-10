@@ -1,6 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:typed_data';
 
 import '../../../core/location/location_provider.dart';
 import '../model/time_condition.dart';
@@ -34,7 +35,7 @@ class TodoEditState {
   final String? content;
   final String? category;
   final String? placeText;
-  final double? latitude;   // placeText GENERIC 전환 시 Kakao 후보 검색에 사용
+  final double? latitude; // placeText GENERIC 전환 시 Kakao 후보 검색에 사용
   final double? longitude;
   final List<String>? imageUrls;
   final Map<String, Uint8List> imagePreviewBytes;
@@ -216,29 +217,29 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
 
     final orig = state.original!;
 
-    final contentToSend =
-        state.content != orig.content ? state.content : null;
-    final categoryToSend =
-        (state.category ?? '') != (orig.category ?? '') ? state.category : null;
+    final contentToSend = state.content != orig.content ? state.content : null;
+    final categoryToSend = (state.category ?? '') != (orig.category ?? '')
+        ? state.category
+        : null;
     final placeTextToSend =
         (state.placeText ?? '') != (orig.structure?.placeText ?? '')
-            ? state.placeText
-            : null;
-    final sharedUrlToSend =
-        (state.sharedUrl ?? '') != (orig.sharedUrl ?? '')
-            ? state.sharedUrl
-            : null;
+        ? state.placeText
+        : null;
+    final sharedUrlToSend = (state.sharedUrl ?? '') != (orig.sharedUrl ?? '')
+        ? state.sharedUrl
+        : null;
 
     final origImages = orig.imageUrls;
     final editImages = state.imageUrls ?? origImages;
-    final imageUrlsToSend =
-        _listEquals(origImages, editImages) ? null : editImages;
+    final imageUrlsToSend = _listEquals(origImages, editImages)
+        ? null
+        : editImages;
 
     final origTcKeys = orig.timeConditions.map(_tcKey).toList();
-    final editTcKeys =
-        (state.timeConditions ?? []).map(_tcRequestKey).toList();
-    final timeConditionsToSend =
-        _listStringEquals(origTcKeys, editTcKeys) ? null : state.timeConditions;
+    final editTcKeys = (state.timeConditions ?? []).map(_tcRequestKey).toList();
+    final timeConditionsToSend = _listStringEquals(origTcKeys, editTcKeys)
+        ? null
+        : state.timeConditions;
 
     if (contentToSend == null &&
         categoryToSend == null &&
@@ -253,7 +254,8 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
 
     try {
       // placeText가 non-empty면 GENERIC 후보 검색 + 슬롯 재계산이 일어나므로 GPS 호출
-      final needsLocation = placeTextToSend != null && placeTextToSend.isNotEmpty;
+      final needsLocation =
+          placeTextToSend != null && placeTextToSend.isNotEmpty;
       final gps = needsLocation ? await tryGetGpsSnapshot(ref) : null;
 
       final updated = await _service.update(
@@ -294,8 +296,7 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
     return true;
   }
 
-  bool _listStringEquals(List<String> a, List<String> b) =>
-      _listEquals(a, b);
+  bool _listStringEquals(List<String> a, List<String> b) => _listEquals(a, b);
 
   String _tcKey(dynamic tc) =>
       '${tc.conditionType}|${tc.startDate}|${tc.endDate}|'

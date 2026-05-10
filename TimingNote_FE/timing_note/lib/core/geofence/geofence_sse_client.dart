@@ -1,5 +1,4 @@
-﻿import 'dart:async';
-import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,17 +24,17 @@ class GeofenceSseClient {
     required Future<String?> Function() readDeviceSecret,
     GeofenceSseParser? parser,
     GeofenceSsePolicy? policy,
-  })  : _readDeviceSecret = readDeviceSecret,
-        _parser = parser ?? GeofenceSseParser(),
-        _policy = policy ?? GeofenceSsePolicy(),
-        _dio = Dio(
-          BaseOptions(
-            baseUrl: baseUrl,
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(minutes: 10),
-            sendTimeout: const Duration(seconds: 10),
-          ),
-        );
+  }) : _readDeviceSecret = readDeviceSecret,
+       _parser = parser ?? GeofenceSseParser(),
+       _policy = policy ?? GeofenceSsePolicy(),
+       _dio = Dio(
+         BaseOptions(
+           baseUrl: baseUrl,
+           connectTimeout: const Duration(seconds: 10),
+           receiveTimeout: const Duration(minutes: 10),
+           sendTimeout: const Duration(seconds: 10),
+         ),
+       );
 
   final Future<String?> Function() _readDeviceSecret;
   final GeofenceSseParser _parser;
@@ -49,7 +48,6 @@ class GeofenceSseClient {
       StreamController<GeofenceSseStatus>.broadcast();
 
   StreamSubscription<GeofenceSseSignal>? _signalSubscription;
-  ResponseBody? _responseBody;
   Timer? _reconnectTimer;
   Timer? _idleTimer;
 
@@ -129,7 +127,6 @@ class GeofenceSseClient {
         return;
       }
 
-      _responseBody = body;
       _retryAttempt = 0;
       _setStatus(GeofenceSseConnectionState.connected);
       _resetIdleTimer();
@@ -137,24 +134,24 @@ class GeofenceSseClient {
       // parser가 line 단위로 이벤트를 만들어주고,
       // 클라이언트는 이를 그대로 상위 스트림으로 전달합니다.
       _signalSubscription = _parser
-          .parse(body.stream as Stream<Uint8List>, onLineReceived: _resetIdleTimer)
+          .parse(body.stream, onLineReceived: _resetIdleTimer)
           .listen(
-        (signal) {
-          _signalController.add(signal);
-        },
-        onDone: () {
-          if (_running && !_closed) {
-            _scheduleReconnect('stream closed');
-          }
-        },
-        onError: (Object error, StackTrace stackTrace) {
-          if (_running && !_closed) {
-            _logger.w('[SSE] stream error: $error');
-            _scheduleReconnect('stream error');
-          }
-        },
-        cancelOnError: true,
-      );
+            (signal) {
+              _signalController.add(signal);
+            },
+            onDone: () {
+              if (_running && !_closed) {
+                _scheduleReconnect('stream closed');
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (_running && !_closed) {
+                _logger.w('[SSE] stream error: $error');
+                _scheduleReconnect('stream error');
+              }
+            },
+            cancelOnError: true,
+          );
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
 
@@ -235,8 +232,9 @@ class GeofenceSseClient {
     await _signalSubscription?.cancel();
     _signalSubscription = null;
 
-    await _responseBody?.stream.listen(null).cancel();
-    _responseBody = null;
+    // ResponseBody.stream은 single-subscription 스트림입니다.
+    // parser 구독(_signalSubscription)을 cancel하면 연결 정리가 끝나므로
+    // 정리 단계에서 stream.listen(...)을 다시 호출하면 안 됩니다.
   }
 }
 

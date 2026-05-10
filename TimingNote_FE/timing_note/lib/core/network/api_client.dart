@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
@@ -10,22 +10,20 @@ class ApiClient {
   ApiClient({
     required String baseUrl,
     required Future<String?> Function() readDeviceSecret,
-  })  : _readDeviceSecret = readDeviceSecret,
-        // 앱 전체 공통 Dio 설정
-        // - baseUrl: 모든 API 요청 prefix
-        // - timeout: 무한 대기 방지
-        // - headers: 기본 JSON 요청 포맷
-        _dio = Dio(
-          BaseOptions(
-            baseUrl: baseUrl,
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 15),
-            sendTimeout: const Duration(seconds: 15),
-            headers: const {
-              'Content-Type': 'application/json',
-            },
-          ),
-        ) {
+  }) : _readDeviceSecret = readDeviceSecret,
+       // 앱 전체 공통 Dio 설정
+       // - baseUrl: 모든 API 요청 prefix
+       // - timeout: 무한 대기 방지
+       // - headers: 기본 JSON 요청 포맷
+       _dio = Dio(
+         BaseOptions(
+           baseUrl: baseUrl,
+           connectTimeout: const Duration(seconds: 10),
+           receiveTimeout: const Duration(seconds: 15),
+           sendTimeout: const Duration(seconds: 15),
+           headers: const {'Content-Type': 'application/json'},
+         ),
+       ) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
