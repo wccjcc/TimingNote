@@ -119,4 +119,11 @@ app:
 firebase:
   admin-sdk-path: ${FIREBASE_ACCOUNT_PATH}
 
+# 환경변수 LOG_LEVEL_APP / LOG_LEVEL_ROOT 로 운영 중 오버라이드.
+# 프로파일별 yml에서 더 세부 키를 추가하면 이 디폴트보다 우선 적용됨.
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.timingnote: ${LOG_LEVEL_APP:INFO}
+
 

@@ -156,9 +156,9 @@ public class TodoServiceImpl implements TodoService {
     @Transactional(readOnly = true)
     public TodoDetailResponse getTodoDetail(Long userId, Long todoId) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
         return assembleTodoDetail(todo);
     }
@@ -169,9 +169,9 @@ public class TodoServiceImpl implements TodoService {
     @Transactional
     public TodoDetailResponse updateTodo(Long userId, Long todoId, TodoUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
         if (StringUtils.hasText(request.getContent())) {
@@ -226,9 +226,9 @@ public class TodoServiceImpl implements TodoService {
     @Transactional
     public void updateAlert(Long userId, Long todoId, TodoAlertUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
         todo.updateAlertEnabled(request.getAlertEnabled());
         // 알림 on/off → recalculateSlots의 hard rule(alertEnabled) 필터 변경되므로 슬롯 재계산
@@ -240,9 +240,9 @@ public class TodoServiceImpl implements TodoService {
     @Transactional
     public void updateStatus(Long userId, Long todoId, TodoStatusUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
         todo.updateStatus(request.getStatus());
         // DONE↔ACTIVE 전환 시 monitoring 쿼리(status='ACTIVE') 필터가 바뀌므로 슬롯 재계산
@@ -264,16 +264,16 @@ public class TodoServiceImpl implements TodoService {
         }
 
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
         todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
 
         if (hasAlias) {
             UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(req.getUserPlaceId(), userId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                    .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
             Place place = userPlace.getPlace();
 
             todo.updateTodoType(TodoType.ALIAS.name());
@@ -319,9 +319,9 @@ public class TodoServiceImpl implements TodoService {
     @Transactional
     public TodoDetailResponse removeTodoPlace(Long userId, Long todoId) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
         todo.updateTodoType(TodoType.GENERAL.name());
@@ -350,7 +350,7 @@ public class TodoServiceImpl implements TodoService {
 
         int affected = todoRepository.softDeleteByIdsAndUserId(ids, userId, OffsetDateTime.now());
         if (affected != ids.size()) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
         todoCandidatePlaceRepository.deleteAllByTodoIdIn(ids);
@@ -435,7 +435,7 @@ public class TodoServiceImpl implements TodoService {
                             });
                         },
                         e -> {
-                            log.error("[AI] 구조화 실패 (todoId={}): {}", todoId, e.getMessage());
+                            log.error("[AI] 구조화 실패 todoId={}", todoId, e);
                             Schedulers.boundedElastic().schedule(
                                     () -> structurePersister.markFailed(todoId)
                             );
@@ -582,8 +582,9 @@ public class TodoServiceImpl implements TodoService {
         try {
             return LocalDate.parse(value);
         } catch (DateTimeParseException e) {
-            log.warn("[Todo] 날짜 파싱 실패: {}", value);
-            return null;
+            // 사용자 직접 입력 경로에서만 호출됨 (buildTimeCondition).
+            // AI 응답 파싱 경로의 silent fallback은 TodoStructurePersister 쪽.
+            throw new BusinessException(ErrorCode.TODO_INVALID_TIME_FORMAT);
         }
     }
 
@@ -592,8 +593,7 @@ public class TodoServiceImpl implements TodoService {
         try {
             return LocalTime.parse(value);
         } catch (DateTimeParseException e) {
-            log.warn("[Todo] 시간 파싱 실패: {}", value);
-            return null;
+            throw new BusinessException(ErrorCode.TODO_INVALID_TIME_FORMAT);
         }
     }
 }
