@@ -36,6 +36,12 @@ public class TodoListItemResponse {
     @Schema(description = "장소 표시 레이블 (구조화 완료 후 설정)")
     private String resolvedPlaceLabel;
 
+    @Schema(description = "주 장소 위도 — primaryPlaceId가 있을 때만 존재 (GENERIC/매칭 미완은 null)")
+    private Double placeLatitude;
+
+    @Schema(description = "주 장소 경도 — primaryPlaceId가 있을 때만 존재 (GENERIC/매칭 미완은 null)")
+    private Double placeLongitude;
+
     @Schema(description = "알림 활성화 여부")
     private boolean alertEnabled;
 
@@ -48,7 +54,8 @@ public class TodoListItemResponse {
     @Schema(description = "대표 이미지 URL (이미지 입력이 있을 때만 존재)")
     private String thumbnailUrl;
 
-    public static TodoListItemResponse from(Todo todo, String thumbnailUrl) {
+    public static TodoListItemResponse from(Todo todo, String thumbnailUrl,
+                                            Double placeLatitude, Double placeLongitude) {
         return TodoListItemResponse.builder()
                 .id(todo.getId())
                 .inputType(todo.getInputType())
@@ -58,6 +65,8 @@ public class TodoListItemResponse {
                 .structureStatus(todo.getStructureStatus())
                 .category(todo.getCategory())
                 .resolvedPlaceLabel(todo.getResolvedPlaceLabel())
+                .placeLatitude(placeLatitude)
+                .placeLongitude(placeLongitude)
                 .alertEnabled(todo.isAlertEnabled())
                 .completedAt(todo.getCompletedAt())
                 .createdAt(todo.getCreatedAt())

@@ -143,9 +143,15 @@ public class TodoServiceImpl implements TodoService {
 
         List<Long> todoIds = page.stream().map(Todo::getId).toList();
         Map<Long, String> thumbnailMap = fetchThumbnails(todoIds);
+        Map<Long, Place> placeMap = fetchPrimaryPlaces(page);
 
         List<TodoListItemResponse> items = page.stream()
-                .map(t -> TodoListItemResponse.from(t, thumbnailMap.get(t.getId())))
+                .map(t -> {
+                    Place place = t.getPrimaryPlaceId() != null ? placeMap.get(t.getPrimaryPlaceId()) : null;
+                    Double lat = place != null ? place.getLatitude() : null;
+                    Double lng = place != null ? place.getLongitude() : null;
+                    return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng);
+                })
                 .toList();
 
         return TodoListResponse.builder()
@@ -528,6 +534,21 @@ public class TodoServiceImpl implements TodoService {
                         input -> input.getImageUrl().get(0),
                         (a, b) -> a   // 동일 todoId에 IMAGE input 복수 시 첫 번째 유지
                 ));
+    }
+
+    /**
+     * 페이지의 primaryPlaceId 모아 한 번에 Place 조회 (N+1 회피).
+     * GENERIC/매칭 미완 todo는 primaryPlaceId가 null이므로 맵에 들어오지 않는다.
+     */
+    private Map<Long, Place> fetchPrimaryPlaces(List<Todo> todos) {
+        List<Long> placeIds = todos.stream()
+                .map(Todo::getPrimaryPlaceId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (placeIds.isEmpty()) return Map.of();
+        return placeRepository.findAllById(placeIds).stream()
+                .collect(Collectors.toMap(Place::getId, p -> p));
     }
 
     // ── Geofence 재계산 ───────────────────────────────────────────────────────

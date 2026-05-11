@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
@@ -10,41 +11,18 @@ const _kPurpleAccent = Color(0xFFA78BFA);
 /// 사용자가 등록한 별칭 장소 목록 모달.
 /// 항목 탭 시 Navigator.pop(UserPlace) — 취소 시 null.
 ///
+/// 데이터는 [userPlacesProvider]를 watch하므로 등록/삭제 후 invalidate하면 즉시 반영됨.
+///
 /// 사용처:
 /// - place_search_screen "내 장소" 버튼
 /// - todo_input_screen 등록 시 ALIAS 명시 선택
-class UserPlaceSheet extends StatefulWidget {
-  const UserPlaceSheet({super.key, required this.userPlaceService});
-
-  final UserPlaceService userPlaceService;
+class UserPlaceSheet extends ConsumerWidget {
+  const UserPlaceSheet({super.key});
 
   @override
-  State<UserPlaceSheet> createState() => _UserPlaceSheetState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final placesAsync = ref.watch(userPlacesProvider);
 
-class _UserPlaceSheetState extends State<UserPlaceSheet> {
-  List<UserPlace>? _places;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final list = await widget.userPlaceService.getUserPlaces();
-      if (!mounted) return;
-      setState(() => _places = list);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
       decoration: const BoxDecoration(
@@ -74,29 +52,29 @@ class _UserPlaceSheetState extends State<UserPlaceSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          Expanded(child: _buildBody()),
+          Expanded(
+            child: placesAsync.when(
+              data: (places) => _buildBody(context, places),
+              loading: () => const Center(child: CircularProgressIndicator(color: _kPurpleAccent)),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    '내 장소를 불러오지 못했습니다.\n$e',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildBody() {
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            '내 장소를 불러오지 못했습니다.\n$_error',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-          ),
-        ),
-      );
-    }
-    if (_places == null) {
-      return const Center(child: CircularProgressIndicator(color: _kPurpleAccent));
-    }
-    if (_places!.isEmpty) {
+  Widget _buildBody(BuildContext context, List<UserPlace> places) {
+    if (places.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 24),
@@ -109,10 +87,10 @@ class _UserPlaceSheetState extends State<UserPlaceSheet> {
       );
     }
     return ListView.separated(
-      itemCount: _places!.length,
+      itemCount: places.length,
       separatorBuilder: (_, __) => const Divider(height: 1, color: _kBorderWhite, indent: 60),
       itemBuilder: (_, i) {
-        final place = _places![i];
+        final place = places[i];
         return ListTile(
           onTap: () => Navigator.pop(context, place),
           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),

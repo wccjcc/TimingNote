@@ -256,6 +256,8 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
             placeUrl: place.placeUrl,
           );
       if (!mounted) return;
+      // 등록 직후 내 장소 목록 캐시 무효화 — Home/TodoInput/UserPlaceSheet/MyPlaces 모두 자동 갱신
+      ref.invalidate(userPlacesProvider);
       HapticFeedback.lightImpact(); // P3
       context.pop(created);
     } catch (e) {
@@ -275,8 +277,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) =>
-          UserPlaceSheet(userPlaceService: ref.read(userPlaceServiceProvider)),
+      builder: (_) => const UserPlaceSheet(),
     );
     if (selected == null || !mounted) return;
 

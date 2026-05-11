@@ -102,8 +102,12 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
     try {
       // AI가 GENERIC 후보 검색 시 사용자 위치 기준이 필요하므로 등록 직전 GPS 호출
       final gps = await tryGetGpsSnapshot(ref);
+      final mergedContent = _mergeAliasIntoContent(
+        state.content.trim(),
+        state.selectedUserPlace?.aliasName,
+      );
       final result = await _service.create(
-        content: state.content.trim(),
+        content: mergedContent,
         inputType: state.inputType,
         latitude: gps?.latitude ?? state.latitude,
         longitude: gps?.longitude ?? state.longitude,
@@ -131,6 +135,25 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
   void reset() {
     state = const TodoInputState();
   }
+}
+
+/// 입력창의 prefix chip(별칭)은 controller.text에 포함되지 않으므로,
+/// submit 직전에 aliasName을 본문 앞에 합쳐서 BE/검색/표시에 일관되게 들어가도록 한다.
+///
+/// 규칙:
+/// - aliasName 없음 → 본문 그대로
+/// - 본문에 이미 aliasName 포함 → 그대로 (사용자가 직접 입력한 케이스)
+/// - 본문이 한국어 조사로 시작 → "별칭+본문" 공백 없이 ("에서 밥먹기" → "집에서 밥먹기")
+/// - 그 외 → "별칭 본문" 공백 한 칸
+String _mergeAliasIntoContent(String content, String? aliasName) {
+  final alias = aliasName?.trim();
+  if (alias == null || alias.isEmpty) return content;
+  if (content.isEmpty) return alias;
+  if (content.contains(alias)) return content;
+
+  const particles = ['에서', '에게', '한테', '으로부터', '으로', '부터', '까지'];
+  final hasParticlePrefix = particles.any(content.startsWith);
+  return hasParticlePrefix ? '$alias$content' : '$alias $content';
 }
 
 // ── Provider ─────────────────────────────────────────────────────
