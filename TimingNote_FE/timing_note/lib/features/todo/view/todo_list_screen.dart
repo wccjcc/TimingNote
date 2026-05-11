@@ -426,7 +426,7 @@ class _TodoSpaceTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleStatus;
   final VoidCallback onToggleAlert;
-  // 마지막으로 알고 있는 사용자 위치 — null이면 거리 표기를 생략하고 라벨만 보여준다.
+  /// 마지막으로 알고 있는 사용자 위치 — null이면 거리 표기를 생략하고 라벨만 보여준다.
   final GpsSnapshot? currentGps;
   final bool showCategory;
 
@@ -488,8 +488,18 @@ class _TodoSpaceTile extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (showCategory)
-                            StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              if (showCategory)
+                                StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                              StatusBadge(
+                                label: TodoType.labelOf(item.todoType),
+                                color: _todoTypeColor(item.todoType),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             item.content,
@@ -503,24 +513,25 @@ class _TodoSpaceTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  _buildPlaceWithDistance(),
-                                  style: TextStyle(
-                                    color: badgeColor,
-                                    fontSize: 11,
-                                    fontFamily: 'Galmuri11',
+                          if (_buildPlaceLine() != null)
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    _buildPlaceLine()!,
+                                    style: TextStyle(
+                                      color: badgeColor,
+                                      fontSize: 11,
+                                      fontFamily: 'Galmuri11',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
@@ -555,19 +566,37 @@ class _TodoSpaceTile extends StatelessWidget {
     }
   }
 
-  String _buildPlaceWithDistance() {
-    final place = item.resolvedPlaceLabel ?? '행성 탐사 중';
+  Color _todoTypeColor(String? type) {
+    return switch (type) {
+      TodoType.specific => SpaceColors.neonPurple,
+      TodoType.generic => Colors.cyanAccent,
+      TodoType.alias => SpaceColors.success,
+      _ => SpaceColors.white50,
+    };
+  }
+
+  /// 장소 라벨 + (가능하면) 현재 위치로부터의 거리.
+  ///
+  /// - 장소 라벨도 좌표도 없으면 null → 위치 줄 자체를 숨김
+  /// - 라벨만 있고 좌표/GPS 없음 → 라벨만 표시 ("메가커피")
+  /// - 라벨 + 좌표 + GPS 모두 있음 → "메가커피 · 350m"
+  String? _buildPlaceLine() {
+    final label = item.resolvedPlaceLabel;
     final gps = currentGps;
-    if (gps == null || !item.hasPlaceCoords) {
-      return place;
-    }
-    final meters = haversineMeters(
-      gps.latitude,
-      gps.longitude,
-      item.placeLatitude!,
-      item.placeLongitude!,
-    );
-    return '$place (${formatDistance(meters)})';
+
+    final distance = (item.hasPlaceCoords && gps != null)
+        ? formatDistance(haversineMeters(
+            gps.latitude,
+            gps.longitude,
+            item.placeLatitude!,
+            item.placeLongitude!,
+          ))
+        : null;
+
+    if (label == null && distance == null) return null;
+    if (label == null) return distance;
+    if (distance == null) return label;
+    return '$label · $distance';
   }
 
   Widget _buildThumbnailBox(bool isDone, String imageUrl) {

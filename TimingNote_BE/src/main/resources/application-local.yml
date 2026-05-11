@@ -19,6 +19,17 @@ spring:
   elasticsearch:
     uris: http://localhost:9200
 
+  # Hikari 커넥션 풀: 로컬은 동시 호출 거의 없으므로 풀을 작게.
+  # leak-detection-threshold: 트랜잭션이 풀에서 N ms 이상 떼어진 채로 있으면 누수 의심 로그. 개발 중 connection 누수 빠르게 잡기.
+  # 로컬 bootRun 좀비가 누적돼 Postgres max_connections(100)을 다 잡아먹는 사고 재발 방지용 사이즈 제한.
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      idle-timeout: 60000
+      max-lifetime: 600000
+      leak-detection-threshold: 30000
+
 # 로컬 개발 편의: 앱 패키지는 DEBUG, 외부 라이브러리 noise는 그대로 INFO.
 # application.yml의 환경변수 디폴트보다 프로파일 yml이 우선이라 LOG_LEVEL_APP 설정 없이도 DEBUG 적용됨.
 logging:

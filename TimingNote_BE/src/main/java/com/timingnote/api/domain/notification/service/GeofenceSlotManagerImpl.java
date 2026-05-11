@@ -32,6 +32,8 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
     // 동시에 활성화할 Geofence 슬롯 상한.
     // iOS/Android의 지역 모니터링 한도를 고려해 18개로 제한한다.
     private static final int ACTIVE_SLOT_LIMIT = 18;
+    // 한 todo에 대해 동시에 활성화할 geofence 슬롯 상한.
+    private static final int MAX_ACTIVE_SLOTS_PER_TODO = 2;
     // 거리 점수 가중치: 가까운 장소를 우선하기 위한 비중.
     private static final double DISTANCE_WEIGHT = 0.7;
     // 진행 방향(course) 점수 가중치: 사용자가 이동하는 방향에 있는 장소를 우대한다.
@@ -86,7 +88,17 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
             rawCandidates = todoCandidatePlaceRepository.findMonitoringCandidatesByUserId(event.userId(), now);
         }
         // 하드 규칙 필터 -> 점수 계산(거리/방향/alias 보너스) -> 내림차순 정렬
+        // 위치 기반 재계산에서는 실시간(PostGIS) 거리 없는 후보를 제외한다.
+        // 저장된 과거 distance_m fallback을 사용하면 현재 위치와 점수가 어긋날 수 있다.
+        boolean hasCurrentLocation = event.latitude() != null && event.longitude() != null;
+        long skippedByMissingRealtimeDistance = hasCurrentLocation
+                ? rawCandidates.stream()
+                .filter(candidate -> !postgisDistanceByCandidateId.containsKey(candidate.getId()))
+                .count()
+                : 0L;
+
         List<ScoredCandidate> scored = rawCandidates.stream()
+                .filter(candidate -> !hasCurrentLocation || postgisDistanceByCandidateId.containsKey(candidate.getId()))
                 .filter(this::passesHardRules)
                 .map(candidate -> scoreCandidate(
                         candidate,
@@ -101,9 +113,21 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
 
         // 상위 N개(top 18)만 활성 슬롯으로 선정한다.
         Set<SlotIdentity> activeKeys = new HashSet<>();
-        int activeCount = Math.min(ACTIVE_SLOT_LIMIT, scored.size());
-        for (int i = 0; i < activeCount; i++) {
-            activeKeys.add(scored.get(i).identity());
+        Map<Long, Integer> activeCountByTodoId = new HashMap<>();
+        int activeCount = 0;
+        long skippedByPerTodoLimit = 0L;
+        for (ScoredCandidate candidate : scored) {
+            if (activeCount >= ACTIVE_SLOT_LIMIT) {
+                break;
+            }
+            int selectedForTodo = activeCountByTodoId.getOrDefault(candidate.todoId(), 0);
+            if (selectedForTodo >= MAX_ACTIVE_SLOTS_PER_TODO) {
+                skippedByPerTodoLimit++;
+                continue;
+            }
+            activeKeys.add(candidate.identity());
+            activeCountByTodoId.put(candidate.todoId(), selectedForTodo + 1);
+            activeCount++;
         }
 
         // 기존 슬롯을 (todoId, placeId) 키로 맵핑해 upsert 준비.
@@ -143,7 +167,14 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
             geofenceSlotRepository.saveAll(toSave);
         }
         geofenceSlotSseService.notifySlotsUpdated(event.userId(), now);
-        log.info("Recalculated geofence slots. userId={} candidates={} active={}", event.userId(), scored.size(), activeCount);
+        log.info(
+                "Recalculated geofence slots. userId={} candidates={} active={} skippedMissingRealtimeDistance={} skippedByPerTodoLimit={}",
+                event.userId(),
+                scored.size(),
+                activeCount,
+                skippedByMissingRealtimeDistance,
+                skippedByPerTodoLimit
+        );
     }
 
     private boolean containsSlotIdentity(List<ScoredCandidate> scored, SlotIdentity slotIdentity) {

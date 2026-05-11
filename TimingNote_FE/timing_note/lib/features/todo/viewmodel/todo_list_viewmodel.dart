@@ -28,7 +28,8 @@ class TodoListState {
   final String? statusFilter;
   final String? tabFilter;
   final String? placeTypeFilter;
-  // 마지막 목록 조회 시점의 사용자 GPS — 항목별 거리 표시에 사용. null이면 위치 권한/서비스 없음.
+  /// 마지막 목록 조회 시점의 사용자 GPS — 항목별 거리 표시에 사용.
+  /// 권한 거부/GPS 실패 시 null.
   final GpsSnapshot? currentGps;
 
   bool get hasMore => nextCursor != null;

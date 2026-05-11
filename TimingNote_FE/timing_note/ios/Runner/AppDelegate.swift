@@ -244,6 +244,16 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   private var lastNativeState = "created"
   private var engineStartRequested = false
 
+  // ── 후보 장소 마커 (GENERIC 디버깅용) ─────────────────────────────────────
+  // 지도 엔진이 늦게 준비되는 경우, Flutter 쪽 첫 setMarkers 호출은 여기에 보관했다가
+  // addViewSucceeded 직후 applyMarkers로 반영한다.
+  private var candidateLayer: LabelLayer?
+  private var pendingMarkerPayload: [[String: Any]]?
+  private var candidateStylesRegistered = false
+  private let candidateLayerID = "timing_note_candidates"
+  private let candidateActiveStyleID = "tn_candidate_active"
+  private let candidateInactiveStyleID = "tn_candidate_inactive"
+
   init(
     frame: CGRect,
     viewId: Int64,
@@ -324,8 +334,99 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
 
       moveCamera(to: MapPoint(longitude: longitude, latitude: latitude))
       result(nil)
+    case "setMarkers":
+      guard let args = call.arguments as? [String: Any],
+            let markers = args["markers"] as? [[String: Any]] else {
+        result(FlutterError(
+          code: "INVALID_ARGUMENT",
+          message: "markers list is required",
+          details: nil
+        ))
+        return
+      }
+
+      // 엔진/지도가 아직 준비되지 않았으면 보류 후 addViewSucceeded에서 반영
+      if kakaoMap == nil {
+        pendingMarkerPayload = markers
+      } else {
+        applyCandidateMarkers(markers)
+      }
+      result(nil)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  /// 후보 장소 마커들을 LabelLayer에 다시 그린다.
+  /// 동일 layerID/styleID는 재사용하고, 이전 마커는 clearAllItems로 모두 제거 후 새로 등록한다.
+  private func applyCandidateMarkers(_ markers: [[String: Any]]) {
+    guard let map = kakaoMap else { return }
+    let manager = map.getLabelManager()
+    registerCandidateStylesIfNeeded(manager: manager)
+    let layer = ensureCandidateLayer(manager: manager)
+    layer?.clearAllItems()
+
+    for (index, marker) in markers.enumerated() {
+      guard let lat = marker["latitude"] as? Double,
+            let lng = marker["longitude"] as? Double,
+            let id = marker["id"] as? String else {
+        continue
+      }
+      let active = (marker["active"] as? Bool) ?? false
+      let styleID = active ? candidateActiveStyleID : candidateInactiveStyleID
+      let options = PoiOptions(styleID: styleID, poiID: id)
+      // rank: 활성 후보가 더 높은 우선순위를 가져 위에 그려지도록 조정
+      options.rank = active ? index : index + 1000
+      let point = MapPoint(longitude: lng, latitude: lat)
+      let poi = layer?.addPoi(option: options, at: point)
+      poi?.show()
+    }
+  }
+
+  /// LabelLayer를 1회만 생성하고 캐시한다. 같은 layerID가 이미 등록돼 있으면 그대로 재사용.
+  private func ensureCandidateLayer(manager: LabelManager) -> LabelLayer? {
+    if let existing = candidateLayer { return existing }
+    let option = LabelLayerOptions(
+      layerID: candidateLayerID,
+      competitionType: .none,
+      competitionUnit: .symbolFirst,
+      orderType: .rank,
+      zOrder: 5000
+    )
+    let layer = manager.addLabelLayer(option: option)
+    candidateLayer = layer
+    return layer
+  }
+
+  /// 활성/비활성 마커 PoiStyle을 1회만 등록한다.
+  /// 아이콘은 UIGraphicsImageRenderer로 동적 생성 (외부 에셋 의존 제거).
+  private func registerCandidateStylesIfNeeded(manager: LabelManager) {
+    if candidateStylesRegistered { return }
+
+    if let image = makeMarkerImage(color: UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 1.0)) {
+      let iconStyle = PoiIconStyle(symbol: image)
+      let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
+      manager.addPoiStyle(PoiStyle(styleID: candidateActiveStyleID, styles: [perLevel]))
+    }
+    if let image = makeMarkerImage(color: UIColor(white: 0.6, alpha: 0.85)) {
+      let iconStyle = PoiIconStyle(symbol: image)
+      let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
+      manager.addPoiStyle(PoiStyle(styleID: candidateInactiveStyleID, styles: [perLevel]))
+    }
+    candidateStylesRegistered = true
+  }
+
+  /// 단색 원 + 흰 테두리로 구성된 작은 마커 이미지를 그린다.
+  private func makeMarkerImage(color: UIColor) -> UIImage? {
+    let size = CGSize(width: 24, height: 24)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    return renderer.image { ctx in
+      let circle = CGRect(origin: .zero, size: size).insetBy(dx: 3, dy: 3)
+      ctx.cgContext.setFillColor(color.cgColor)
+      ctx.cgContext.fillEllipse(in: circle)
+      ctx.cgContext.setStrokeColor(UIColor.white.cgColor)
+      ctx.cgContext.setLineWidth(2.5)
+      ctx.cgContext.strokeEllipse(in: circle)
     }
   }
 
@@ -406,6 +507,12 @@ extension TimingNoteNativeKakaoMapView: MapControllerDelegate {
       moveCamera(to: target)
     } else {
       notifyCameraIdle(from: map)
+    }
+
+    // Flutter가 엔진 준비 전에 setMarkers를 호출한 경우 여기서 반영
+    if let payload = pendingMarkerPayload {
+      pendingMarkerPayload = nil
+      applyCandidateMarkers(payload)
     }
   }
 

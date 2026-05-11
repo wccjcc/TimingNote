@@ -4,6 +4,8 @@ import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
 import com.timingnote.api.common.util.GeoUtils;
 import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
+import com.timingnote.api.domain.notification.entity.GeofenceSlot;
+import com.timingnote.api.domain.notification.repository.GeofenceSlotRepository;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.PlaceRepository;
@@ -19,6 +21,7 @@ import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoStatusUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
+import com.timingnote.api.domain.todo.dto.response.CandidatePlaceResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoListItemResponse;
@@ -54,8 +57,10 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 
 import java.time.format.DateTimeParseException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -68,6 +73,7 @@ public class TodoServiceImpl implements TodoService {
     private final TodoStructureRepository todoStructureRepository;
     private final TodoTimeConditionRepository todoTimeConditionRepository;
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
+    private final GeofenceSlotRepository geofenceSlotRepository;
     private final PlaceRepository placeRepository;
     private final UserPlaceRepository userPlaceRepository;
     private final AiClient aiClient;
@@ -144,10 +150,21 @@ public class TodoServiceImpl implements TodoService {
         List<Long> todoIds = page.stream().map(Todo::getId).toList();
         Map<Long, String> thumbnailMap = fetchThumbnails(todoIds);
         Map<Long, Place> placeMap = fetchPrimaryPlaces(page);
+        // GENERIC todo는 primaryPlaceId가 null이라 좌표를 못 채운다. FE 목록 거리 표시를 위해
+        // 활성 슬롯(=현재 알림 트리거 후보) 중 하나의 placeId로 fallback 좌표를 제공한다.
+        // 18개 상한이라 쿼리 비용 가벼움. todo당 슬롯 여러 개면 임의 1개 선택 (점수 차이 크지 않음).
+        Map<Long, Long> activeSlotPlaceByTodoId = fetchActiveSlotPlaceByTodoId(userId, todoIds);
+        Map<Long, Place> fallbackPlaceMap = fetchPlacesByIds(activeSlotPlaceByTodoId.values());
 
         List<TodoListItemResponse> items = page.stream()
                 .map(t -> {
-                    Place place = t.getPrimaryPlaceId() != null ? placeMap.get(t.getPrimaryPlaceId()) : null;
+                    Place place;
+                    if (t.getPrimaryPlaceId() != null) {
+                        place = placeMap.get(t.getPrimaryPlaceId());
+                    } else {
+                        Long slotPlaceId = activeSlotPlaceByTodoId.get(t.getId());
+                        place = slotPlaceId != null ? fallbackPlaceMap.get(slotPlaceId) : null;
+                    }
                     Double lat = place != null ? place.getLatitude() : null;
                     Double lng = place != null ? place.getLongitude() : null;
                     return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng);
@@ -405,7 +422,60 @@ public class TodoServiceImpl implements TodoService {
                 .map(TodoInput::getSharedUrl)
                 .orElse(null);
 
-        return TodoDetailResponse.of(todo, structure, timeConditions, primaryPlace, imageUrls, sharedUrl);
+        List<CandidatePlaceResponse> candidates = buildCandidateResponses(todo);
+
+        return TodoDetailResponse.of(todo, structure, timeConditions, primaryPlace, imageUrls, sharedUrl, candidates);
+    }
+
+    /**
+     * 후보 장소 목록을 응답용으로 조립한다 (디버깅 가시성용).
+     *
+     * <p>가시성 목적: 사용자에게는 "어떤 후보가 모니터링 중인지", 개발자에게는
+     * "왜 알림이 안 왔는지(점수/거리/활성 여부)" 디버깅 단서를 제공한다.
+     *
+     * <p>가드 정책: todoType 무관하게 <b>DB에 후보가 존재하면</b> 응답에 포함한다.
+     * 이유: validator 보정/AI 재분류/외부 동기화 등의 흐름에서 todoType이 SPECIFIC/ALIAS로
+     * 굳었더라도 todo_candidate_places 에는 GENERIC 시절의 잔여 후보가 남아있을 수 있다.
+     * 알림 디버깅의 목적상 이런 데이터도 보여주는 게 사용자/개발자 모두에게 유익하다.
+     * GENERIC이 아닌 todo는 자연스럽게 후보가 0개라 빈 배열로 나간다.
+     *
+     * <p>쿼리 2건만 추가됨:
+     * <ul>
+     *   <li>{@code findAllWithPlaceByTodoId} — JOIN FETCH로 N+1 방지</li>
+     *   <li>{@code findByUserIdAndActiveTrue} — 사용자 활성 슬롯 일괄 조회 (상한 18개)</li>
+     * </ul>
+     *
+     * <p>만료된 후보(expiresAt != null)는 사용자에게 노이즈이므로 응답에서 제외한다.
+     * 정렬은 활성 슬롯 우선 → 거리 ASC. FE가 상위 N개를 미리보기로 띄울 때
+     * "지금 알림 감지중인 후보"가 먼저 보이도록 한다.
+     */
+    private List<CandidatePlaceResponse> buildCandidateResponses(Todo todo) {
+        List<TodoCandidatePlace> candidates =
+                todoCandidatePlaceRepository.findAllWithPlaceByTodoId(todo.getId());
+        if (candidates.isEmpty()) return List.of();
+
+        Set<Long> activePlaceIds = geofenceSlotRepository
+                .findByUserIdAndActiveTrue(todo.getUserId())
+                .stream()
+                .filter(s -> todo.getId().equals(s.getTodoId()))
+                .map(GeofenceSlot::getPlaceId)
+                .collect(Collectors.toSet());
+
+        // 정렬: 활성 슬롯 우선 → 그 안에서 거리 오름차순.
+        // FE가 상위 N개를 미리보기로 띄울 때 "지금 알림 감지중인 후보"가 먼저 보이도록 한다.
+        Comparator<TodoCandidatePlace> byActiveFirst =
+                Comparator.comparing((TodoCandidatePlace c) ->
+                        activePlaceIds.contains(c.getPlace().getId()) ? 0 : 1);
+        Comparator<TodoCandidatePlace> byDistanceAsc =
+                Comparator.comparing(TodoCandidatePlace::getDistanceM,
+                        Comparator.nullsLast(Comparator.naturalOrder()));
+
+        return candidates.stream()
+                .filter(c -> c.getExpiresAt() == null)
+                .sorted(byActiveFirst.thenComparing(byDistanceAsc))
+                .map(c -> CandidatePlaceResponse.from(
+                        c, activePlaceIds.contains(c.getPlace().getId())))
+                .toList();
     }
 
     // ── AI 분석 트리거 ────────────────────────────────────────────────────────
@@ -534,6 +604,36 @@ public class TodoServiceImpl implements TodoService {
                         input -> input.getImageUrl().get(0),
                         (a, b) -> a   // 동일 todoId에 IMAGE input 복수 시 첫 번째 유지
                 ));
+    }
+
+    /**
+     * 페이지에 포함된 todo의 활성 슬롯에서 placeId를 todoId 키로 추출한다.
+     * 사용자 전체 활성 슬롯(상한 18개)을 한 번에 조회 → 페이지 todoId로 필터.
+     * GENERIC todo가 primaryPlaceId 없을 때 목록 응답의 좌표 fallback으로 사용.
+     */
+    private Map<Long, Long> fetchActiveSlotPlaceByTodoId(Long userId, List<Long> todoIds) {
+        if (todoIds.isEmpty()) return Map.of();
+        Set<Long> pageTodoIds = Set.copyOf(todoIds);
+        return geofenceSlotRepository.findByUserIdAndActiveTrue(userId).stream()
+                .filter(s -> pageTodoIds.contains(s.getTodoId()))
+                .collect(Collectors.toMap(
+                        GeofenceSlot::getTodoId,
+                        GeofenceSlot::getPlaceId,
+                        (a, b) -> a)); // todo당 다수 슬롯이면 임의 1개 (점수 차이 미미)
+    }
+
+    /**
+     * placeId 컬렉션을 받아 Place를 일괄 조회해 id→Place 맵 반환.
+     * 비어 있으면 추가 쿼리 안 발생.
+     */
+    private Map<Long, Place> fetchPlacesByIds(Iterable<Long> placeIds) {
+        List<Long> distinctIds = java.util.stream.StreamSupport.stream(placeIds.spliterator(), false)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (distinctIds.isEmpty()) return Map.of();
+        return placeRepository.findAllById(distinctIds).stream()
+                .collect(Collectors.toMap(Place::getId, p -> p));
     }
 
     /**

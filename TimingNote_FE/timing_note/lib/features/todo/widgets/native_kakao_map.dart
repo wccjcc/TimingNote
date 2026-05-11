@@ -14,6 +14,30 @@ class LatLng {
   final double longitude;
 }
 
+/// 디버깅용 후보 장소 마커 데이터.
+///
+/// 활성 슬롯(`active: true`)은 강조 색으로, 비활성은 디머된 색으로 표시된다.
+class CandidateMarker {
+  const CandidateMarker({
+    required this.id,
+    required this.latitude,
+    required this.longitude,
+    required this.active,
+  });
+
+  final String id;
+  final double latitude;
+  final double longitude;
+  final bool active;
+
+  Map<String, Object> toMap() => {
+        'id': id,
+        'latitude': latitude,
+        'longitude': longitude,
+        'active': active,
+      };
+}
+
 /// iOS 네이티브 KakaoMapsSDK 지도 컨트롤러입니다.
 ///
 /// Flutter는 네이티브 UIView를 직접 조작할 수 없기 때문에 MethodChannel로
@@ -28,6 +52,14 @@ class NativeKakaoMapController {
     return _channel.invokeMethod<void>('panTo', {
       'latitude': target.latitude,
       'longitude': target.longitude,
+    });
+  }
+
+  /// 후보 장소 마커들을 지도에 표시합니다.
+  /// 동일 메서드를 다시 호출하면 기존 마커는 제거되고 새 목록으로 교체됩니다.
+  Future<void> setMarkers(List<CandidateMarker> markers) {
+    return _channel.invokeMethod<void>('setMarkers', {
+      'markers': markers.map((m) => m.toMap()).toList(),
     });
   }
 }
