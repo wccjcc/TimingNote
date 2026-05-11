@@ -15,22 +15,29 @@ class TodoDetailState {
     this.detail,
     this.isLoading = false,
     this.error,
+    this.currentGps,
   });
 
   final TodoDetail? detail;
   final bool isLoading;
   final String? error;
+  /// 상세 로드/액션 시 확보한 사용자 위치. 거리 표시(현재위치 ↔ 장소)에 사용.
+  /// 권한 거부 / GPS 실패 시 null.
+  final GpsSnapshot? currentGps;
 
   TodoDetailState copyWith({
     TodoDetail? detail,
     bool? isLoading,
     String? error,
     bool clearError = false,
+    GpsSnapshot? currentGps,
+    bool clearGps = false,
   }) {
     return TodoDetailState(
       detail: detail ?? this.detail,
       isLoading: isLoading ?? this.isLoading,
       error: clearError ? null : (error ?? this.error),
+      currentGps: clearGps ? null : (currentGps ?? this.currentGps),
     );
   }
 }
@@ -56,8 +63,15 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   Future<void> load() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
+      // 거리 표시용 GPS 스냅샷을 같이 확보 (실패해도 상세 로드는 계속)
+      final gps = await tryGetGpsSnapshot(ref);
       final detail = await _service.getDetail(_todoId);
-      state = state.copyWith(detail: detail, isLoading: false);
+      state = state.copyWith(
+        detail: detail,
+        isLoading: false,
+        currentGps: gps,
+        clearGps: gps == null,
+      );
 
       if (detail.isPending) _startPolling();
     } catch (e) {

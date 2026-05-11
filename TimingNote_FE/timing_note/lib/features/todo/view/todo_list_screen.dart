@@ -2,8 +2,10 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/location/location_provider.dart';
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/app_error_view.dart';
 import '../../../../shared/widgets/app_loading_view.dart';
@@ -358,6 +360,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
           if (activeItems.isNotEmpty) ...[
             ...activeItems.map((item) => _TodoSpaceTile(
                   item: item,
+                  currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
                   onTap: () => context.push('/todos/${item.id}'),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
@@ -389,6 +392,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
             ),
             ...doneItems.map((item) => _TodoSpaceTile(
                   item: item,
+                  currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
                   onTap: () => context.push('/todos/${item.id}'),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
@@ -414,6 +418,7 @@ class _TodoSpaceTile extends StatelessWidget {
     required this.onTap,
     required this.onToggleStatus,
     required this.onToggleAlert,
+    this.currentGps,
     this.showCategory = true,
   });
 
@@ -421,6 +426,7 @@ class _TodoSpaceTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleStatus;
   final VoidCallback onToggleAlert;
+  final GpsSnapshot? currentGps;
   final bool showCategory;
 
   @override
@@ -481,8 +487,18 @@ class _TodoSpaceTile extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (showCategory)
-                            StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              if (showCategory)
+                                StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                              StatusBadge(
+                                label: TodoType.labelOf(item.todoType),
+                                color: _todoTypeColor(item.todoType),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             item.content,
@@ -496,24 +512,25 @@ class _TodoSpaceTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  _buildRadiusInfo(),
-                                  style: TextStyle(
-                                    color: badgeColor,
-                                    fontSize: 11,
-                                    fontFamily: 'Galmuri11',
+                          if (_buildPlaceLine() != null)
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    _buildPlaceLine()!,
+                                    style: TextStyle(
+                                      color: badgeColor,
+                                      fontSize: 11,
+                                      fontFamily: 'Galmuri11',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
@@ -548,9 +565,40 @@ class _TodoSpaceTile extends StatelessWidget {
     }
   }
 
-  String _buildRadiusInfo() {
-    final place = item.resolvedPlaceLabel ?? '행성 탐사 중';
-    return '$place (반경 200m)';
+  Color _todoTypeColor(String? type) {
+    return switch (type) {
+      TodoType.specific => SpaceColors.neonPurple,
+      TodoType.generic => Colors.cyanAccent,
+      TodoType.alias => SpaceColors.success,
+      _ => SpaceColors.white50,
+    };
+  }
+
+  /// 장소 라벨 + (가능하면) 현재 위치로부터의 거리.
+  ///
+  /// - 장소 라벨도 좌표도 없으면 null → 위치 줄 자체를 숨김
+  /// - 라벨만 있고 좌표/GPS 없음 → 라벨만 표시 ("메가커피")
+  /// - 라벨 + 좌표 + GPS 모두 있음 → "메가커피 · 350m"
+  String? _buildPlaceLine() {
+    final label = item.resolvedPlaceLabel;
+    final placeLat = item.placeLatitude;
+    final placeLng = item.placeLongitude;
+    final gps = currentGps;
+
+    final distance = (placeLat != null && placeLng != null && gps != null)
+        ? _formatDistance(Geolocator.distanceBetween(
+            gps.latitude, gps.longitude, placeLat, placeLng))
+        : null;
+
+    if (label == null && distance == null) return null;
+    if (label == null) return distance;
+    if (distance == null) return label;
+    return '$label · $distance';
+  }
+
+  String _formatDistance(double meters) {
+    if (meters < 1000) return '${meters.round()}m';
+    return '${(meters / 1000).toStringAsFixed(1)}km';
   }
 
   Widget _buildThumbnailBox(bool isDone, String imageUrl) {
