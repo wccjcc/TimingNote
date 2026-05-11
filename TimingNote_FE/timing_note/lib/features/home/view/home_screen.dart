@@ -28,15 +28,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _focusNode = FocusNode();
   String _inputType = InputType.text;
   bool _showActionMenu = false;
-  bool _isInputMode = false;
+
+  /// 입력 모드 = TextField가 focus를 가진 상태. 별도 state 변수로 두지 않고
+  /// focus 그 자체를 단일 출처로 삼아 setState 호출에 의한 위젯 트리 흔들림을 줄인다.
+  /// (web에서 첫 탭에 키보드가 안 뜨던 회귀 방지)
+  bool get _isInputMode => _focusNode.hasFocus;
 
   @override
   void initState() {
     super.initState();
+    // focus 변화 시 LAYER 2/3 (블러 + 플로팅 태그) 표시 토글 위한 단순 rebuild trigger.
     _focusNode.addListener(() {
-      if (_focusNode.hasFocus) {
-        setState(() => _isInputMode = true);
-      }
+      if (mounted) setState(() {});
     });
   }
 
@@ -135,8 +138,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() {
         _inputType = InputType.text;
         _showActionMenu = false;
-        _isInputMode = false;
       });
+      _focusNode.unfocus(); // focus 해제 → _isInputMode getter 자동 false → LAYER 2/3 사라짐
       ref.read(todoInputProvider.notifier).reset();
       ref.invalidate(todoListProvider);
     }
@@ -213,10 +216,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             if (_isInputMode) ...[
               Positioned.fill(
                 child: GestureDetector(
-                  onTap: () {
-                    _focusNode.unfocus();
-                    setState(() => _isInputMode = false);
-                  },
+                  // unfocus 한 번이면 충분 — focus listener에서 setState rebuild trigger됨.
+                  onTap: () => _focusNode.unfocus(),
                   child: TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0.0, end: 1.0),
                     duration: const Duration(milliseconds: 300),
@@ -461,54 +462,79 @@ class _BottomInputBar extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + (isInputMode ? 120 : 10)),
-      decoration: const BoxDecoration(color: SpaceColors.space900, border: Border(top: BorderSide(color: SpaceColors.white10))),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (showActionMenu) Padding(padding: const EdgeInsets.only(bottom: 8), child: _ActionMenu(onSelectType: onSelectType)),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: SpaceColors.space900.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+      // iOS 키보드가 뜨면 시스템이 자연스럽게 입력바를 밀어올림.
+      // 과거 isInputMode 분기로 +120 추가 padding을 주었으나 키보드 유무와 관계없이 항상 올라가
+      // 이중 리프트로 보이는 문제 → 항상 동일 padding 유지.
+      padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + 10),
+      // 외부 배경/상단 라인 제거 — 입력창 내부 둥근 박스만 시각적으로 남도록.
+      // 배경은 CosmicBackground가 책임.
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        // 메뉴는 입력바 Row의 + 버튼 위쪽에 좌측 정렬로 띄움 (가운데 정렬 X).
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+        if (showActionMenu)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ActionMenu(onSelectType: onSelectType),
           ),
-          child: Row(children: [
-            _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  onChanged: onTextChanged,
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    prefixIcon: selectedUserPlace != null
-                        ? Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: InputChip(
-                              avatar: const Icon(Icons.bookmark, size: 14, color: Colors.white),
-                              label: Text(selectedUserPlace!.aliasName, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                              backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
-                              side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
-                              deleteIconColor: Colors.white70,
-                              onDeleted: onClearPlace,
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          )
-                        : null,
-                    prefixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
-                    hintText: '새로운 할 일을 입력하세요',
-                    hintStyle: const TextStyle(color: Color(0x66D8B4FE), fontSize: 15),
-                    border: InputBorder.none,
+        // 입력창 뒤 콘텐츠를 흐려서 가독성 ↑ — ActionMenu와 동일한 패턴(ClipRRect + BackdropFilter).
+        // Container.decoration에도 borderRadius를 동일하게 줘야 둥근 모서리에서 border가 잘리지 않음.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: SpaceColors.space900.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+              ),
+              child: Row(children: [
+                _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: onTextChanged,
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        prefixIcon: selectedUserPlace != null
+                            ? Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: InputChip(
+                                  avatar: const Icon(Icons.bookmark, size: 14, color: Colors.white),
+                                  label: Text(selectedUserPlace!.aliasName, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                  backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
+                                  side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
+                                  deleteIconColor: Colors.white70,
+                                  onDeleted: onClearPlace,
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              )
+                            : null,
+                        prefixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
+                        hintText: '새로운 할 일을 입력하세요',
+                        hintStyle: const TextStyle(color: Color(0x66D8B4FE), fontSize: 15),
+                        border: InputBorder.none,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                // 음성 입력은 iOS 키보드의 받아쓰기로 위임 — 자체 마이크 버튼 미운영.
+                _IconButton(
+                  icon: isLoading ? Icons.hourglass_empty : Icons.arrow_upward,
+                  onTap: hasText ? onSubmit : null,
+                  isPrimary: hasText,
+                ),
+              ]),
             ),
-            _IconButton(icon: isLoading ? Icons.hourglass_empty : (hasText ? Icons.arrow_upward : Icons.mic), onTap: hasText ? onSubmit : null, isPrimary: hasText),
-          ]),
+          ),
         ),
       ]),
     );
@@ -528,11 +554,33 @@ class _ActionMenu extends StatelessWidget {
   const _ActionMenu({required this.onSelectType});
   final ValueChanged<String> onSelectType;
   @override
-  Widget build(BuildContext context) => Container(width: 160, decoration: BoxDecoration(color: const Color(0xB21A1A2E), borderRadius: BorderRadius.circular(24), border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3))), padding: const EdgeInsets.all(8), child: Column(mainAxisSize: MainAxisSize.min, children: [
-    _MenuItem(icon: Icons.image_outlined, label: '이미지 분석', onTap: () => onSelectType(InputType.image)),
-    const Divider(color: Color(0x1AFFFFFF), height: 1),
-    _MenuItem(icon: Icons.location_on_outlined, label: '장소 지정', onTap: () => onSelectType(InputType.text)),
-  ]));
+  Widget build(BuildContext context) {
+    // 입력창과 동일한 어두움(space900 알파 0.9) + 뒤 콘텐츠를 흐리는 BackdropFilter.
+    // ClipRRect와 동일한 borderRadius를 Container에도 줘야 둥근 모서리에서 border가 잘리지 않음.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          width: 170,
+          decoration: BoxDecoration(
+            color: SpaceColors.space900.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3)),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MenuItem(icon: Icons.image_outlined, label: '이미지 분석', onTap: () => onSelectType(InputType.image)),
+              const Divider(color: Color(0x1AFFFFFF), height: 1),
+              _MenuItem(icon: Icons.link, label: '링크', onTap: () => onSelectType(InputType.link)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MenuItem extends StatelessWidget {
