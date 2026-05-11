@@ -145,23 +145,22 @@ class TodoDetailScreen extends ConsumerWidget {
 
                 const SizedBox(height: 24),
 
-                // 6. 장소 상세 정보 (primaryPlace가 있을 때)
-                // 일관성: 후보 섹션과 동일하게 [지도 → 카드] 순서로 배치.
-                // GENERIC(=candidates 있음)에선 _CandidateSection이 지도를 그리므로 중복 회피.
-                if (detail.primaryPlace != null) ...[
-                  if (detail.candidates.isEmpty &&
-                      detail.primaryPlace!.latitude != null &&
+                // GENERIC만 후보 섹션을, 그 외(SPECIFIC/ALIAS)는 primaryPlace 단일 표시.
+                // ALIAS는 등록 시 후보가 1건만 들어가지만 의미상 primaryPlace와 동일하므로
+                // 후보 섹션 노출 시 정보 중복(같은 장소가 카드+후보로 두 번) + distanceM=0 stale 표시 발생.
+                if (detail.todoType == TodoType.generic &&
+                    detail.candidates.isNotEmpty) ...[
+                  // 6. GENERIC 후보 장소 — 미니 지도 + 카드 리스트
+                  _CandidateSection(candidates: detail.candidates),
+                  const SizedBox(height: 24),
+                ] else if (detail.primaryPlace != null) ...[
+                  // 6. SPECIFIC/ALIAS 단일 장소 — 일관성: [지도 → 카드] 순
+                  if (detail.primaryPlace!.latitude != null &&
                       detail.primaryPlace!.longitude != null) ...[
                     _PrimaryPlaceMap(place: detail.primaryPlace!),
                     const SizedBox(height: 12),
                   ],
                   _buildPlaceDetailCard(detail.primaryPlace!, currentGps),
-                  const SizedBox(height: 24),
-                ],
-
-                // 6-2. GENERIC 후보 장소 (DB에 후보가 있으면 표시)
-                if (detail.candidates.isNotEmpty) ...[
-                  _CandidateSection(candidates: detail.candidates),
                   const SizedBox(height: 24),
                 ],
 
