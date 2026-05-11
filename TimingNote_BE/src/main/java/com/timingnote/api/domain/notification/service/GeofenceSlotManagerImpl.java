@@ -32,6 +32,8 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
     // 동시에 활성화할 Geofence 슬롯 상한.
     // iOS/Android의 지역 모니터링 한도를 고려해 18개로 제한한다.
     private static final int ACTIVE_SLOT_LIMIT = 18;
+    // 한 todo에 대해 동시에 활성화할 geofence 슬롯 상한.
+    private static final int MAX_ACTIVE_SLOTS_PER_TODO = 2;
     // 거리 점수 가중치: 가까운 장소를 우선하기 위한 비중.
     private static final double DISTANCE_WEIGHT = 0.7;
     // 진행 방향(course) 점수 가중치: 사용자가 이동하는 방향에 있는 장소를 우대한다.
@@ -111,9 +113,21 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
 
         // 상위 N개(top 18)만 활성 슬롯으로 선정한다.
         Set<SlotIdentity> activeKeys = new HashSet<>();
-        int activeCount = Math.min(ACTIVE_SLOT_LIMIT, scored.size());
-        for (int i = 0; i < activeCount; i++) {
-            activeKeys.add(scored.get(i).identity());
+        Map<Long, Integer> activeCountByTodoId = new HashMap<>();
+        int activeCount = 0;
+        long skippedByPerTodoLimit = 0L;
+        for (ScoredCandidate candidate : scored) {
+            if (activeCount >= ACTIVE_SLOT_LIMIT) {
+                break;
+            }
+            int selectedForTodo = activeCountByTodoId.getOrDefault(candidate.todoId(), 0);
+            if (selectedForTodo >= MAX_ACTIVE_SLOTS_PER_TODO) {
+                skippedByPerTodoLimit++;
+                continue;
+            }
+            activeKeys.add(candidate.identity());
+            activeCountByTodoId.put(candidate.todoId(), selectedForTodo + 1);
+            activeCount++;
         }
 
         // 기존 슬롯을 (todoId, placeId) 키로 맵핑해 upsert 준비.
@@ -154,11 +168,12 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
         }
         geofenceSlotSseService.notifySlotsUpdated(event.userId(), now);
         log.info(
-                "Recalculated geofence slots. userId={} candidates={} active={} skippedMissingRealtimeDistance={}",
+                "Recalculated geofence slots. userId={} candidates={} active={} skippedMissingRealtimeDistance={} skippedByPerTodoLimit={}",
                 event.userId(),
                 scored.size(),
                 activeCount,
-                skippedByMissingRealtimeDistance
+                skippedByMissingRealtimeDistance,
+                skippedByPerTodoLimit
         );
     }
 
