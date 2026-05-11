@@ -28,18 +28,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _focusNode = FocusNode();
   String _inputType = InputType.text;
   bool _showActionMenu = false;
-
-  /// 입력 모드 = TextField가 focus를 가진 상태. 별도 state 변수로 두지 않고
-  /// focus 그 자체를 단일 출처로 삼아 setState 호출에 의한 위젯 트리 흔들림을 줄인다.
-  /// (web에서 첫 탭에 키보드가 안 뜨던 회귀 방지)
-  bool get _isInputMode => _focusNode.hasFocus;
+  bool _isInputMode = false;
 
   @override
   void initState() {
     super.initState();
-    // focus 변화 시 LAYER 2/3 (블러 + 플로팅 태그) 표시 토글 위한 단순 rebuild trigger.
     _focusNode.addListener(() {
-      if (mounted) setState(() {});
+      if (_focusNode.hasFocus) {
+        setState(() => _isInputMode = true);
+      }
     });
   }
 
@@ -138,8 +135,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       setState(() {
         _inputType = InputType.text;
         _showActionMenu = false;
+        _isInputMode = false;
       });
-      _focusNode.unfocus(); // focus 해제 → _isInputMode getter 자동 false → LAYER 2/3 사라짐
       ref.read(todoInputProvider.notifier).reset();
       ref.invalidate(todoListProvider);
     }
@@ -216,8 +213,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             if (_isInputMode) ...[
               Positioned.fill(
                 child: GestureDetector(
-                  // unfocus 한 번이면 충분 — focus listener에서 setState rebuild trigger됨.
-                  onTap: () => _focusNode.unfocus(),
+                  onTap: () {
+                    _focusNode.unfocus();
+                    setState(() => _isInputMode = false);
+                  },
                   child: TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0.0, end: 1.0),
                     duration: const Duration(milliseconds: 300),
