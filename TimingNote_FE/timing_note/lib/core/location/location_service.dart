@@ -31,6 +31,7 @@ class LocationService {
       return Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.medium,
+          timeLimit: _kFixTimeout,
         ),
       );
     }
@@ -65,6 +66,7 @@ class LocationService {
     return Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.medium,
+        timeLimit: _kFixTimeout,
       ),
     );
   }
@@ -72,4 +74,8 @@ class LocationService {
   /// 디바이스 캐시(getLastKnownPosition)의 신선도 한계.
   /// 도보 5분=~400m, 차량 5분=~5km. 그 이상 오래된 캐시는 거리 라벨 stale 위험.
   static const Duration _kDeviceCacheFreshness = Duration(minutes: 5);
+
+  /// GPS lock timeout. 차폐 환경(지하/실내 깊숙한 곳)/콜드 스타트 stall에서 무한 대기 방지.
+  /// 초과 시 TimeoutException → 호출자가 catch로 null fallback → BE는 좌표 optional로 정상 처리.
+  static const Duration _kFixTimeout = Duration(seconds: 10);
 }
