@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
 import '../network/api_exception.dart';
@@ -13,6 +14,16 @@ class LocationService {
   LocationService(this._permissionService);
 
   Future<Position> getCurrentPosition() async {
+    // Web은 permission_handler 미지원 → 권한 체크 건너뛰고 geolocator가 브라우저에 직접 권한 prompt를 띄우게 한다.
+    // HTTPS 또는 localhost 컨텍스트가 아니면 브라우저가 위치 API 자체를 차단함.
+    if (kIsWeb) {
+      return Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      );
+    }
+
     final granted = await _permissionService.isWhenInUseGranted();
     if (!granted) {
       throw const ApiException(

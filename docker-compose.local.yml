@@ -37,6 +37,12 @@ services:
     container_name: timingnote-db
     ports:
       - "${DB_PORT}:5432"
+    # 기본 max_connections(100)은 좀비 bootRun 누적 시 쉽게 고갈됨. 로컬은 넉넉히 200으로.
+    # superuser_reserved_connections를 5로 늘려 pgAdmin·docker exec psql용 여유 확보.
+    command: >
+      postgres
+      -c max_connections=200
+      -c superuser_reserved_connections=5
     environment:
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
