@@ -37,6 +37,8 @@ desktop.ini
 **/ios/Flutter/ephemeral/
 **/macos/Pods/
 **/macos/Flutter/ephemeral/
+# Xcode Organizer export folders, e.g. "Runner 2026-05-10 19-27-33"
+TimingNote_FE/Runner\ 20??-??-??\ ??-??-??/
 
 # Linux / Windows Flutter ephemeral artifacts
 **/linux/flutter/ephemeral/

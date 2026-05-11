@@ -14,7 +14,7 @@ spring:
     enabled: false
 
   # local 프로파일에서는 호스트의 9200 포트로 직접 접근.
-  # .env의 ELASTICSEARCH_HOST=elasticsearch는 docker-compose.app.yml 컨테이너 통신용이라
+  # .env의 ELASTICSEARCH_HOST=elasticsearch는 docker-compose.app.yml 컨테이너와 통신용이라
   # 호스트에서 직접 bootRun 시 hostname 'elasticsearch'가 풀리지 않음 → 강제 오버라이드.
   elasticsearch:
     uris: http://localhost:9200
