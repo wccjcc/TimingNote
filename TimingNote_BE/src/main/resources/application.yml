@@ -125,5 +125,7 @@ logging:
   level:
     root: ${LOG_LEVEL_ROOT:INFO}
     com.timingnote: ${LOG_LEVEL_APP:INFO}
+    org.springframework.web.servlet.resource.ResourceHttpRequestHandler: WARN
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: WARN
 
 
