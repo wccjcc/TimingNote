@@ -53,6 +53,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.mockito.stubbing.Answer;
 
 @ExtendWith(MockitoExtension.class)
 class NotificationServiceImplTest {
@@ -71,6 +72,8 @@ class NotificationServiceImplTest {
     private PlaceRepository placeRepository;
     @Mock
     private PushNotificationSender pushNotificationSender;
+    @Mock
+    private GeofenceRecalculateOutboxService geofenceRecalculateOutboxService;
 
     @InjectMocks
     private NotificationServiceImpl notificationService;
@@ -111,6 +114,9 @@ class NotificationServiceImplTest {
         ReflectionTestUtils.setField(place, "id", 100L);
 
         lenient().when(placeRepository.findById(100L)).thenReturn(Optional.of(place));
+        // save 결과 엔티티를 그대로 반환해 history null NPE를 방지한다.
+        lenient().when(userNotificationRepository.save(any(UserNotification.class)))
+                .thenAnswer((Answer<UserNotification>) invocation -> invocation.getArgument(0));
     }
 
     // Happy path: send + history + cooldown update
@@ -120,14 +126,14 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of());
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
 
         assertThat(result.isSent()).isTrue();
         assertThat(result.getReason()).isEqualTo("SENT");
         assertThat(todo.getCooldownUntil()).isNotNull();
-        verify(pushNotificationSender).send(eq("fcm-token"), eq("GEOFENCE"), eq("스타벅스근처에요"), eq("buy milk"));
+        verify(pushNotificationSender).send(eq("fcm-token"), eq("GEOFENCE"), eq("스타벅스근처에요"), eq("buy milk"), any(), any());
 
         ArgumentCaptor<UserNotification> captor = ArgumentCaptor.forClass(UserNotification.class);
         verify(userNotificationRepository).save(captor.capture());
@@ -229,7 +235,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(weekCondition));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -271,7 +277,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(date));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -300,7 +306,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(dateRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -316,7 +322,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(week));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -334,7 +340,7 @@ class NotificationServiceImplTest {
         boolean weekday = OffsetDateTime.now().getDayOfWeek().getValue() <= 5;
         if (weekday) {
             when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-            when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+            when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
         }
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
@@ -353,7 +359,7 @@ class NotificationServiceImplTest {
         boolean weekend = OffsetDateTime.now().getDayOfWeek().getValue() >= 6;
         if (weekend) {
             when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-            when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+            when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
         }
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
@@ -372,7 +378,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(week));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -390,7 +396,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(timeRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -408,7 +414,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(timeRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -432,7 +438,7 @@ class NotificationServiceImplTest {
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
         when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(timeRange));
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isTrue();
@@ -473,7 +479,7 @@ class NotificationServiceImplTest {
     void send_false_when_fcmSendThrowsException() throws Exception {
         mockBaseForTodoValidation();
         when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-        when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(false);
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(false);
 
         NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
         assertThat(result.isSent()).isFalse();
@@ -503,7 +509,7 @@ class NotificationServiceImplTest {
             when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(caseTodo));
             when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of());
             when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
-            when(pushNotificationSender.send(any(), any(), any(), any())).thenReturn(true);
+            when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
 
             notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
 
