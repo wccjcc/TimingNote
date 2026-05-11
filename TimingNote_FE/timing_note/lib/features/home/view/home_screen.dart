@@ -46,19 +46,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ///   행 3 (top 260): 좌중, 우중              [작 작]
   /// 중앙 별은 화면 폭에 따라 동적 계산 → 디바이스 회전/크기 자동 대응.
   List<_TagSlot> _buildConstellationSlots(double width) {
-    // 별 위젯 추정 폭 ~100 → 중앙 정렬 보정
-    final centerLeft = (width / 2) - 50;
+    // FloatingStarTag는 자체적으로 FractionalTranslation(-0.5,0)을 적용 → Positioned.left가
+    // 가리키는 X가 paint 중심(별 중심)이 된다.
+    // 주의: FractionalTranslation은 paint만 이동시키므로 Positioned.right는 라벨 폭에 의존해
+    // 중심이 어긋난다 → 슬롯은 모두 left로만 정의한다.
     return [
-      // 행 1
-      const _TagSlot(left: 60, top: 20, small: false),
-      const _TagSlot(right: 60, top: 20, small: false),
-      // 행 2
-      const _TagSlot(left: 20, top: 140, small: true),
-      _TagSlot(left: centerLeft, top: 140, small: false),
-      const _TagSlot(right: 20, top: 140, small: true),
-      // 행 3
-      const _TagSlot(left: 80, top: 260, small: true),
-      const _TagSlot(right: 80, top: 260, small: true),
+      // 행 1: 좌/우 큰 별
+      _TagSlot(left: 75, top: 20, small: false),
+      _TagSlot(left: width - 75, top: 20, small: false),
+      // 행 2: 좌끝(작) + 중앙(큰) + 우끝(작)
+      _TagSlot(left: 60, top: 140, small: true),
+      _TagSlot(left: width / 2, top: 140, small: false),
+      _TagSlot(left: width - 60, top: 140, small: true),
+      // 행 3: 좌중 + 우중 (작)
+      _TagSlot(left: 110, top: 260, small: true),
+      _TagSlot(left: width - 110, top: 260, small: true),
     ];
   }
 
@@ -305,8 +307,9 @@ class _FloatingTagArea extends StatelessWidget {
   final List<String> timeSuggestions;
   final List<_TagSlot> slots;
 
-  // 장소 태그 개수 상한 — 나머지 슬롯은 시간 태그로 채움
-  static const int _kMaxPlaceTags = 3;
+  // 장소 태그 개수 상한 — 별자리 행1(2) + 행2(3) = 5개 슬롯까지 등록 장소로 채운다.
+  // 나머지 슬롯(행3)은 시간 태그로 채움.
+  static const int _kMaxPlaceTags = 5;
 
   static const _placeColor = Color(0xFFFCD34D);    // 노란
   static const _timeColor = SpaceColors.neonPurple; // 보라
@@ -333,7 +336,6 @@ class _FloatingTagArea extends StatelessWidget {
           for (var i = 0; i < math.min(tags.length, slots.length); i++)
             Positioned(
               left: slots[i].left,
-              right: slots[i].right,
               top: slots[i].top,
               child: FloatingStarTag(
                 label: tags[i].label,
@@ -349,11 +351,12 @@ class _FloatingTagArea extends StatelessWidget {
 }
 
 class _TagSlot {
-  final double? left;
-  final double? right;
+  // left = 별 중심 X 좌표 (FloatingStarTag의 FractionalTranslation 기준).
+  // right는 라벨 폭에 anchor가 의존해 사용하지 않는다.
+  final double left;
   final double top;
   final bool small;
-  const _TagSlot({this.left, this.right, required this.top, this.small = false});
+  const _TagSlot({required this.left, required this.top, this.small = false});
 }
 
 class _TagDisplay {
@@ -461,54 +464,90 @@ class _BottomInputBar extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + (isInputMode ? 120 : 10)),
-      decoration: const BoxDecoration(color: SpaceColors.space900, border: Border(top: BorderSide(color: SpaceColors.white10))),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        if (showActionMenu) Padding(padding: const EdgeInsets.only(bottom: 8), child: _ActionMenu(onSelectType: onSelectType)),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: SpaceColors.space900.withOpacity(0.9),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+      // iOS 키보드가 뜨면 시스템이 자연스럽게 입력바를 밀어올림.
+      // 과거 isInputMode 분기로 +120 추가 padding을 주었으나 키보드 유무와 관계없이 항상 올라가
+      // 이중 리프트로 보이는 문제 → 항상 동일 padding 유지.
+      padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + 10),
+      // 외부 배경/상단 라인 제거 — 입력창 내부 둥근 박스만 시각적으로 남도록.
+      // 배경은 CosmicBackground가 책임.
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        // 메뉴는 입력바 Row의 + 버튼 위쪽에 좌측 정렬로 띄움 (가운데 정렬 X).
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+        if (showActionMenu)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ActionMenu(onSelectType: onSelectType),
           ),
-          child: Row(children: [
-            _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  onChanged: onTextChanged,
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    prefixIcon: selectedUserPlace != null
-                        ? Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: InputChip(
-                              avatar: const Icon(Icons.bookmark, size: 14, color: Colors.white),
-                              label: Text(selectedUserPlace!.aliasName, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                              backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
-                              side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
-                              deleteIconColor: Colors.white70,
-                              onDeleted: onClearPlace,
-                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                          )
-                        : null,
-                    prefixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
-                    hintText: '새로운 할 일을 입력하세요',
-                    hintStyle: const TextStyle(color: Color(0x66D8B4FE), fontSize: 15),
-                    border: InputBorder.none,
+        // 입력창 뒤 콘텐츠를 흐려서 가독성 ↑ — ActionMenu와 동일한 패턴(ClipRRect + BackdropFilter).
+        // Container.decoration에도 borderRadius를 동일하게 줘야 둥근 모서리에서 border가 잘리지 않음.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: SpaceColors.space900.withOpacity(0.9),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+              ),
+              child: Row(children: [
+                _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: onTextChanged,
+                      style: const TextStyle(color: Colors.white, fontSize: 15),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        prefixIcon: selectedUserPlace != null
+                            ? Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: InputChip(
+                                  avatar: const Icon(Icons.bookmark, size: 14, color: Colors.white),
+                                  // 별칭이 길어도 입력창 폭을 잠식하지 않게 maxWidth + ellipsis.
+                                  label: ConstrainedBox(
+                                    constraints: const BoxConstraints(maxWidth: 90),
+                                    child: Text(
+                                      selectedUserPlace!.aliasName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                                    ),
+                                  ),
+                                  backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
+                                  side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
+                                  deleteIconColor: Colors.white70,
+                                  onDeleted: onClearPlace,
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              )
+                            : null,
+                        prefixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
+                        hintText: '새로운 할 일을 입력하세요',
+                        hintStyle: const TextStyle(color: Color(0x66D8B4FE), fontSize: 15),
+                        border: InputBorder.none,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                // 음성 입력은 iOS 키보드의 받아쓰기로 위임 — 자체 마이크 버튼 미운영.
+                _IconButton(
+                  icon: Icons.arrow_upward,
+                  // isLoading이면 onTap 자동 비활성 → 중복 전송 방지
+                  onTap: (hasText && !isLoading) ? onSubmit : null,
+                  isPrimary: hasText,
+                  loading: isLoading,
+                ),
+              ]),
             ),
-            _IconButton(icon: isLoading ? Icons.hourglass_empty : (hasText ? Icons.arrow_upward : Icons.mic), onTap: hasText ? onSubmit : null, isPrimary: hasText),
-          ]),
+          ),
         ),
       ]),
     );
@@ -516,23 +555,83 @@ class _BottomInputBar extends StatelessWidget {
 }
 
 class _IconButton extends StatelessWidget {
-  const _IconButton({required this.icon, required this.onTap, this.isPrimary = false});
+  const _IconButton({
+    required this.icon,
+    required this.onTap,
+    this.isPrimary = false,
+    this.loading = false,
+  });
   final IconData icon;
   final VoidCallback? onTap;
   final bool isPrimary;
+  final bool loading;
+
   @override
-  Widget build(BuildContext context) => GestureDetector(onTap: onTap, child: Container(width: 40, height: 40, decoration: BoxDecoration(color: isPrimary ? SpaceColors.neonPurple : const Color(0xFF2A2A4A), borderRadius: BorderRadius.circular(12), border: Border.all(color: isPrimary ? SpaceColors.neonPurple : const Color(0x4CA78BFA)), boxShadow: const [BoxShadow(color: Colors.black45, offset: Offset(0, 4))]), child: Icon(icon, color: Colors.white, size: 20)));
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: loading ? null : onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: isPrimary ? SpaceColors.neonPurple : const Color(0xFF2A2A4A),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isPrimary ? SpaceColors.neonPurple : const Color(0x4CA78BFA),
+          ),
+          boxShadow: const [
+            BoxShadow(color: Colors.black45, offset: Offset(0, 4)),
+          ],
+        ),
+        // 진행 중에는 작은 스피너로 작동 중임을 명확히. iOS Activity Indicator처럼 흰색 strokeWidth 2.
+        child: loading
+            ? const Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              )
+            : Icon(icon, color: Colors.white, size: 20),
+      ),
+    );
+  }
 }
 
 class _ActionMenu extends StatelessWidget {
   const _ActionMenu({required this.onSelectType});
   final ValueChanged<String> onSelectType;
   @override
-  Widget build(BuildContext context) => Container(width: 160, decoration: BoxDecoration(color: const Color(0xB21A1A2E), borderRadius: BorderRadius.circular(24), border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3))), padding: const EdgeInsets.all(8), child: Column(mainAxisSize: MainAxisSize.min, children: [
-    _MenuItem(icon: Icons.image_outlined, label: '이미지 분석', onTap: () => onSelectType(InputType.image)),
-    const Divider(color: Color(0x1AFFFFFF), height: 1),
-    _MenuItem(icon: Icons.location_on_outlined, label: '장소 지정', onTap: () => onSelectType(InputType.text)),
-  ]));
+  Widget build(BuildContext context) {
+    // 입력창과 동일한 어두움(space900 알파 0.9) + 뒤 콘텐츠를 흐리는 BackdropFilter.
+    // ClipRRect와 동일한 borderRadius를 Container에도 줘야 둥근 모서리에서 border가 잘리지 않음.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          width: 170,
+          decoration: BoxDecoration(
+            color: SpaceColors.space900.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3)),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _MenuItem(icon: Icons.image_outlined, label: '이미지 분석', onTap: () => onSelectType(InputType.image)),
+              const Divider(color: Color(0x1AFFFFFF), height: 1),
+              _MenuItem(icon: Icons.link, label: '링크', onTap: () => onSelectType(InputType.link)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MenuItem extends StatelessWidget {

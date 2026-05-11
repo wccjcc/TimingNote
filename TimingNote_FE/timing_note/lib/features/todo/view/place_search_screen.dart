@@ -13,7 +13,6 @@ import '../../../core/network/api_error_message.dart';
 import '../../../shared/widgets/space_toast.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
-import '../../mypage/widget/alias_input_sheet.dart';
 import '../model/selected_kakao_place.dart';
 import '../service/place_search_service.dart';
 import '../widgets/native_kakao_map.dart';
@@ -83,7 +82,15 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
     _initLocation();
     if (widget.mode == PlaceSearchMode.alias) {
       _loadExistingAliases();
+      // alias 모드에서는 입력이 별칭이므로, 에러 라벨/카운터/등록 버튼 활성 여부를
+      // 입력값에 따라 동기화해야 한다. 컨트롤러 변화 시 setState로 리빌드.
+      _customNameController.addListener(_onAliasTextChanged);
     }
+  }
+
+  void _onAliasTextChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _loadExistingAliases() async {
@@ -101,6 +108,9 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
   @override
   void dispose() {
     _rgTimer?.cancel();
+    if (widget.mode == PlaceSearchMode.alias) {
+      _customNameController.removeListener(_onAliasTextChanged);
+    }
     _customNameController.dispose();
     super.dispose();
   }
@@ -162,11 +172,14 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       setState(() {
         _currentAddress = resolvedAddress;
         _isReverseGeocoding = false;
-        // 핀을 직접 움직이는 모드에서는 현재 핀 주소가 저장 이름 입력칸에도 따라가게 한다.
-        if (_selectedFromSearch == null) {
-          _customNameController.text = address ?? '';
-        } else if (_customNameController.text.isEmpty) {
-          _customNameController.text = address ?? '';
+        // todo 모드에서만 입력칸을 주소로 자동 채움.
+        // alias 모드에서는 입력칸이 "별칭"이므로 사용자 입력을 보존해야 한다.
+        if (widget.mode == PlaceSearchMode.todo) {
+          if (_selectedFromSearch == null) {
+            _customNameController.text = address ?? '';
+          } else if (_customNameController.text.isEmpty) {
+            _customNameController.text = address ?? '';
+          }
         }
       });
     } catch (_) {
@@ -181,7 +194,10 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       _selectedFromSearch = item;
       _center = latLng;
       _currentAddress = item.roadAddressName ?? item.addressName;
-      _customNameController.text = item.placeName;
+      // alias 모드에서는 입력칸이 "별칭"이므로 사용자 입력 보존.
+      if (widget.mode == PlaceSearchMode.todo) {
+        _customNameController.text = item.placeName;
+      }
     });
     _mapController?.panTo(latLng);
   }
@@ -194,11 +210,17 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
   }
 
   Future<void> _save() async {
-    final name = _customNameController.text.trim();
-    if (name.isEmpty) return;
+    final inputText = _customNameController.text.trim();
+    if (inputText.isEmpty) return;
 
+    // alias 모드: 입력값 = 별칭. place.name은 별도로 결정 (검색 결과명 or 주소 fallback).
+    if (widget.mode == PlaceSearchMode.alias) {
+      await _registerAlias(inputText);
+      return;
+    }
+
+    // todo 모드: 입력값 = 장소 이름.
     final SelectedExternalPlace result;
-
     if (_selectedFromSearch != null) {
       // 카카오 키워드 검색 결과: kakaoPlaceId 있음
       result = _selectedFromSearch!.toSelectedPlace(
@@ -209,7 +231,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       // 지도 핀 직접 선택: kakaoPlaceId 없음 (BE에서 새 Place 레코드 생성)
       result = SelectedExternalPlace(
         kakaoPlaceId: null,
-        placeName: name,
+        placeName: inputText,
         placeLatitude: _center.latitude,
         placeLongitude: _center.longitude,
         addressName: _currentAddress,
@@ -219,41 +241,71 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       );
     }
 
-    if (widget.mode == PlaceSearchMode.alias) {
-      await _saveAsAlias(result);
-      return;
-    }
-
     context.pop(result);
   }
 
-  // alias 모드 저장: 장소 확정 → 별칭 입력 시트 → createUserPlace → 새 UserPlace로 pop
-  Future<void> _saveAsAlias(SelectedExternalPlace place) async {
+  // alias 모드 등록: 별칭 입력 → createUserPlace → 새 UserPlace로 pop.
+  // 1뎁스 흐름이므로 별도 시트를 거치지 않는다. (별칭 ≠ place.name 분리 유지)
+  Future<void> _registerAlias(String aliasName) async {
     if (_isCreatingAlias) return;
+    if (!_isAliasInputValid(aliasName)) return;
 
-    final aliasResult = await showAliasInputSheet(
-      context: context,
-      existingAliases: _existingAliases,
-      placeName: place.placeName,
-      placeAddress: place.roadAddressName ?? place.addressName,
-    );
-    // null = 취소 또는 "다른 장소 다시 고르기" — 둘 다 사용자는 검색 화면에 남는다
-    if (aliasResult == null || !mounted) return;
+    // place.name: 검색 결과면 결과명, 지도 핀이면 주소(또는 alias) — 캐노니컬 식별자로 사용.
+    final String placeName;
+    final String? kakaoPlaceId;
+    final String? categoryGroupCode;
+    final String? categoryGroupName;
+    final String? phone;
+    final String? placeUrl;
+    final double placeLatitude;
+    final double placeLongitude;
+    final String? addressName;
+    final String? roadAddressName;
+
+    final searchSelection = _selectedFromSearch;
+    if (searchSelection != null) {
+      placeName = searchSelection.placeName;
+      kakaoPlaceId = searchSelection.id;
+      categoryGroupCode = searchSelection.categoryGroupCode;
+      categoryGroupName = searchSelection.categoryGroupName;
+      phone = searchSelection.phone?.isNotEmpty == true
+          ? searchSelection.phone
+          : null;
+      placeUrl = searchSelection.placeUrl;
+      placeLatitude = searchSelection.latitude;
+      placeLongitude = searchSelection.longitude;
+      addressName = searchSelection.addressName;
+      roadAddressName = searchSelection.roadAddressName;
+    } else {
+      // 지도 핀: 주소를 place.name으로 사용 (별칭은 별도). 주소도 없으면 alias로 fallback.
+      placeName = _currentAddress?.trim().isNotEmpty == true
+          ? _currentAddress!.trim()
+          : aliasName;
+      kakaoPlaceId = null;
+      categoryGroupCode = null;
+      categoryGroupName = null;
+      phone = null;
+      placeUrl = null;
+      placeLatitude = _center.latitude;
+      placeLongitude = _center.longitude;
+      addressName = _currentAddress;
+      roadAddressName = _currentAddress;
+    }
 
     setState(() => _isCreatingAlias = true);
     try {
       final created = await ref.read(userPlaceServiceProvider).createUserPlace(
-            aliasName: aliasResult,
-            kakaoPlaceId: place.kakaoPlaceId,
-            placeName: place.placeName,
-            latitude: place.placeLatitude,
-            longitude: place.placeLongitude,
-            addressName: place.addressName,
-            roadAddressName: place.roadAddressName,
-            categoryGroupCode: place.categoryGroupCode,
-            categoryGroupName: place.categoryGroupName,
-            phone: place.phone,
-            placeUrl: place.placeUrl,
+            aliasName: aliasName,
+            kakaoPlaceId: kakaoPlaceId,
+            placeName: placeName,
+            latitude: placeLatitude,
+            longitude: placeLongitude,
+            addressName: addressName,
+            roadAddressName: roadAddressName,
+            categoryGroupCode: categoryGroupCode,
+            categoryGroupName: categoryGroupName,
+            phone: phone,
+            placeUrl: placeUrl,
           );
       if (!mounted) return;
       // 등록 직후 내 장소 목록 캐시 무효화 — Home/TodoInput/UserPlaceSheet/MyPlaces 모두 자동 갱신
@@ -269,6 +321,49 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
         kind: ToastKind.error,
       );
     }
+  }
+
+  // ── 별칭 검증 ─────────────────────────────────────────────────────
+  // BE는 50자까지 허용. FE는 후보 카드/마커 라벨 표시영역을 고려해 20자로 제한.
+  static const int _aliasMaxLength = 20;
+
+  bool _isAliasInputValid(String aliasName) {
+    if (aliasName.isEmpty) return false;
+    if (aliasName.runes.length > _aliasMaxLength) return false;
+    if (_existingAliases.any(
+      (e) => e.trim().toLowerCase() == aliasName.toLowerCase(),
+    )) return false;
+    return true;
+  }
+
+  String? get _aliasError {
+    final raw = _customNameController.text;
+    if (raw.runes.length > _aliasMaxLength) {
+      return '$_aliasMaxLength자까지 입력할 수 있어요';
+    }
+    final normalized = raw.trim().toLowerCase();
+    if (normalized.isNotEmpty &&
+        _existingAliases.any(
+          (e) => e.trim().toLowerCase() == normalized,
+        )) {
+      return '이미 사용 중인 이름이에요';
+    }
+    return null;
+  }
+
+  VoidCallback? _resolveOnSave() {
+    if (widget.mode == PlaceSearchMode.alias) {
+      if (_isCreatingAlias) return null;
+      if (!_isAliasInputValid(_customNameController.text.trim())) return null;
+    }
+    return _save;
+  }
+
+  String _resolveSaveLabel() {
+    if (widget.mode == PlaceSearchMode.alias) {
+      return _isCreatingAlias ? '등록 중...' : '등록하기';
+    }
+    return '이 위치 저장';
   }
 
   /// 내 장소 시트 — 사용자 등록 별칭 목록에서 선택
@@ -393,10 +488,13 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
               isLoading: _isReverseGeocoding,
               nameController: _customNameController,
               keyboardInset: keyboardInset,
-              onSave: _isCreatingAlias ? null : _save,
-              saveLabel: widget.mode == PlaceSearchMode.alias
-                  ? (_isCreatingAlias ? '등록 중...' : '다음')
-                  : '이 위치 저장',
+              mode: widget.mode,
+              aliasError: widget.mode == PlaceSearchMode.alias
+                  ? _aliasError
+                  : null,
+              aliasMaxLength: _aliasMaxLength,
+              onSave: _resolveOnSave(),
+              saveLabel: _resolveSaveLabel(),
             ),
           ),
         ],
@@ -508,6 +606,9 @@ class _BottomPanel extends StatelessWidget {
     required this.nameController,
     required this.keyboardInset,
     required this.onSave,
+    required this.mode,
+    this.aliasError,
+    this.aliasMaxLength = 12,
     this.saveLabel = '이 위치 저장',
   });
 
@@ -515,9 +616,13 @@ class _BottomPanel extends StatelessWidget {
   final bool isLoading;
   final TextEditingController nameController;
   final double keyboardInset;
-  // null이면 저장 버튼 비활성화 (alias 등록 진행 중 등)
+  // null이면 저장 버튼 비활성화 (alias 등록 진행 중/검증 실패 등)
   final VoidCallback? onSave;
   final String saveLabel;
+  final PlaceSearchMode mode;
+  // alias 모드 전용: 검증 에러 메시지. null이면 정상.
+  final String? aliasError;
+  final int aliasMaxLength;
 
   @override
   Widget build(BuildContext context) {
@@ -562,23 +667,50 @@ class _BottomPanel extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           // 커스텀 이름 입력
+          // alias 모드: 입력 = "별칭"(예: 집, 회사). place.name은 별도로 결정됨.
+          // todo 모드: 입력 = 저장할 장소 이름.
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.05),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _kBorderWhite),
+              border: Border.all(
+                color: aliasError != null
+                    ? const Color(0xFFEF4444)
+                    : _kBorderWhite,
+              ),
             ),
             child: TextField(
               controller: nameController,
               style: const TextStyle(color: Colors.white, fontSize: 15),
-              decoration: const InputDecoration(
-                hintText: '저장할 장소 이름',
-                hintStyle: TextStyle(color: Colors.white24),
+              // alias 모드: 별칭 20자 hard cap. 초과 입력 자체가 막힘 → 에러 라벨은 사실상 중복 별칭에만 쓰임.
+              // todo 모드: 장소명 50자 hard cap. BE Place.name 컬럼은 VARCHAR(255)지만 카카오 검색 결과명도 보통 30자 안짝.
+              maxLength: mode == PlaceSearchMode.alias ? aliasMaxLength : 50,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[\n\r\t]')),
+              ],
+              decoration: InputDecoration(
+                hintText: mode == PlaceSearchMode.alias
+                    ? '예: 집, 회사, 단골카페'
+                    : '저장할 장소 이름',
+                hintStyle: const TextStyle(color: Colors.white24),
                 border: InputBorder.none,
+                counterText: '',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
           ),
+          if (mode == PlaceSearchMode.alias && aliasError != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              aliasError!,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFFEF4444),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           // 저장 버튼
           SizedBox(

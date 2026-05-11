@@ -60,12 +60,18 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   }
 
   /// 상세 로드
+  ///
+  /// GPS와 getDetail은 서로 독립(getDetail이 좌표 인자를 받지 않음)이라 병렬로 수행.
+  /// 직렬 대비 max(GPS, BE RTT)로 단축 — 특히 GPS 캐시 miss인 첫 진입에서 체감 효과.
   Future<void> load() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      // 거리 표시용 GPS 스냅샷을 같이 확보 (실패해도 상세 로드는 계속)
-      final gps = await tryGetGpsSnapshot(ref);
-      final detail = await _service.getDetail(_todoId);
+      final results = await Future.wait<Object?>([
+        tryGetGpsSnapshot(ref),
+        _service.getDetail(_todoId),
+      ]);
+      final gps = results[0] as GpsSnapshot?;
+      final detail = results[1] as TodoDetail;
       state = state.copyWith(
         detail: detail,
         isLoading: false,
@@ -109,7 +115,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     state = state.copyWith(detail: toggled);
 
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // 알림 슬롯 재계산은 좌표 의존 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       await _service.updateAlert(
         _todoId,
         alertEnabled: toggled.alertEnabled,
@@ -136,7 +143,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     state = state.copyWith(detail: toggled);
 
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // status 변경 → 슬롯 재계산. forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       await _service.updateStatus(
         _todoId,
         status: newStatus,
@@ -154,7 +162,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   Future<bool> deleteTodo() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // 삭제 → 슬롯 정리 재계산. forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       await _service.delete(
         _todoId,
         latitude: gps?.latitude,
@@ -175,7 +184,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   Future<void> setAliasPlace({required int userPlaceId}) async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // 장소 지정 → BE 후보 재검색 + 슬롯 재계산. forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       final updated = await _service.setAliasPlace(
         _todoId,
         userPlaceId: userPlaceId,
@@ -194,7 +204,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   Future<void> setExternalPlace({required SelectedExternalPlace place}) async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // SPECIFIC 장소 설정 → BE 후보 재검색 + 슬롯 재계산. forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       final updated = await _service.setExternalPlace(
         _todoId,
         place: place,
