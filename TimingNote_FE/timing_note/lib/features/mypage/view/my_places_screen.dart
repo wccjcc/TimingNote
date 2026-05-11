@@ -98,6 +98,8 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
       final next = [created, ...?_places];
       _places = next;
     });
+    // 다른 소비자(Home/TodoInput/UserPlaceSheet) 갱신
+    ref.invalidate(userPlacesProvider);
   }
 
   // ── Rename (PATCH) ──────────────────────────────────────────────────────
@@ -124,6 +126,7 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
             ?.map((p) => p.id == updated.id ? updated : p)
             .toList(growable: false);
       });
+      ref.invalidate(userPlacesProvider);
       HapticFeedback.lightImpact(); // P3
       SpaceToast.show(context, message: '별칭이 변경되었어요');
     } catch (e) {
@@ -154,6 +157,7 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
     try {
       await ref.read(userPlaceServiceProvider).deleteUserPlace(place.id);
       if (!mounted) return;
+      ref.invalidate(userPlacesProvider);
       HapticFeedback.mediumImpact(); // P3
       SpaceToast.show(context, message: '장소가 삭제되었어요');
     } catch (e) {

@@ -21,13 +21,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
   final _contentController = TextEditingController();
   final _focusNode = FocusNode();
   String _selectedInputType = TodoInputType.text;
-  List<UserPlace>? _userPlaces;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUserPlaces();
-  }
 
   @override
   void dispose() {
@@ -36,19 +29,14 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
     super.dispose();
   }
 
-  Future<void> _loadUserPlaces() async {
-    try {
-      final list = await ref.read(userPlaceServiceProvider).getUserPlaces();
-      if (!mounted) return;
-      setState(() => _userPlaces = list);
-    } catch (_) {
-      // 무시 — 빈 목록으로 처리 (사용자가 등록 안 했거나 네트워크 실패)
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(todoInputProvider);
+    // 등록/삭제 시 invalidate되어 자동 갱신. 로딩/에러는 빈 목록으로 처리.
+    final userPlaces = ref.watch(userPlacesProvider).maybeWhen(
+      data: (list) => list,
+      orElse: () => const <UserPlace>[],
+    );
 
     // 완료 → 상세 화면으로 이동
     ref.listen<TodoInputState>(todoInputProvider, (prev, next) {
@@ -78,11 +66,11 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
           ),
         ],
       ),
-      body: _buildBody(context, state),
+      body: _buildBody(context, state, userPlaces),
     );
   }
 
-  Widget _buildBody(BuildContext context, TodoInputState state) {
+  Widget _buildBody(BuildContext context, TodoInputState state, List<UserPlace> userPlaces) {
     // 제출 오버레이
     if (state.isSubmitting) {
       return const _LoadingOverlay(
@@ -106,9 +94,9 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
           const SizedBox(height: 16),
 
           // ── 내 장소 태그 목록 (등록된 게 있을 때만, 클릭 시 ALIAS 명시 선택/교체) ──
-          if (_userPlaces != null && _userPlaces!.isNotEmpty) ...[
+          if (userPlaces.isNotEmpty) ...[
             _UserPlaceTags(
-              places: _userPlaces!,
+              places: userPlaces,
               selectedId: state.selectedUserPlace?.id,
               onTap: (place) {
                 final notifier = ref.read(todoInputProvider.notifier);
