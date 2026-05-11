@@ -34,6 +34,11 @@ public class PlaceEnrichmentEventListener {
     @Async("googleEnrichmentExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onSinglePlaceEnrichment(PlaceEnrichmentRequestedEvent event) {
+        // [enrichment 비활성화] PlaceServiceImpl에서 이벤트 발행이 전부 주석 처리됐으므로
+        // 정상 경로에선 호출되지 않는다. 본문은 보존해 두고 호출되어도 no-op.
+        log.debug("[PlaceEnrichment] 비활성화 상태 — no-op placeId={} type={}",
+                event.placeId(), event.type());
+        /*
         try {
             switch (event.type()) {
                 case INITIAL -> placeService.enrichOpeningHoursByPlaceId(event.placeId());
@@ -43,11 +48,15 @@ public class PlaceEnrichmentEventListener {
             log.error("[PlaceEnrichment] 처리 실패 placeId={} type={}: {}",
                     event.placeId(), event.type(), e.getMessage(), e);
         }
+        */
     }
 
     @Async("googleEnrichmentExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCandidateBatchEnrichment(CandidateBatchEnrichmentEvent event) {
+        // [enrichment 비활성화] no-op.
+        log.debug("[PlaceEnrichment/Batch] 비활성화 상태 — no-op placeText='{}'", event.placeText());
+        /*
         try {
             placeService.enrichCandidatesByPlaceIds(
                     event.placeIds(), event.placeText(),
@@ -56,5 +65,6 @@ public class PlaceEnrichmentEventListener {
             log.error("[PlaceEnrichment/Batch] 처리 실패 placeText='{}' (size={}): {}",
                     event.placeText(), event.placeIds().size(), e.getMessage(), e);
         }
+        */
     }
 }
