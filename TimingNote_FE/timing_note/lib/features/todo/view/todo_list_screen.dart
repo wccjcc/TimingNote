@@ -14,6 +14,7 @@ import '../../../../shared/widgets/status_badge.dart';
 import '../../search/model/todo_search_item.dart';
 import '../../search/viewmodel/search_viewmodel.dart';
 import '../model/todo.dart';
+import '../util/todo_type_style.dart';
 import '../viewmodel/todo_list_viewmodel.dart';
 
 // -- 카테고리 탭 정의 ----------------------------------------------
@@ -496,7 +497,7 @@ class _TodoSpaceTile extends StatelessWidget {
                                 StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
                               StatusBadge(
                                 label: TodoType.labelOf(item.todoType),
-                                color: _todoTypeColor(item.todoType),
+                                color: todoTypeColor(item.todoType),
                               ),
                             ],
                           ),
@@ -564,15 +565,6 @@ class _TodoSpaceTile extends StatelessWidget {
       default:
         return SpaceColors.neonPurple;
     }
-  }
-
-  Color _todoTypeColor(String? type) {
-    return switch (type) {
-      TodoType.specific => SpaceColors.neonPurple,
-      TodoType.generic => Colors.cyanAccent,
-      TodoType.alias => SpaceColors.success,
-      _ => SpaceColors.white50,
-    };
   }
 
   /// 장소 라벨 + (가능하면) 현재 위치로부터의 거리.

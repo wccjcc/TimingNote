@@ -15,6 +15,7 @@ import '../model/selected_kakao_place.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../util/time_condition_formatter.dart';
+import '../util/todo_type_style.dart';
 import '../viewmodel/todo_detail_viewmodel.dart';
 import '../widgets/native_kakao_map.dart';
 
@@ -101,7 +102,7 @@ class TodoDetailScreen extends ConsumerWidget {
                     const SizedBox(width: 8),
                     StatusBadge(
                       label: TodoType.labelOf(detail.todoType),
-                      color: _todoTypeColor(detail.todoType),
+                      color: todoTypeColor(detail.todoType),
                     ),
                     const SizedBox(width: 12),
                     Text(
@@ -516,15 +517,6 @@ class TodoDetailScreen extends ConsumerWidget {
   }
 
 
-  Color _todoTypeColor(String? type) {
-    return switch (type) {
-      TodoType.specific => SpaceColors.neonPurple,
-      TodoType.generic => Colors.cyanAccent,
-      TodoType.alias => SpaceColors.success,
-      _ => SpaceColors.white50,
-    };
-  }
-
   Color _getCategoryColor(String category) {
     switch (category) {
       case TodoCategory.dine:
@@ -819,6 +811,9 @@ class _CandidateSection extends StatefulWidget {
 class _CandidateSectionState extends State<_CandidateSection> {
   NativeKakaoMapController? _mapController;
   bool _listExpanded = false;
+  /// 마커 탭 시 하단 정보 띠에 표시할 후보. null이면 띠 숨김.
+  /// 카메라 추적이 불필요하도록 좌표 의존 overlay 대신 고정 위치 띠로 처리.
+  TodoCandidate? _tappedCandidate;
 
   /// 좌표가 있는 후보만 모아 평균 좌표로 지도 초기 중심을 잡는다.
   /// 후보가 모두 좌표 없음이면 기본값(서울 시청)으로 대체 — UX보다는 안전성 우선.
@@ -861,6 +856,23 @@ class _CandidateSectionState extends State<_CandidateSection> {
     final lng = c.place.longitude;
     if (lat == null || lng == null) return;
     _mapController?.panTo(LatLng(lat, lng));
+  }
+
+  /// 마커 탭 → 같은 후보를 하단 정보 띠에 표시. 다시 탭하면 닫힘(토글).
+  void _onMarkerTap(String markerId) {
+    final id = int.tryParse(markerId);
+    if (id == null) return;
+    final matches = widget.candidates.where((c) => c.candidateId == id);
+    if (matches.isEmpty) return;
+    final found = matches.first;
+    setState(() {
+      _tappedCandidate = _tappedCandidate?.candidateId == id ? null : found;
+    });
+  }
+
+  String _formatTappedDistance(int meters) {
+    if (meters < 1000) return '${meters}m';
+    return '${(meters / 1000).toStringAsFixed(2)}km';
   }
 
   /// 미리보기에 표시할 카드 개수. 활성(감지중) 후보가 보통 1~2개라는 가정에
@@ -921,9 +933,19 @@ class _CandidateSectionState extends State<_CandidateSection> {
               },
               onCameraIdle: (_, __) {},
               onCameraMoveStarted: () {},
+              onMarkerTap: _onMarkerTap,
             ),
           ),
         ),
+        // 마커 탭 시 하단 정보 띠 — 카메라 추적 부담 없는 고정 위치.
+        if (_tappedCandidate != null) ...[
+          const SizedBox(height: 8),
+          _TappedMarkerInfoBar(
+            candidate: _tappedCandidate!,
+            distanceLabel: _formatTappedDistance(_tappedCandidate!.distanceM),
+            onClose: () => setState(() => _tappedCandidate = null),
+          ),
+        ],
         const SizedBox(height: 12),
         // 미리보기 카드 (기본 3개)
         ...visible.map((c) => Padding(
@@ -943,6 +965,81 @@ class _CandidateSectionState extends State<_CandidateSection> {
 }
 
 /// 후보 카드 더보기/접기 버튼.
+/// 마커 탭 시 지도 아래에 잠시 노출되는 정보 띠.
+/// 카메라 위치를 추적하지 않고 고정 위치 — 여러 마커를 빠르게 비교할 때 흔들림 없음.
+class _TappedMarkerInfoBar extends StatelessWidget {
+  const _TappedMarkerInfoBar({
+    required this.candidate,
+    required this.distanceLabel,
+    required this.onClose,
+  });
+
+  final TodoCandidate candidate;
+  final String distanceLabel;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor =
+        candidate.activeSlot ? SpaceColors.success : SpaceColors.white50;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: SpaceColors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: activeColor.withOpacity(0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.place, size: 16, color: activeColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  candidate.place.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (candidate.place.roadAddress != null)
+                  Text(
+                    candidate.place.roadAddress!,
+                    style: TextStyle(
+                      color: SpaceColors.white.withOpacity(0.6),
+                      fontSize: 11,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            distanceLabel,
+            style: const TextStyle(
+              color: SpaceColors.white50,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          IconButton(
+            iconSize: 16,
+            padding: const EdgeInsets.only(left: 6),
+            constraints: const BoxConstraints(),
+            onPressed: onClose,
+            icon: const Icon(Icons.close, color: SpaceColors.white50),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ShowMoreButton extends StatelessWidget {
   const _ShowMoreButton({
     required this.expanded,
