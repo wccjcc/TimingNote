@@ -86,7 +86,17 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
             rawCandidates = todoCandidatePlaceRepository.findMonitoringCandidatesByUserId(event.userId(), now);
         }
         // 하드 규칙 필터 -> 점수 계산(거리/방향/alias 보너스) -> 내림차순 정렬
+        // 위치 기반 재계산에서는 실시간(PostGIS) 거리 없는 후보를 제외한다.
+        // 저장된 과거 distance_m fallback을 사용하면 현재 위치와 점수가 어긋날 수 있다.
+        boolean hasCurrentLocation = event.latitude() != null && event.longitude() != null;
+        long skippedByMissingRealtimeDistance = hasCurrentLocation
+                ? rawCandidates.stream()
+                .filter(candidate -> !postgisDistanceByCandidateId.containsKey(candidate.getId()))
+                .count()
+                : 0L;
+
         List<ScoredCandidate> scored = rawCandidates.stream()
+                .filter(candidate -> !hasCurrentLocation || postgisDistanceByCandidateId.containsKey(candidate.getId()))
                 .filter(this::passesHardRules)
                 .map(candidate -> scoreCandidate(
                         candidate,
@@ -143,7 +153,13 @@ public class GeofenceSlotManagerImpl implements GeofenceSlotManager {
             geofenceSlotRepository.saveAll(toSave);
         }
         geofenceSlotSseService.notifySlotsUpdated(event.userId(), now);
-        log.info("Recalculated geofence slots. userId={} candidates={} active={}", event.userId(), scored.size(), activeCount);
+        log.info(
+                "Recalculated geofence slots. userId={} candidates={} active={} skippedMissingRealtimeDistance={}",
+                event.userId(),
+                scored.size(),
+                activeCount,
+                skippedByMissingRealtimeDistance
+        );
     }
 
     private boolean containsSlotIdentity(List<ScoredCandidate> scored, SlotIdentity slotIdentity) {
