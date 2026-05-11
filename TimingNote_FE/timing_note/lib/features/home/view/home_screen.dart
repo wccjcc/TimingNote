@@ -29,7 +29,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String _inputType = InputType.text;
   bool _showActionMenu = false;
   bool _isInputMode = false;
-  List<UserPlace> _userPlaces = const [];
 
   @override
   void initState() {
@@ -39,7 +38,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         setState(() => _isInputMode = true);
       }
     });
-    _loadUserPlaces();
   }
 
   /// 별자리 패턴 슬롯 (7개, 2-3-2 행 구성):
@@ -62,16 +60,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       const _TagSlot(left: 80, top: 260, small: true),
       const _TagSlot(right: 80, top: 260, small: true),
     ];
-  }
-
-  Future<void> _loadUserPlaces() async {
-    try {
-      final list = await ref.read(userPlaceServiceProvider).getUserPlaces();
-      if (!mounted) return;
-      setState(() => _userPlaces = list);
-    } catch (_) {
-      // 무시 — 빈 목록으로 처리 (네트워크 실패 / 등록 안 함)
-    }
   }
 
   /// 현재 시각 기반 시간 태그 추천. 발표 후 사용자 맞춤 통계로 진화 예정.
@@ -170,6 +158,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       data: (count) => count,
       orElse: () => 0,
     );
+    // 내 장소: 등록/삭제 시 invalidate되어 자동 갱신됨. 로딩/에러 시 빈 목록 fallback
+    final userPlaces = ref.watch(userPlacesProvider).maybeWhen(
+      data: (list) => list,
+      orElse: () => const <UserPlace>[],
+    );
     final hasText = _textController.text.trim().isNotEmpty;
 
     return Scaffold(
@@ -246,7 +239,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     constraints: const BoxConstraints(maxWidth: 500),
                     child: _FloatingTagArea(
                       isFocused: _isInputMode,
-                      places: _userPlaces,
+                      places: userPlaces,
                       timeSuggestions: _suggestTimeTags(),
                       slots: _buildConstellationSlots(
                         math.min(MediaQuery.of(context).size.width, 500.0),

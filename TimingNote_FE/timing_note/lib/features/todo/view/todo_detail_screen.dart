@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/location/location_distance.dart';
 import '../../../core/location/location_provider.dart';
 
 import '../../../shared/theme/colors.dart';
@@ -475,15 +475,13 @@ class TodoDetailScreen extends ConsumerWidget {
   }
 
   /// 사용자 현재 위치와 장소 좌표 둘 다 있을 때만 "350m" / "1.2km" 라벨을 만든다.
-  /// 없으면 null → 호출처에서 줄 자체를 숨김.
+  /// 없으면 null → 호출처에서 줄 자체를 숨김. 거리 유틸은 목록 화면과 공용.
   String? _placeDistanceLabel(TodoPlace place, GpsSnapshot? gps) {
     final lat = place.latitude;
     final lng = place.longitude;
     if (lat == null || lng == null || gps == null) return null;
-    final meters = Geolocator.distanceBetween(
-        gps.latitude, gps.longitude, lat, lng);
-    if (meters < 1000) return '${meters.round()}m';
-    return '${(meters / 1000).toStringAsFixed(1)}km';
+    return formatDistance(
+        haversineMeters(gps.latitude, gps.longitude, lat, lng));
   }
 
   Widget _buildBottomActions(WidgetRef ref, TodoDetail detail) {

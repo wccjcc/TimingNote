@@ -28,8 +28,8 @@ class TodoListState {
   final String? statusFilter;
   final String? tabFilter;
   final String? placeTypeFilter;
-  /// 마지막으로 list API 호출 시 확보한 사용자 위치.
-  /// 거리 표시(현재 위치 ↔ 장소)에 사용. 권한 거부/GPS 실패 시 null.
+  /// 마지막 목록 조회 시점의 사용자 GPS — 항목별 거리 표시에 사용.
+  /// 권한 거부/GPS 실패 시 null.
   final GpsSnapshot? currentGps;
 
   bool get hasMore => nextCursor != null;
@@ -50,7 +50,7 @@ class TodoListState {
     String? placeTypeFilter,
     bool clearPlaceTypeFilter = false,
     GpsSnapshot? currentGps,
-    bool clearGps = false,
+    bool clearCurrentGps = false,
   }) {
     return TodoListState(
       items: items ?? this.items,
@@ -63,7 +63,7 @@ class TodoListState {
       placeTypeFilter: clearPlaceTypeFilter
           ? null
           : (placeTypeFilter ?? this.placeTypeFilter),
-      currentGps: clearGps ? null : (currentGps ?? this.currentGps),
+      currentGps: clearCurrentGps ? null : (currentGps ?? this.currentGps),
     );
   }
 }
@@ -135,7 +135,7 @@ class TodoListNotifier extends Notifier<TodoListState> {
         clearCursor: result.nextCursor == null,
         isLoading: false,
         currentGps: gps,
-        clearGps: gps == null,
+        clearCurrentGps: gps == null,
       );
       _maybeSchedulePendingPoll();
     } catch (e) {
@@ -203,6 +203,7 @@ class TodoListNotifier extends Notifier<TodoListState> {
         nextCursor: result.nextCursor,
         clearCursor: result.nextCursor == null,
         isLoadingMore: false,
+        currentGps: gps ?? state.currentGps,
       );
       _maybeSchedulePendingPoll();
     } catch (e) {

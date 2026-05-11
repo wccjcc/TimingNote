@@ -86,7 +86,7 @@ class TodoItem {
   final String structureStatus;
   final String? category;
   final String? resolvedPlaceLabel;
-  /// 주 장소 위도 — primaryPlaceId가 있을 때만 BE가 채움. 거리 계산용.
+  /// 주 장소 좌표 — primaryPlaceId가 있을 때만 BE가 채움. 거리 표시(`hasPlaceCoords`)에 사용.
   final double? placeLatitude;
   final double? placeLongitude;
   final bool alertEnabled;
@@ -96,6 +96,7 @@ class TodoItem {
 
   bool get isPending => structureStatus == StructureStatus.pending;
   bool get isDone => status == TodoStatus.done;
+  bool get hasPlaceCoords => placeLatitude != null && placeLongitude != null;
 
   factory TodoItem.fromJson(Map<String, dynamic> json) {
     return TodoItem(

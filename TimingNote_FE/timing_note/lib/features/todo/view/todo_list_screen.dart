@@ -2,9 +2,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/location/location_distance.dart';
 import '../../../../core/location/location_provider.dart';
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/app_error_view.dart';
@@ -426,6 +426,7 @@ class _TodoSpaceTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleStatus;
   final VoidCallback onToggleAlert;
+  /// 마지막으로 알고 있는 사용자 위치 — null이면 거리 표기를 생략하고 라벨만 보여준다.
   final GpsSnapshot? currentGps;
   final bool showCategory;
 
@@ -581,24 +582,21 @@ class _TodoSpaceTile extends StatelessWidget {
   /// - 라벨 + 좌표 + GPS 모두 있음 → "메가커피 · 350m"
   String? _buildPlaceLine() {
     final label = item.resolvedPlaceLabel;
-    final placeLat = item.placeLatitude;
-    final placeLng = item.placeLongitude;
     final gps = currentGps;
 
-    final distance = (placeLat != null && placeLng != null && gps != null)
-        ? _formatDistance(Geolocator.distanceBetween(
-            gps.latitude, gps.longitude, placeLat, placeLng))
+    final distance = (item.hasPlaceCoords && gps != null)
+        ? formatDistance(haversineMeters(
+            gps.latitude,
+            gps.longitude,
+            item.placeLatitude!,
+            item.placeLongitude!,
+          ))
         : null;
 
     if (label == null && distance == null) return null;
     if (label == null) return distance;
     if (distance == null) return label;
     return '$label · $distance';
-  }
-
-  String _formatDistance(double meters) {
-    if (meters < 1000) return '${meters.round()}m';
-    return '${(meters / 1000).toStringAsFixed(1)}km';
   }
 
   Widget _buildThumbnailBox(bool isDone, String imageUrl) {
