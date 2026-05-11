@@ -124,13 +124,14 @@ import UserNotifications
     UNUserNotificationCenter.current().setNotificationCategories([geofenceCategory])
   }
 
-  /// 앱이 foreground일 때도 푸시 배너/소리를 그대로 보여주도록 설정합니다.
+  /// 앱이 foreground일 때는 시스템 푸시 UI를 표시하지 않습니다.
+  /// Flutter(onMessage)에서 인앱 토스트만 노출하도록 위임합니다.
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    completionHandler([.banner, .list, .sound, .badge])
+    completionHandler([])
   }
 
   /// 사용자가 알림 액션 버튼을 눌렀을 때 호출됩니다.
