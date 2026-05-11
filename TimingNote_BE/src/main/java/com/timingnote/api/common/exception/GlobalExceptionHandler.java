@@ -1,9 +1,11 @@
 package com.timingnote.api.common.exception;
 
 import com.timingnote.api.common.response.ApiResponseDto;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
@@ -98,6 +101,12 @@ public class GlobalExceptionHandler {
         log.debug("Async request is not usable (client disconnected): {}", ex.getMessage());
     }
 
+
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncRequestTimeoutException(AsyncRequestTimeoutException ex) {
+        log.info("Async request timeout (likely SSE timeout): {}", ex.getMessage());
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponseDto<?>> handleNoResourceFoundException(NoResourceFoundException ex) {
         log.warn("No static resource found: {}", ex.getResourcePath());
@@ -107,8 +116,17 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponseDto<?>> handleUnhandledException(Exception ex) {
-        log.error("Unhandled exception occurred", ex);
+    public ResponseEntity<ApiResponseDto<?>> handleUnhandledException(Exception ex, HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        String uri = request.getRequestURI();
+
+        // SSE 요청이면 ApiResponseDto 쓰지 말고 로그만 남김
+        if (accept != null && accept.contains(MediaType.TEXT_EVENT_STREAM_VALUE)) {
+            log.warn("Unhandled exception on SSE endpoint. uri={}, message={}", uri, ex.getMessage());
+            return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
+        }
+
+        log.error("Unhandled exception occurred. uri={}", uri, ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponseDto.error(ErrorCode.INTERNAL_SERVER_ERROR));
