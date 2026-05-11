@@ -22,26 +22,12 @@ public interface KakaoLocalClient {
     );
 
     /**
-     * GENERIC 브랜드명 fallback — 반경 내 키워드 검색 + 거리순
-     * x, y, radius: 필수.
+     * GENERIC 키워드 검색 — 반경 내 키워드 검색 + 거리순.
+     * x, y, radius 필수. placeText 그대로 query 로 전달한다.
      */
     @GetExchange("/keyword.json")
     Mono<KakaoLocalSearchResponse> searchByKeywordNearby(
             @RequestParam("query") String query,
-            @RequestParam("x") String x,
-            @RequestParam("y") String y,
-            @RequestParam("radius") int radius,
-            @RequestParam("size") int size,
-            @RequestParam("sort") String sort
-    );
-
-    /**
-     * GENERIC 카테고리 검색 — 정확한 카테고리 코드로 반경 내 검색
-     * 예: PM9(약국), CS2(편의점), CE7(카페)
-     */
-    @GetExchange("/category.json")
-    Mono<KakaoLocalSearchResponse> searchByCategory(
-            @RequestParam("category_group_code") String categoryGroupCode,
             @RequestParam("x") String x,
             @RequestParam("y") String y,
             @RequestParam("radius") int radius,
