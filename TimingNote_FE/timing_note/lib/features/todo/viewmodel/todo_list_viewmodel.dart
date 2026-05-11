@@ -180,13 +180,14 @@ class TodoListNotifier extends Notifier<TodoListState> {
   }
 
   /// 다음 페이지 로드 (무한 스크롤)
+  /// 페이지 사이의 짧은 이동은 거리 표시에 의미 없어 GPS 새로 받지 않고 state.currentGps 재사용.
   Future<void> loadMore() async {
     if (state.isLoadingMore || !state.hasMore) return;
 
     state = state.copyWith(isLoadingMore: true);
 
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      final gps = state.currentGps;
       final result = await _service.getList(
         status: state.statusFilter,
         tab: state.tabFilter,
@@ -203,7 +204,6 @@ class TodoListNotifier extends Notifier<TodoListState> {
         nextCursor: result.nextCursor,
         clearCursor: result.nextCursor == null,
         isLoadingMore: false,
-        currentGps: gps ?? state.currentGps,
       );
       _maybeSchedulePendingPoll();
     } catch (e) {
@@ -221,7 +221,8 @@ class TodoListNotifier extends Notifier<TodoListState> {
     _updateItem(index, toggled);
 
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // 알림 슬롯 재계산은 좌표 정확도에 의존 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       await _service.updateAlert(
         todoId,
         alertEnabled: toggled.alertEnabled,
@@ -249,7 +250,8 @@ class TodoListNotifier extends Notifier<TodoListState> {
     _updateItem(index, toggled);
 
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // status 변경 → 슬롯 재계산. forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       await _service.updateStatus(
         todoId,
         status: newStatus,
@@ -273,7 +275,8 @@ class TodoListNotifier extends Notifier<TodoListState> {
     state = state.copyWith(items: updated);
 
     try {
-      final gps = await tryGetGpsSnapshot(ref);
+      // 삭제는 슬롯 정리(재계산) 트리거 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       await _service.delete(
         todoId,
         latitude: gps?.latitude,

@@ -253,10 +253,10 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
     state = state.copyWith(isSaving: true, clearError: true);
 
     try {
-      // placeText가 non-empty면 GENERIC 후보 검색 + 슬롯 재계산이 일어나므로 GPS 호출
+      // placeText가 non-empty면 GENERIC 후보 검색 + 슬롯 재계산이 일어나므로 GPS 호출 — forceFresh.
       final needsLocation =
           placeTextToSend != null && placeTextToSend.isNotEmpty;
-      final gps = needsLocation ? await tryGetGpsSnapshot(ref) : null;
+      final gps = needsLocation ? await tryGetGpsSnapshot(ref, forceFresh: true) : null;
 
       final updated = await _service.update(
         _todoId,

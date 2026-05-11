@@ -13,7 +13,18 @@ class LocationService {
 
   LocationService(this._permissionService);
 
-  Future<Position> getCurrentPosition() async {
+  /// 현재 위치 조회.
+  ///
+  /// [fastMode] true (= 표시용):
+  /// - iOS가 보관 중인 마지막 위치(`getLastKnownPosition`)를 먼저 시도 → 콜드 스타트 회피
+  /// - 캐시 미스면 medium 정확도로 fallback (정확도는 항상 ~100m 이상 보장)
+  ///
+  /// [fastMode] false (= 알림 트리거 등):
+  /// - 캐시 무시하고 medium 정확도로 새 측정
+  ///
+  /// 두 모드 모두 정확도는 [LocationAccuracy.medium](~100m) 이상을 보장한다.
+  /// 차이는 "디바이스 캐시 우선 사용 여부"뿐.
+  Future<Position> getCurrentPosition({bool fastMode = false}) async {
     // Web은 permission_handler 미지원 → 권한 체크 건너뛰고 geolocator가 브라우저에 직접 권한 prompt를 띄우게 한다.
     // HTTPS 또는 localhost 컨텍스트가 아니면 브라우저가 위치 API 자체를 차단함.
     if (kIsWeb) {
@@ -40,10 +51,25 @@ class LocationService {
       );
     }
 
+    if (fastMode) {
+      // 마지막 캐시된 위치 — 백그라운드 지오펜스/다른 앱/이전 세션이 잡아둔 결과.
+      // 너무 오래된 캐시는 사용자가 그 사이 이동했을 수 있어 stale 위험 — 5분 신선도 필터.
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        final age = DateTime.now().difference(last.timestamp);
+        if (age < _kDeviceCacheFreshness) return last;
+      }
+      // 캐시 없음 또는 stale → medium 정확도로 정상 측정
+    }
+
     return Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.medium,
       ),
     );
   }
+
+  /// 디바이스 캐시(getLastKnownPosition)의 신선도 한계.
+  /// 도보 5분=~400m, 차량 5분=~5km. 그 이상 오래된 캐시는 거리 라벨 stale 위험.
+  static const Duration _kDeviceCacheFreshness = Duration(minutes: 5);
 }
