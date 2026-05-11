@@ -10,7 +10,7 @@ import java.util.Set;
  * 잘못 매칭될 수 있다. 양쪽 카테고리 메타가 모두 있을 때 cross-check를 통해 차단.
  *
  * 매핑 출처:
- * - Kakao: KakaoPlaceSearchStrategy의 KEYWORD_TO_CODE 값
+ * - Kakao: category_group_code 공식 표 (CS2/MT1/CE7/FD6/OL7/BK9/HP8/PM9/PK6/PO3)
  * - Google: https://developers.google.com/maps/documentation/places/web-service/place-types (Table A)
  */
 public final class KakaoGoogleCategoryMapping {
@@ -57,9 +57,15 @@ public final class KakaoGoogleCategoryMapping {
      * - 매핑이 있는데 googlePrimaryType이 허용 set에 없으면 차단
      */
     public static boolean isCompatible(String kakaoCode, String googlePrimaryType) {
+        // [enrichment 비활성화] Google enrichment 흐름 전체가 주석 처리되어 호출되지 않지만,
+        // 클래스/메서드 보존 차원에서 본문도 명시적 no-op 처리. 추후 영업시간 보강 재도입 시
+        // 아래 원본 본문 주석 해제로 1회 복원 가능.
+        return true;
+        /*
         if (kakaoCode == null || googlePrimaryType == null) return true;
         Set<String> allowed = ALLOWED_GOOGLE_TYPES.get(kakaoCode);
         if (allowed == null) return true;
         return allowed.contains(googlePrimaryType);
+        */
     }
 }

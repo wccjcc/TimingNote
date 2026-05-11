@@ -19,8 +19,6 @@ import com.timingnote.api.infra.client.google.dto.GoogleOpeningHours;
 import com.timingnote.api.infra.client.google.dto.GooglePlace;
 import com.timingnote.api.infra.client.google.dto.GoogleTextSearchRequest;
 import com.timingnote.api.infra.client.kakao.KakaoLocalClient;
-import com.timingnote.api.infra.client.kakao.KakaoPlaceSearchStrategy;
-import com.timingnote.api.infra.client.kakao.KakaoPlaceSearchStrategy.Decision;
 import com.timingnote.api.infra.client.kakao.dto.KakaoDocument;
 import com.timingnote.api.infra.client.kakao.dto.KakaoLocalSearchResponse;
 import lombok.RequiredArgsConstructor;
@@ -54,8 +52,11 @@ public class PlaceServiceImpl implements PlaceService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
-    private static final int GENERIC_RADIUS = 1000;
-    private static final int GENERIC_SIZE   = 15;
+    // 3km — 도심 활동 사용자의 가까운 매장을 거리순으로 N개 확보하는 범위.
+    // 더 키워도 의미가 크지 않고(멀리 있는 매장은 알림 가치 약함), "유의미한 이동" 트리거 시
+    // 새 좌표 기준으로 재검색되므로 시외로 나가면 자연 갱신된다.
+    private static final int GENERIC_RADIUS = 3000;
+    private static final int GENERIC_SIZE   = 10;
 
     private static final int    OPENING_HOURS_TTL_DAYS     = 30;
     private static final double GENERIC_GOOGLE_RADIUS_M    = 500.0;
@@ -92,8 +93,11 @@ public class PlaceServiceImpl implements PlaceService {
 
         KakaoDocument kakaoDoc = searchKeyword(placeText, x, y, 5);
         if (kakaoDoc == null) {
-            log.info("[SPECIFIC] 카카오 결과 없음 → Google TextSearch fallback: '{}'", placeText);
-            return resolveViaGoogleTextSearch(placeText, latitude, longitude);
+            log.info("[SPECIFIC] 카카오 결과 없음 — Google 보강 비활성화 상태이므로 매칭 실패 처리: '{}'", placeText);
+            // [enrichment 비활성화] Google TextSearch fallback 일시 중단. 매핑 정확도 vs 복잡도
+            // trade-off 재검토 후 영업시간 데이터가 정말 필요하면 아래 주석 해제 + Google 클라이언트 재활성화.
+            // return resolveViaGoogleTextSearch(placeText, latitude, longitude);
+            return Optional.empty();
         }
 
         Optional<Place> existing = placeRepository.findByExternalPlaceId(kakaoDoc.getId());
@@ -102,6 +106,8 @@ public class PlaceServiceImpl implements PlaceService {
         log.info("[SPECIFIC] 장소 {}(externalId={}): '{}'",
                 isNew ? "신규 저장" : "DB 캐시 hit", kakaoDoc.getId(), place.getName());
 
+        // [enrichment 비활성화] Google 영업시간 보강 이벤트 발행 전부 일시 중단.
+        /*
         if (place.getGooglePlaceId() == null) {
             log.info("[SPECIFIC] googlePlaceId 없음 → 영업시간 보강 이벤트 발행 (async, AFTER_COMMIT)");
             eventPublisher.publishEvent(
@@ -115,6 +121,7 @@ public class PlaceServiceImpl implements PlaceService {
             log.info("[SPECIFIC] 영업시간 캐시 유효 (hoursFetchedAt={}) → 보강 스킵",
                     place.getHoursFetchedAt());
         }
+        */
 
         log.info("[SPECIFIC] 완료: placeText='{}' → place.id={}", placeText, place.getId());
         return Optional.of(place);
@@ -142,16 +149,11 @@ public class PlaceServiceImpl implements PlaceService {
 
         String x = toLon(longitude);
         String y = toLat(latitude);
-        Decision decision = KakaoPlaceSearchStrategy.decide(placeText);
-        log.info("[GENERIC] 전략 결정: useCategory={} code={}",
-                decision.useCategory(), decision.categoryGroupCode());
 
-        KakaoLocalSearchResponse response;
-        if (decision.useCategory()) {
-            response = searchByCategory(decision.categoryGroupCode(), x, y);
-        } else {
-            response = searchKeywordNearby(placeText, x, y);
-        }
+        // placeText 그대로 키워드 검색만 사용 (radius={@link #GENERIC_RADIUS}, sort=distance).
+        // 과거 KakaoPlaceSearchStrategy로 브랜드명까지 카테고리 검색으로 라우팅했으나,
+        // "메가커피"가 주변 카페 전부를 후보로 잡는 부작용이 있어 키워드 검색으로 일원화.
+        KakaoLocalSearchResponse response = searchKeywordNearby(placeText, x, y);
 
         if (response == null || response.getDocuments() == null || response.getDocuments().isEmpty()) {
             log.warn("[GENERIC] 카카오 결과 없음: '{}'", placeText);
@@ -163,13 +165,14 @@ public class PlaceServiceImpl implements PlaceService {
         List<Place> places = saveCandidates(response.getDocuments());
         log.info("[GENERIC] 후보 장소 {}개 확보 (신규+기존 합산)", places.size());
 
-        // 영업시간 보강은 트랜잭션 커밋 후 비동기. 사용자 응답 path에서 분리.
+        // [enrichment 비활성화] Google 영업시간 보강 이벤트 발행 일시 중단.
+        /*
         eventPublisher.publishEvent(new CandidateBatchEnrichmentEvent(
                 places.stream().map(Place::getId).toList(),
                 placeText, latitude, longitude));
+        */
 
-        log.info("[GENERIC] 완료: placeText='{}' → 후보 {}개 (영업시간 보강 async 진행)",
-                placeText, places.size());
+        log.info("[GENERIC] 완료: placeText='{}' → 후보 {}개", placeText, places.size());
         return places;
     }
 
@@ -212,7 +215,8 @@ public class PlaceServiceImpl implements PlaceService {
             return saved;
         });
 
-        // 영업시간 보강은 비동기 (AFTER_COMMIT). 사용자 응답에 영향 없음.
+        // [enrichment 비활성화] Google 영업시간 보강 이벤트 발행 일시 중단.
+        /*
         if (place.getGooglePlaceId() == null) {
             log.info("[Place/UserSelected] googlePlaceId 없음 → 영업시간 보강 이벤트 발행 (async)");
             eventPublisher.publishEvent(
@@ -224,6 +228,7 @@ public class PlaceServiceImpl implements PlaceService {
         } else {
             log.info("[Place/UserSelected] 영업시간 캐시 유효 → 보강 스킵");
         }
+        */
         return place;
     }
 
@@ -258,18 +263,9 @@ public class PlaceServiceImpl implements PlaceService {
     }
 
     private KakaoDocument pickBestMatch(List<KakaoDocument> docs, String query) {
-        String expectedCode = KakaoPlaceSearchStrategy.decide(query).categoryGroupCode();
-        if (expectedCode != null) {
-            List<KakaoDocument> byCategory = docs.stream()
-                    .filter(d -> expectedCode.equals(d.getCategoryGroupCode()))
-                    .toList();
-            if (!byCategory.isEmpty()) {
-                log.info("[Kakao/Keyword] 카테고리 필터({}): {}개 → 이름 매칭",
-                        expectedCode, byCategory.size());
-                return pickByName(byCategory, query);
-            }
-            log.info("[Kakao/Keyword] 카테고리 필터({}) 해당 없음 → 전체 이름 매칭", expectedCode);
-        }
+        // 카카오 검색 결과(query 기반) 중 이름 매칭으로 best 1개를 고른다.
+        // 과거에는 KakaoPlaceSearchStrategy.decide(query).categoryGroupCode() 로 1차 카테고리
+        // 필터를 적용했으나, 키워드 매핑 자체가 휴리스틱이라 제거하고 이름 매칭만 사용한다.
         return pickByName(docs, query);
     }
 
@@ -303,22 +299,6 @@ public class PlaceServiceImpl implements PlaceService {
             return res;
         } catch (Exception e) {
             log.error("[Kakao/KeywordNearby] 실패: '{}' - {}", query, e.getMessage());
-            return null;
-        }
-    }
-
-    private KakaoLocalSearchResponse searchByCategory(String code, String x, String y) {
-        log.info("[Kakao/Category] 검색: code={} x={} y={} radius={}m size={}",
-                code, x, y, GENERIC_RADIUS, GENERIC_SIZE);
-        try {
-            KakaoLocalSearchResponse res = kakaoLocalClient
-                    .searchByCategory(code, x, y, GENERIC_RADIUS, GENERIC_SIZE, "distance")
-                    .block();
-            int count = (res != null && res.getDocuments() != null) ? res.getDocuments().size() : 0;
-            log.info("[Kakao/Category] 결과 {}개", count);
-            return res;
-        } catch (Exception e) {
-            log.error("[Kakao/Category] 실패: code={} - {}", code, e.getMessage());
             return null;
         }
     }
@@ -407,9 +387,15 @@ public class PlaceServiceImpl implements PlaceService {
 
     // ── 비동기 영업시간 보강 진입점 (PlaceEnrichmentEventListener에서 호출) ─
 
+    // [enrichment 비활성화] 이벤트 발행이 모두 주석 처리되어 정상 경로에선 호출되지 않지만,
+    // 인터페이스 시그니처를 유지하기 위해 메서드는 남기고 본문만 no-op으로 둔다.
+    // 영업시간 보강 재도입 시 아래 원본 본문 주석 해제 + 위 이벤트 발행도 해제.
+
     @Override
     @Transactional
     public void enrichOpeningHoursByPlaceId(Long placeId) {
+        log.debug("[Async/Enrich] 비활성화 상태 — no-op placeId={}", placeId);
+        /*
         Place place = placeRepository.findById(placeId).orElse(null);
         if (place == null) {
             log.warn("[Async/Enrich] Place not found placeId={}", placeId);
@@ -420,11 +406,14 @@ public class PlaceServiceImpl implements PlaceService {
             return;
         }
         enrichWithGoogleTextSearch(place, place.getName());
+        */
     }
 
     @Override
     @Transactional
     public void refreshOpeningHoursByPlaceId(Long placeId) {
+        log.debug("[Async/Refresh] 비활성화 상태 — no-op placeId={}", placeId);
+        /*
         Place place = placeRepository.findById(placeId).orElse(null);
         if (place == null) {
             log.warn("[Async/Refresh] Place not found placeId={}", placeId);
@@ -440,12 +429,16 @@ public class PlaceServiceImpl implements PlaceService {
             return;
         }
         refreshWithPlaceDetails(place);
+        */
     }
 
     @Override
     @Transactional
     public void enrichCandidatesByPlaceIds(List<Long> placeIds, String placeText,
                                            double latitude, double longitude) {
+        log.debug("[Async/Batch] 비활성화 상태 — no-op placeText='{}' size={}",
+                placeText, placeIds != null ? placeIds.size() : 0);
+        /*
         if (placeIds == null || placeIds.isEmpty()) return;
         List<Place> places = placeRepository.findAllById(placeIds);
         if (places.isEmpty()) {
@@ -453,6 +446,7 @@ public class PlaceServiceImpl implements PlaceService {
             return;
         }
         batchEnrichOpeningHours(places, placeText, latitude, longitude);
+        */
     }
 
     // ── Google 보강 (SPECIFIC 신규) ──────────────────────────────────────────
@@ -467,6 +461,9 @@ public class PlaceServiceImpl implements PlaceService {
      * @return phone이 일치하는 GooglePlace 또는 null (매칭 실패 시)
      */
     private GooglePlace phoneBasedLookup(Place place, String normalizedPhone, String kakaoName) {
+        // [enrichment 비활성화] Google API 호출 금지. 본문 보존.
+        return null;
+        /*
         try {
             GoogleTextSearchRequest request = GoogleTextSearchRequest.builder()
                     .textQuery(normalizedPhone)
@@ -482,8 +479,6 @@ public class PlaceServiceImpl implements PlaceService {
             for (GooglePlace gp : response.getPlaces()) {
                 String gpPhone = normalizePhone(gp.getNationalPhoneNumber());
                 if (gpPhone == null) continue;
-                // 정확히 같거나 한쪽이 다른쪽의 끝자리(국번 차이 흡수). normalizePhone에서
-                // 빈문자열/짧은번호/대표번호 모두 null로 걸러지므로 여기 도달 시 8자리 이상 보장.
                 if (!gpPhone.equals(normalizedPhone)
                         && !gpPhone.endsWith(normalizedPhone)
                         && !normalizedPhone.endsWith(gpPhone)) {
@@ -492,7 +487,6 @@ public class PlaceServiceImpl implements PlaceService {
 
                 String gpName = gp.getDisplayName() != null ? gp.getDisplayName().getText() : "?";
 
-                // 거리 sanity — 같은 phone이라면 정상적으로 같은 건물(~100m). 300m 이상이면 데이터 오류 의심
                 if (gp.getLocation() != null) {
                     double dist = GeoUtils.distanceMeters(place.getLatitude(), place.getLongitude(),
                             gp.getLocation().getLatitude(), gp.getLocation().getLongitude());
@@ -503,7 +497,6 @@ public class PlaceServiceImpl implements PlaceService {
                     }
                 }
 
-                // 이름 cross-check — phone이 같아도 이름이 너무 다르면 데이터 오염 의심
                 double nameSim = PlaceNameSimilarity.similarity(kakaoName, gpName);
                 if (nameSim < 0.2) {
                     log.warn("[Google/Phone] 전화 일치하지만 이름 차이 큼 (유사도={}): kakao='{}' google='{}'",
@@ -521,6 +514,7 @@ public class PlaceServiceImpl implements PlaceService {
             log.warn("[Google/Phone] 검색 실패 phone={}: {}", normalizedPhone, e.getMessage());
             return null;
         }
+        */
     }
 
     /**
@@ -529,6 +523,9 @@ public class PlaceServiceImpl implements PlaceService {
      * 카테고리 cross-check 통과 + 이름 유사도 임계값 통과 + 거리 임계값 통과한 후보 중 최고점.
      */
     private GooglePlace nameBasedLookup(Place place, String kakaoName, String kakaoPhoneFallback) {
+        // [enrichment 비활성화] Google API 호출 금지. 본문 보존.
+        return null;
+        /*
         GoogleTextSearchRequest request = GoogleTextSearchRequest.builder()
                 .textQuery(kakaoName)
                 .locationBias(GoogleTextSearchRequest.LocationBias.builder()
@@ -552,6 +549,7 @@ public class PlaceServiceImpl implements PlaceService {
 
         log.info("[Google/Name] 후보 {}개 점수 평가: '{}'", response.getPlaces().size(), kakaoName);
         return pickBestByScore(response.getPlaces(), place, kakaoName, kakaoPhoneFallback);
+        */
     }
 
     /**
@@ -564,9 +562,9 @@ public class PlaceServiceImpl implements PlaceService {
             Place place,
             String kakaoName,
             String kakaoPhone) {
-
-        // Phone 일치 후보 우선 (이름 검색 결과에 phone이 같이 오는 경우)
-        // kakaoPhone은 normalizePhone을 거쳤으므로 빈 문자열/대표번호/짧은 번호 모두 null
+        // [enrichment 비활성화] Google 매칭 휴리스틱 일시 중단. 본문 보존.
+        return null;
+        /*
         if (kakaoPhone != null) {
             for (GooglePlace gp : candidates) {
                 String gpPhone = normalizePhone(gp.getNationalPhoneNumber());
@@ -630,20 +628,21 @@ public class PlaceServiceImpl implements PlaceService {
                     String.format("%.2f", bestScore));
         }
         return best;
+        */
     }
 
     private void enrichWithGoogleTextSearch(Place place, String kakaoName) {
+        // [enrichment 비활성화] 본문 보존.
+        /*
         log.info("[Google/TextSearch] SPECIFIC 보강 시작: '{}' lat={} lon={}",
                 kakaoName, place.getLatitude(), place.getLongitude());
         try {
-            // 1차: 카카오 phone이 있으면 phone-first 검색 (정확도 가장 높음)
             String kakaoPhone = normalizePhone(place.getPhone());
             GooglePlace matched = null;
             if (kakaoPhone != null) {
                 matched = phoneBasedLookup(place, kakaoPhone, kakaoName);
             }
 
-            // 2차: phone 매칭 실패 또는 phone 없음 → 이름 기반 + 점수 선택
             if (matched == null) {
                 matched = nameBasedLookup(place, kakaoName, kakaoPhone);
             }
@@ -663,6 +662,7 @@ public class PlaceServiceImpl implements PlaceService {
         } catch (Exception e) {
             log.warn("[Google/TextSearch] SPECIFIC 보강 실패 (placeId={})", place.getId(), e);
         }
+        */
     }
 
     // ── Google 갱신 (SPECIFIC TTL 만료) ─────────────────────────────────────
@@ -674,6 +674,8 @@ public class PlaceServiceImpl implements PlaceService {
     }
 
     private void refreshWithPlaceDetails(Place place) {
+        // [enrichment 비활성화] 본문 보존.
+        /*
         log.info("[Google/Details] 갱신 시작: placeId={} googlePlaceId={}",
                 place.getId(), place.getGooglePlaceId());
         try {
@@ -691,12 +693,15 @@ public class PlaceServiceImpl implements PlaceService {
         } catch (Exception e) {
             log.warn("[Google/Details] 갱신 실패 (placeId={})", place.getId(), e);
         }
+        */
     }
 
     // ── Google 일괄 보강 (GENERIC) ───────────────────────────────────────────
 
     private void batchEnrichOpeningHours(List<Place> places, String placeText,
                                          double latitude, double longitude) {
+        // [enrichment 비활성화] 본문 보존.
+        /*
         if (places.isEmpty()) return;
         log.info("[Google/Batch] 시작: query='{}' 카카오후보={}개 반경={}m",
                 placeText, places.size(), (int) GENERIC_GOOGLE_RADIUS_M);
@@ -798,6 +803,7 @@ public class PlaceServiceImpl implements PlaceService {
         } catch (Exception e) {
             log.warn("[Google/Batch] 실패 ({}): {}", placeText, e.getMessage());
         }
+        */
     }
 
     // ── Google TextSearch fallback (SPECIFIC 카카오 실패 시) ─────────────────
@@ -810,6 +816,9 @@ public class PlaceServiceImpl implements PlaceService {
     private GooglePlace pickBestFallback(
             List<GooglePlace> candidates, String placeText,
             Double userLat, Double userLng) {
+        // [enrichment 비활성화] 본문 보존.
+        return null;
+        /*
         GooglePlace best = null;
         double bestScore = 0.0;
         for (GooglePlace gp : candidates) {
@@ -839,9 +848,13 @@ public class PlaceServiceImpl implements PlaceService {
             }
         }
         return best;
+        */
     }
 
     private Optional<Place> resolveViaGoogleTextSearch(String placeText, Double latitude, Double longitude) {
+        // [enrichment 비활성화] 본문 보존. 호출처(SPECIFIC fallback) 이미 비활성화됨.
+        return Optional.empty();
+        /*
         log.info("[Google/TextSearch] fallback 시작: '{}' lat={} lon={}", placeText, latitude, longitude);
         try {
             GoogleTextSearchRequest.GoogleTextSearchRequestBuilder builder = GoogleTextSearchRequest.builder()
@@ -908,11 +921,14 @@ public class PlaceServiceImpl implements PlaceService {
             log.error("[Google/TextSearch] 실패: '{}' - {}", placeText, e.getMessage());
             return Optional.empty();
         }
+        */
     }
 
     // ── 영업시간 저장 ─────────────────────────────────────────────────────────
 
     private void saveOpeningPeriods(Long placeId, GoogleOpeningHours hours) {
+        // [enrichment 비활성화] 본문 보존.
+        /*
         if (hours == null) {
             log.info("[OpeningHours] regularOpeningHours=null → place.id={} 저장 스킵", placeId);
             return;
@@ -926,6 +942,7 @@ public class PlaceServiceImpl implements PlaceService {
         openingPeriodRepository.deleteAllByPlaceId(placeId);
         openingPeriodRepository.saveAll(periods);
         log.info("[OpeningHours] place.id={} → {}개 period 저장 완료", placeId, periods.size());
+        */
     }
 
     // ── 공통 유틸 ────────────────────────────────────────────────────────────
@@ -948,6 +965,9 @@ public class PlaceServiceImpl implements PlaceService {
     }
 
     private String serializeHours(GooglePlace gp) {
+        // [enrichment 비활성화] 본문 보존.
+        return null;
+        /*
         if (gp.getRegularOpeningHours() == null) return null;
         try {
             return objectMapper.writeValueAsString(gp.getRegularOpeningHours());
@@ -955,6 +975,7 @@ public class PlaceServiceImpl implements PlaceService {
             log.warn("[OpeningHours] 직렬화 실패: {}", e.getMessage());
             return null;
         }
+        */
     }
 
     private static String toLon(Double longitude) {

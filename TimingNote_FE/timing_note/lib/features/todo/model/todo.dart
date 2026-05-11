@@ -27,6 +27,16 @@ class TodoType {
   static const String generic = 'GENERIC';
   static const String alias = 'ALIAS';
   static const String general = 'GENERAL';
+
+  /// 화면에 노출할 한글 라벨.
+  static const Map<String, String> labels = {
+    specific: '특정 장소',
+    generic: '포괄 장소',
+    alias: '내 장소',
+    general: '장소 없음',
+  };
+
+  static String labelOf(String? type) => labels[type] ?? '장소 없음';
 }
 
 class TodoCategory {
@@ -76,6 +86,7 @@ class TodoItem {
   final String structureStatus;
   final String? category;
   final String? resolvedPlaceLabel;
+  /// 주 장소 좌표 — primaryPlaceId가 있을 때만 BE가 채움. 거리 표시(`hasPlaceCoords`)에 사용.
   final double? placeLatitude;
   final double? placeLongitude;
   final bool alertEnabled;

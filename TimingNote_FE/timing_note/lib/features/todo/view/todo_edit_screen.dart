@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
+import '../util/time_condition_formatter.dart';
 import '../viewmodel/todo_detail_viewmodel.dart';
 import '../viewmodel/todo_edit_viewmodel.dart';
 
@@ -302,18 +303,8 @@ class _TimeConditionList extends ConsumerWidget {
     if (conditions.isEmpty) return const Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text('설정된 시간 조건이 없습니다.', style: TextStyle(color: Colors.white24, fontSize: 13)));
     return Column(children: List.generate(conditions.length, (i) {
       final tc = conditions[i];
-      return Container(margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)), child: ListTile(dense: true, title: Text(_describeRequest(tc), style: const TextStyle(color: Colors.cyanAccent, fontSize: 14)), trailing: IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18), onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i))));
+      return Container(margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)), child: ListTile(dense: true, title: Text(formatTimeConditionRequest(tc), style: const TextStyle(color: Colors.cyanAccent, fontSize: 14)), trailing: IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18), onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i))));
     }));
-  }
-  String _describeRequest(TimeConditionRequest tc) {
-    switch (tc.conditionType) {
-      case ConditionType.datetime: return '${tc.startDate ?? ''} ${tc.startTime ?? ''}';
-      case ConditionType.date: return tc.startDate ?? '';
-      case ConditionType.dateRange: return '${tc.startDate} ~ ${tc.endDate}';
-      case ConditionType.week: return '${(tc.daysOfWeek ?? []).join(', ')} ${tc.startTime ?? ''}';
-      case ConditionType.timeRange: return '${tc.startTime} ~ ${tc.endTime}';
-      default: return tc.rawExpression ?? tc.conditionType;
-    }
   }
 }
 

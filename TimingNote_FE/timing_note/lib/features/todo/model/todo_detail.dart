@@ -70,6 +70,46 @@ class TodoPlace {
   }
 }
 
+// ── TodoCandidate (후보 장소) ─────────────────────────────────────
+/// 카카오 로컬 검색으로 매핑된 후보 장소.
+/// 사용자 가시성 + 알림 디버깅 용도로 상세 화면에 노출된다.
+/// (todoType이 SPECIFIC/ALIAS여도 DB에 후보 잔여가 있으면 응답에 포함됨)
+class TodoCandidate {
+  const TodoCandidate({
+    required this.candidateId,
+    required this.place,
+    required this.distanceM,
+    required this.monitoringTarget,
+    required this.activeSlot,
+    required this.calculatedAt,
+    this.expiresAt,
+  });
+
+  final int candidateId;
+  final TodoPlace place;
+  final int distanceM;
+  // 지오펜스 등록 대상 여부 (사용자 명시 제외 등에 사용 — 슬롯 활성 여부와는 다른 축)
+  final bool monitoringTarget;
+  // 현재 geofence_slots에 활성 등록되어 있는지 (= 알림 트리거 후보)
+  final bool activeSlot;
+  final DateTime calculatedAt;
+  final DateTime? expiresAt;        // null = 유효
+
+  factory TodoCandidate.fromJson(Map<String, dynamic> json) {
+    return TodoCandidate(
+      candidateId: json['candidateId'] as int,
+      place: TodoPlace.fromJson(json['place'] as Map<String, dynamic>),
+      distanceM: json['distanceM'] as int,
+      monitoringTarget: json['monitoringTarget'] as bool,
+      activeSlot: json['activeSlot'] as bool,
+      calculatedAt: DateTime.parse(json['calculatedAt'] as String),
+      expiresAt: json['expiresAt'] == null
+          ? null
+          : DateTime.parse(json['expiresAt'] as String),
+    );
+  }
+}
+
 // ── TodoDetail (상세 전체) ────────────────────────────────────────
 class TodoDetail {
   const TodoDetail({
@@ -84,6 +124,7 @@ class TodoDetail {
     required this.imageUrls,
     required this.createdAt,
     required this.updatedAt,
+    required this.candidates,
     this.category,
     this.resolvedPlaceLabel,
     this.snoozedUntil,
@@ -111,6 +152,7 @@ class TodoDetail {
   final TodoPlace? primaryPlace;
   final List<String> imageUrls;
   final String? sharedUrl;
+  final List<TodoCandidate> candidates;
 
   bool get isPending => structureStatus == 'PENDING';
   bool get isDone => status == 'DONE';
@@ -148,6 +190,10 @@ class TodoDetail {
               .toList() ??
           [],
       sharedUrl: json['sharedUrl'] as String?,
+      candidates: (json['candidates'] as List<dynamic>?)
+              ?.map((e) => TodoCandidate.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
   }
 
@@ -176,6 +222,7 @@ class TodoDetail {
       primaryPlace: primaryPlace,
       imageUrls: imageUrls ?? this.imageUrls,
       sharedUrl: sharedUrl,
+      candidates: candidates,
     );
   }
 }
