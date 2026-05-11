@@ -82,6 +82,7 @@ class TodoDetail {
     required this.alertEnabled,
     required this.timeConditions,
     required this.imageUrls,
+    required this.imageDisplayUrls,
     required this.createdAt,
     required this.updatedAt,
     this.category,
@@ -110,6 +111,7 @@ class TodoDetail {
   final List<TimeCondition> timeConditions;
   final TodoPlace? primaryPlace;
   final List<String> imageUrls;
+  final List<String> imageDisplayUrls;
   final String? sharedUrl;
 
   bool get isPending => structureStatus == 'PENDING';
@@ -147,6 +149,10 @@ class TodoDetail {
               ?.map((e) => e as String)
               .toList() ??
           [],
+      imageDisplayUrls: (json['imageUrls'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
       sharedUrl: json['sharedUrl'] as String?,
     );
   }
@@ -156,6 +162,7 @@ class TodoDetail {
     String? status,
     DateTime? completedAt,
     List<String>? imageUrls,
+    List<String>? imageDisplayUrls,
   }) {
     return TodoDetail(
       id: id,
@@ -175,6 +182,7 @@ class TodoDetail {
       timeConditions: timeConditions,
       primaryPlace: primaryPlace,
       imageUrls: imageUrls ?? this.imageUrls,
+      imageDisplayUrls: imageDisplayUrls ?? this.imageDisplayUrls,
       sharedUrl: sharedUrl,
     );
   }

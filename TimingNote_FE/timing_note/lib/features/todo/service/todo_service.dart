@@ -179,7 +179,8 @@ class TodoService {
     final resolved = detail.imageUrls
         .map((key) => downloadUrlMap[key] ?? key)
         .toList();
-    return detail.copyWith(imageUrls: resolved);
+    // 저장용 objectKey(imageUrls)는 유지하고, 표시용 URL만 분리해서 갱신한다.
+    return detail.copyWith(imageDisplayUrls: resolved);
   }
 
   // ── 생성 ─────────────────────────────────────────────────────────

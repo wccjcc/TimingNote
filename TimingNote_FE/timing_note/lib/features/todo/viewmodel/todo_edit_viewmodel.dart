@@ -21,6 +21,7 @@ class TodoEditState {
     this.latitude,
     this.longitude,
     this.imageUrls,
+    this.imageDisplayUrlsByKey = const {},
     this.imagePreviewBytes = const {},
     this.sharedUrl,
     this.timeConditions,
@@ -38,6 +39,7 @@ class TodoEditState {
   final double? latitude; // placeText GENERIC 전환 시 Kakao 후보 검색에 사용
   final double? longitude;
   final List<String>? imageUrls;
+  final Map<String, String> imageDisplayUrlsByKey;
   final Map<String, Uint8List> imagePreviewBytes;
   final String? sharedUrl;
   final List<TimeConditionRequest>? timeConditions;
@@ -58,6 +60,7 @@ class TodoEditState {
     double? latitude,
     double? longitude,
     List<String>? imageUrls,
+    Map<String, String>? imageDisplayUrlsByKey,
     Map<String, Uint8List>? imagePreviewBytes,
     String? sharedUrl,
     List<TimeConditionRequest>? timeConditions,
@@ -76,6 +79,8 @@ class TodoEditState {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       imageUrls: imageUrls ?? this.imageUrls,
+      imageDisplayUrlsByKey:
+          imageDisplayUrlsByKey ?? this.imageDisplayUrlsByKey,
       imagePreviewBytes: imagePreviewBytes ?? this.imagePreviewBytes,
       sharedUrl: sharedUrl ?? this.sharedUrl,
       timeConditions: timeConditions ?? this.timeConditions,
@@ -114,6 +119,13 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
         category: detail.category ?? TodoCategory.etc,
         placeText: detail.structure?.placeText ?? '',
         imageUrls: List<String>.from(detail.imageUrls),
+        // key -> 표시용 URL 매핑을 따로 유지해서, 저장 시 objectKey가 URL로 오염되지 않게 한다.
+        imageDisplayUrlsByKey: {
+          for (var i = 0; i < detail.imageUrls.length; i++)
+            detail.imageUrls[i]: detail.imageDisplayUrls.length > i
+                ? detail.imageDisplayUrls[i]
+                : detail.imageUrls[i],
+        },
         imagePreviewBytes: const {},
         sharedUrl: detail.sharedUrl ?? '',
         timeConditions: detail.timeConditions
@@ -146,12 +158,19 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
 
   void removeImageUrl(String url) {
     final current = List<String>.from(state.imageUrls ?? [])..remove(url);
+    final displayMap = Map<String, String>.from(state.imageDisplayUrlsByKey)
+      ..remove(url);
     final preview = Map<String, Uint8List>.from(state.imagePreviewBytes)
       ..remove(url);
-    state = state.copyWith(imageUrls: current, imagePreviewBytes: preview);
+    state = state.copyWith(
+      imageUrls: current,
+      imageDisplayUrlsByKey: displayMap,
+      imagePreviewBytes: preview,
+    );
   }
 
-  void clearImageUrls() => state = state.copyWith(imageUrls: []);
+  void clearImageUrls() =>
+      state = state.copyWith(imageUrls: [], imageDisplayUrlsByKey: const {});
 
   /// 갤러리에서 선택한 이미지를 바로 S3에 업로드하고 objectKey를 상태에 추가한다.
   /// 화면에서는 이 메서드만 호출하면 되어, 업로드/오류/중복제어를 한 곳에서 관리할 수 있다.

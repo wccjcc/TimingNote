@@ -331,6 +331,9 @@ class _ImageSection extends ConsumerWidget {
     final previewMap = ref.watch(
       todoEditProvider(todoId).select((s) => s.imagePreviewBytes),
     );
+    final displayUrlMap = ref.watch(
+      todoEditProvider(todoId).select((s) => s.imageDisplayUrlsByKey),
+    );
     final canAdd = urls.length < _kMaxImages;
 
     return Column(
@@ -366,6 +369,7 @@ class _ImageSection extends ConsumerWidget {
               // 기존 이미지 목록
               ...urls.map((url) => _ImageTile(
                 url: url,
+                displayUrl: displayUrlMap[url] ?? url,
                 previewBytes: previewMap[url],
                 onDelete: () => ref
                     .read(todoEditProvider(todoId).notifier)
@@ -402,8 +406,14 @@ class _ImageSection extends ConsumerWidget {
 }
 
 class _ImageTile extends StatelessWidget {
-  const _ImageTile({required this.url, required this.onDelete, this.previewBytes});
+  const _ImageTile({
+    required this.url,
+    required this.displayUrl,
+    required this.onDelete,
+    this.previewBytes,
+  });
   final String url;
+  final String displayUrl;
   final VoidCallback onDelete;
   final Uint8List? previewBytes;
 
@@ -424,7 +434,7 @@ class _ImageTile extends StatelessWidget {
                     fit: BoxFit.cover,
                   )
                 : Image.network(
-                    url,
+                    displayUrl,
                     width: 100,
                     height: 104,
                     fit: BoxFit.cover,

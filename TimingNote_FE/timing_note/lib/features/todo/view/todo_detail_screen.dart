@@ -142,16 +142,16 @@ class TodoDetailScreen extends ConsumerWidget {
                 ],
 
                 // 7. 시각 자료 (첨부 이미지)
-                if (detail.imageUrls.isNotEmpty) ...[
+                if (detail.imageDisplayUrls.isNotEmpty) ...[
                   const _SectionTitle(title: '첨부 이미지'),
                   SizedBox(
                     height: 160,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
-                      itemCount: detail.imageUrls.length,
+                      itemCount: detail.imageDisplayUrls.length,
                       separatorBuilder: (_, __) => const SizedBox(width: 12),
                       itemBuilder: (_, i) => _ImageThumbnail(
-                        imageUrls: detail.imageUrls,
+                        imageUrls: detail.imageDisplayUrls,
                         initialIndex: i,
                       ),
                     ),
