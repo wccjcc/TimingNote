@@ -58,6 +58,7 @@ import java.time.OffsetDateTime;
 
 import java.time.format.DateTimeParseException;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -151,20 +152,15 @@ public class TodoServiceImpl implements TodoService {
         Map<Long, String> thumbnailMap = fetchThumbnails(todoIds);
         Map<Long, Place> placeMap = fetchPrimaryPlaces(page);
         // GENERIC todo는 primaryPlaceId가 null이라 좌표를 못 채운다. FE 목록 거리 표시를 위해
-        // 활성 슬롯(=현재 알림 트리거 후보) 중 하나의 placeId로 fallback 좌표를 제공한다.
-        // 18개 상한이라 쿼리 비용 가벼움. todo당 슬롯 여러 개면 임의 1개 선택 (점수 차이 크지 않음).
-        Map<Long, Long> activeSlotPlaceByTodoId = fetchActiveSlotPlaceByTodoId(userId, todoIds);
-        Map<Long, Place> fallbackPlaceMap = fetchPlacesByIds(activeSlotPlaceByTodoId.values());
+        // 활성 슬롯(=현재 알림 트리거 후보) 중 사용자 좌표 기준 가장 가까운 슬롯의 Place 좌표를 fallback으로 제공.
+        Map<Long, Place> fallbackPlaceByTodoId =
+                fetchClosestActiveSlotPlaceByTodoId(userId, todoIds, latitude, longitude);
 
         List<TodoListItemResponse> items = page.stream()
                 .map(t -> {
-                    Place place;
-                    if (t.getPrimaryPlaceId() != null) {
-                        place = placeMap.get(t.getPrimaryPlaceId());
-                    } else {
-                        Long slotPlaceId = activeSlotPlaceByTodoId.get(t.getId());
-                        place = slotPlaceId != null ? fallbackPlaceMap.get(slotPlaceId) : null;
-                    }
+                    Place place = t.getPrimaryPlaceId() != null
+                            ? placeMap.get(t.getPrimaryPlaceId())
+                            : fallbackPlaceByTodoId.get(t.getId());
                     Double lat = place != null ? place.getLatitude() : null;
                     Double lng = place != null ? place.getLongitude() : null;
                     return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng);
@@ -607,33 +603,51 @@ public class TodoServiceImpl implements TodoService {
     }
 
     /**
-     * 페이지에 포함된 todo의 활성 슬롯에서 placeId를 todoId 키로 추출한다.
-     * 사용자 전체 활성 슬롯(상한 18개)을 한 번에 조회 → 페이지 todoId로 필터.
+     * 페이지의 todo별로 가장 가까운 활성 슬롯의 Place를 매핑해 반환한다.
      * GENERIC todo가 primaryPlaceId 없을 때 목록 응답의 좌표 fallback으로 사용.
+     *
+     * <p>흐름: 사용자 전체 활성 슬롯(상한 18개) → 페이지 todoId 필터 → 슬롯 placeId 일괄 조회 →
+     * 사용자 좌표 기준 거리 계산 → todo별 최단거리 슬롯의 Place 선택.
+     *
+     * <p>사용자 좌표가 없으면 거리 비교가 불가능하므로 todo별 임의 첫 슬롯의 Place로 fallback.
+     * 활성 슬롯이 없거나 페이지 비어있으면 빈 맵 반환 (쿼리 0회).
      */
-    private Map<Long, Long> fetchActiveSlotPlaceByTodoId(Long userId, List<Long> todoIds) {
+    private Map<Long, Place> fetchClosestActiveSlotPlaceByTodoId(
+            Long userId, List<Long> todoIds, Double userLat, Double userLng) {
         if (todoIds.isEmpty()) return Map.of();
         Set<Long> pageTodoIds = Set.copyOf(todoIds);
-        return geofenceSlotRepository.findByUserIdAndActiveTrue(userId).stream()
-                .filter(s -> pageTodoIds.contains(s.getTodoId()))
-                .collect(Collectors.toMap(
-                        GeofenceSlot::getTodoId,
-                        GeofenceSlot::getPlaceId,
-                        (a, b) -> a)); // todo당 다수 슬롯이면 임의 1개 (점수 차이 미미)
-    }
 
-    /**
-     * placeId 컬렉션을 받아 Place를 일괄 조회해 id→Place 맵 반환.
-     * 비어 있으면 추가 쿼리 안 발생.
-     */
-    private Map<Long, Place> fetchPlacesByIds(Iterable<Long> placeIds) {
-        List<Long> distinctIds = java.util.stream.StreamSupport.stream(placeIds.spliterator(), false)
-                .filter(java.util.Objects::nonNull)
+        List<GeofenceSlot> slots = geofenceSlotRepository.findByUserIdAndActiveTrue(userId).stream()
+                .filter(s -> pageTodoIds.contains(s.getTodoId()))
+                .toList();
+        if (slots.isEmpty()) return Map.of();
+
+        List<Long> placeIds = slots.stream()
+                .map(GeofenceSlot::getPlaceId)
                 .distinct()
                 .toList();
-        if (distinctIds.isEmpty()) return Map.of();
-        return placeRepository.findAllById(distinctIds).stream()
+        Map<Long, Place> placeById = placeRepository.findAllById(placeIds).stream()
                 .collect(Collectors.toMap(Place::getId, p -> p));
+
+        Map<Long, Place> closestByTodo = new HashMap<>();
+        Map<Long, Double> bestDistByTodo = new HashMap<>();
+        for (GeofenceSlot slot : slots) {
+            Place place = placeById.get(slot.getPlaceId());
+            if (place == null) continue;
+            // 사용자 좌표 없으면 임의 첫 슬롯 유지 (거리 비교 불가)
+            if (userLat == null || userLng == null) {
+                closestByTodo.putIfAbsent(slot.getTodoId(), place);
+                continue;
+            }
+            double dist = GeoUtils.distanceMeters(
+                    userLat, userLng, place.getLatitude(), place.getLongitude());
+            Double currentBest = bestDistByTodo.get(slot.getTodoId());
+            if (currentBest == null || dist < currentBest) {
+                bestDistByTodo.put(slot.getTodoId(), dist);
+                closestByTodo.put(slot.getTodoId(), place);
+            }
+        }
+        return closestByTodo;
     }
 
     /**
