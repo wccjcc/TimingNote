@@ -27,6 +27,16 @@ class TodoType {
   static const String generic = 'GENERIC';
   static const String alias = 'ALIAS';
   static const String general = 'GENERAL';
+
+  /// 화면에 노출할 한글 라벨.
+  static const Map<String, String> labels = {
+    specific: '특정 장소',
+    generic: '포괄 장소',
+    alias: '내 장소',
+    general: '장소 없음',
+  };
+
+  static String labelOf(String? type) => labels[type] ?? '장소 없음';
 }
 
 class TodoCategory {
@@ -62,6 +72,8 @@ class TodoItem {
     required this.createdAt,
     this.category,
     this.resolvedPlaceLabel,
+    this.placeLatitude,
+    this.placeLongitude,
     this.completedAt,
     this.thumbnailUrl,
   });
@@ -74,6 +86,9 @@ class TodoItem {
   final String structureStatus;
   final String? category;
   final String? resolvedPlaceLabel;
+  /// 주 장소 위도 — primaryPlaceId가 있을 때만 BE가 채움. 거리 계산용.
+  final double? placeLatitude;
+  final double? placeLongitude;
   final bool alertEnabled;
   final DateTime? completedAt;
   final DateTime createdAt;
@@ -92,6 +107,8 @@ class TodoItem {
       structureStatus: json['structureStatus'] as String,
       category: json['category'] as String?,
       resolvedPlaceLabel: json['resolvedPlaceLabel'] as String?,
+      placeLatitude: (json['placeLatitude'] as num?)?.toDouble(),
+      placeLongitude: (json['placeLongitude'] as num?)?.toDouble(),
       alertEnabled: json['alertEnabled'] as bool,
       completedAt: json['completedAt'] == null
           ? null
@@ -117,6 +134,8 @@ class TodoItem {
       structureStatus: structureStatus,
       category: category,
       resolvedPlaceLabel: resolvedPlaceLabel,
+      placeLatitude: placeLatitude,
+      placeLongitude: placeLongitude,
       alertEnabled: alertEnabled ?? this.alertEnabled,
       completedAt: completedAt ?? this.completedAt,
       createdAt: createdAt,
