@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/location/location_provider.dart';
 import '../model/todo.dart';
 import '../service/todo_service.dart';
 
@@ -16,6 +17,7 @@ class TodoListState {
     this.statusFilter,
     this.tabFilter,
     this.placeTypeFilter,
+    this.currentGps,
   });
 
   final List<TodoItem> items;
@@ -26,6 +28,9 @@ class TodoListState {
   final String? statusFilter;
   final String? tabFilter;
   final String? placeTypeFilter;
+  /// 마지막 목록 조회 시점의 사용자 GPS — 항목별 거리 표시에 사용.
+  /// 권한 거부/GPS 실패 시 null.
+  final GpsSnapshot? currentGps;
 
   bool get hasMore => nextCursor != null;
   bool get isEmpty => !isLoading && items.isEmpty;
@@ -44,6 +49,8 @@ class TodoListState {
     bool clearTabFilter = false,
     String? placeTypeFilter,
     bool clearPlaceTypeFilter = false,
+    GpsSnapshot? currentGps,
+    bool clearCurrentGps = false,
   }) {
     return TodoListState(
       items: items ?? this.items,
@@ -56,6 +63,7 @@ class TodoListState {
       placeTypeFilter: clearPlaceTypeFilter
           ? null
           : (placeTypeFilter ?? this.placeTypeFilter),
+      currentGps: clearCurrentGps ? null : (currentGps ?? this.currentGps),
     );
   }
 }
@@ -110,17 +118,24 @@ class TodoListNotifier extends Notifier<TodoListState> {
     );
 
     try {
+      final gps = await tryGetGpsSnapshot(ref);
       final result = await _service.getList(
         status: state.statusFilter,
         tab: state.tabFilter,
         placeType: state.placeTypeFilter,
         limit: _limit,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
       );
       state = state.copyWith(
         items: result.items,
         nextCursor: result.nextCursor,
         clearCursor: result.nextCursor == null,
         isLoading: false,
+        currentGps: gps,
+        clearCurrentGps: gps == null,
       );
       _maybeSchedulePendingPoll();
     } catch (e) {
@@ -165,18 +180,24 @@ class TodoListNotifier extends Notifier<TodoListState> {
   }
 
   /// 다음 페이지 로드 (무한 스크롤)
+  /// 페이지 사이의 짧은 이동은 거리 표시에 의미 없어 GPS 새로 받지 않고 state.currentGps 재사용.
   Future<void> loadMore() async {
     if (state.isLoadingMore || !state.hasMore) return;
 
     state = state.copyWith(isLoadingMore: true);
 
     try {
+      final gps = state.currentGps;
       final result = await _service.getList(
         status: state.statusFilter,
         tab: state.tabFilter,
         placeType: state.placeTypeFilter,
         cursor: state.nextCursor,
         limit: _limit,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
       );
       state = state.copyWith(
         items: [...state.items, ...result.items],
@@ -190,7 +211,7 @@ class TodoListNotifier extends Notifier<TodoListState> {
     }
   }
 
-  /// 알림 토글 (낙관적 업데이트)
+  /// 알림 토글 (낙관적 업데이트) — 후보 재계산 트리거이므로 GPS 좌표 동봉
   Future<void> toggleAlert(int todoId) async {
     final index = state.items.indexWhere((e) => e.id == todoId);
     if (index == -1) return;
@@ -200,13 +221,22 @@ class TodoListNotifier extends Notifier<TodoListState> {
     _updateItem(index, toggled);
 
     try {
-      await _service.updateAlert(todoId, alertEnabled: toggled.alertEnabled);
+      // 알림 슬롯 재계산은 좌표 정확도에 의존 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      await _service.updateAlert(
+        todoId,
+        alertEnabled: toggled.alertEnabled,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
     } catch (_) {
       _updateItem(index, original);
     }
   }
 
-  /// 완료 상태 토글 (낙관적 업데이트)
+  /// 완료 상태 토글 (낙관적 업데이트) — monitoring 쿼리 필터 변경으로 슬롯 재계산 트리거
   Future<void> toggleStatus(int todoId) async {
     final index = state.items.indexWhere((e) => e.id == todoId);
     if (index == -1) return;
@@ -220,13 +250,22 @@ class TodoListNotifier extends Notifier<TodoListState> {
     _updateItem(index, toggled);
 
     try {
-      await _service.updateStatus(todoId, status: newStatus);
+      // status 변경 → 슬롯 재계산. forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      await _service.updateStatus(
+        todoId,
+        status: newStatus,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
     } catch (_) {
       _updateItem(index, original);
     }
   }
 
-  /// 소프트 삭제 — 낙관적으로 목록에서 즉시 제거 후 API 호출
+  /// 소프트 삭제 — 슬롯 비활성화를 위한 재계산 트리거이므로 GPS 4종 동봉
   Future<void> deleteTodo(int todoId) async {
     final index = state.items.indexWhere((e) => e.id == todoId);
     if (index == -1) return;
@@ -236,7 +275,15 @@ class TodoListNotifier extends Notifier<TodoListState> {
     state = state.copyWith(items: updated);
 
     try {
-      await _service.delete(todoId);
+      // 삭제는 슬롯 정리(재계산) 트리거 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      await _service.delete(
+        todoId,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
     } catch (_) {
       // 실패 시 원래 위치에 복원
       final restored = [...state.items]..insert(index, removed);

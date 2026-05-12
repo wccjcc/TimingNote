@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 import com.timingnote.api.infra.client.fcm.PushNotificationSender;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +51,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     private static final String TODO_STATUS_ACTIVE = "ACTIVE";
     private static final String PUSH_TYPE_GEOFENCE = "GEOFENCE";
+    private static final String IOS_CATEGORY_GEOFENCE_TODO_ACTIONS = "GEOFENCE_TODO_ACTIONS";
     private static final String TITLE_SUFFIX = "근처에요";
     private static final String TITLE_FALLBACK = "타이밍노트 알림";
     private static final String BODY_FALLBACK = "위치 기반 알림이 도착했습니다.";
@@ -62,6 +64,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserNotificationRepository userNotificationRepository;
     private final PlaceRepository placeRepository;
     private final PushNotificationSender pushNotificationSender;
+    private final GeofenceRecalculateOutboxService geofenceRecalculateOutboxService;
 
     @Override
     @Transactional
@@ -86,7 +89,8 @@ public class NotificationServiceImpl implements NotificationService {
         if (fcmToken == null || !Boolean.TRUE.equals(fcmToken.getIsActive())) {
             String title = buildTitle(slot.getPlaceId());
             String body = buildBody(todo.getContent());
-            saveNotificationHistory(userId, todo, null, title, body, false);
+            UserNotification history = saveNotificationHistory(userId, todo, null, title, body, false);
+            history.markFailed();
             return NotificationGeofenceSendResponseDto.builder()
                     .sent(false)
                     .reason("FCM_TOKEN_NOT_AVAILABLE")
@@ -95,8 +99,26 @@ public class NotificationServiceImpl implements NotificationService {
 
         String title = buildTitle(slot.getPlaceId());
         String body = buildBody(todo.getContent());
-        boolean sent = pushNotificationSender.send(fcmToken.getFcmToken(), PUSH_TYPE_GEOFENCE, title, body);
-        saveNotificationHistory(userId, todo, null, title, body, sent);
+        UserNotification history = saveNotificationHistory(userId, todo, null, title, body, false);
+        Map<String, String> pushData = Map.of(
+                "notificationId", String.valueOf(history.getId()),
+                "todoId", String.valueOf(todo.getId()),
+                "slotId", String.valueOf(slot.getId()),
+                "type", PUSH_TYPE_GEOFENCE
+        );
+        boolean sent = pushNotificationSender.send(
+                fcmToken.getFcmToken(),
+                PUSH_TYPE_GEOFENCE,
+                title,
+                body,
+                pushData,
+                IOS_CATEGORY_GEOFENCE_TODO_ACTIONS
+        );
+        if (sent) {
+            history.markSent();
+        } else {
+            history.markFailed();
+        }
         log.info(
                 "Notification sent result userId={} slotId={} todoId={} sent={} title='{}' body='{}'",
                 userId, slotId, todo.getId(), sent, title, body
@@ -167,6 +189,14 @@ public class NotificationServiceImpl implements NotificationService {
             case COMPLETE -> {
                 notification.markOpened(now);
                 todo.updateStatus(TodoStatus.DONE.name());
+                // COMPLETE 처리 시점에만 geofence 재계산 outbox 이벤트를 적재합니다.
+                // 위치 정보는 프론트에서 항상 전달하되, 값이 없으면 null로 적재됩니다.
+                geofenceRecalculateOutboxService.enqueue(
+                        userId,
+                        requestDto.getLatitude(),
+                        requestDto.getLongitude(),
+                        requestDto.getCourse()
+                );
                 yield NotificationActionResponseDto.builder()
                         .actionType(actionType.name())
                         .todoStatus(todo.getStatus())
@@ -271,17 +301,67 @@ public class NotificationServiceImpl implements NotificationService {
         LocalDate today = now.toLocalDate();
         LocalTime currentTime = now.toLocalTime();
         return switch (type) {
-            case DATE -> condition.getStartDate() == null || !today.isBefore(condition.getStartDate());
-            case DATE_RANGE -> isWithinDateRange(today, condition.getStartDate(), condition.getEndDate());
-            case WEEK -> matchesWeekBitmask(today.getDayOfWeek(), condition.getDaysOfWeek());
+            case DATETIME -> matchesDateAndTime(condition, today, currentTime, false);
+            case DATE -> matchesDateAndTime(condition, today, currentTime, false);
+            case DATE_RANGE -> matchesDateAndTime(condition, today, currentTime, true);
+            case WEEK -> matchesWeekAndTime(condition, today.getDayOfWeek(), currentTime);
             case TIME_RANGE -> isWithinTimeRange(currentTime, condition.getStartTime(), condition.getEndTime());
             default -> true;
         };
     }
 
-    private boolean isWithinDateRange(LocalDate target, LocalDate start, LocalDate end) {
-        if (start != null && target.isBefore(start)) return false;
-        return end == null || !target.isAfter(end);
+    private boolean matchesWeekAndTime(TodoTimeCondition condition, DayOfWeek dayOfWeek, LocalTime currentTime) {
+        if (!matchesWeekBitmask(dayOfWeek, condition.getDaysOfWeek())) {
+            return false;
+        }
+        return matchesTimeWindow(currentTime, condition.getStartTime(), condition.getEndTime());
+    }
+
+    private boolean matchesDateAndTime(
+            TodoTimeCondition condition,
+            LocalDate today,
+            LocalTime currentTime,
+            boolean useDateRange
+    ) {
+        if (!matchesDateWindow(condition, today, useDateRange)) {
+            return false;
+        }
+        return matchesTimeWindow(currentTime, condition.getStartTime(), condition.getEndTime());
+    }
+
+    private boolean matchesDateWindow(TodoTimeCondition condition, LocalDate today, boolean useDateRange) {
+        LocalDate startDate = condition.getStartDate();
+        if (startDate == null) {
+            return true;
+        }
+
+        if (!useDateRange) {
+            return today.isEqual(startDate);
+        }
+
+        LocalDate endDate = condition.getEndDate();
+        if (today.isBefore(startDate)) {
+            return false;
+        }
+        return endDate == null || !today.isAfter(endDate);
+    }
+
+    private boolean matchesTimeWindow(LocalTime target, LocalTime start, LocalTime end) {
+        // 시간이 비어 있으면 하루종일 허용.
+        if (start == null && end == null) {
+            return true;
+        }
+        if (start != null && end != null) {
+            if (end.isBefore(start)) {
+                // 자정 넘김 구간 허용 (예: 22:00~02:00).
+                return !target.isBefore(start) || !target.isAfter(end);
+            }
+            return !target.isBefore(start) && !target.isAfter(end);
+        }
+        if (start != null) {
+            return !target.isBefore(start);
+        }
+        return !target.isAfter(end);
     }
 
     private boolean matchesWeekBitmask(DayOfWeek dayOfWeek, Short mask) {
@@ -320,7 +400,7 @@ public class NotificationServiceImpl implements NotificationService {
         return (todoContent == null || todoContent.isBlank()) ? BODY_FALLBACK : todoContent;
     }
 
-    private void saveNotificationHistory(
+    private UserNotification saveNotificationHistory(
             Long userId,
             Todo todo,
             Long candidatePlaceId,
@@ -339,7 +419,7 @@ public class NotificationServiceImpl implements NotificationService {
                 .title(title)
                 .body(body)
                 .build();
-        userNotificationRepository.save(notification);
+        return userNotificationRepository.save(notification);
     }
 
     private NotificationType resolveNotificationType(Todo todo) {

@@ -1,25 +1,61 @@
-/// Kakao 장소 검색에서 사용자가 선택한 장소 정보.
-/// PlaceSearchScreen → pop(SelectedKakaoPlace) 형태로 결과 반환.
-class SelectedKakaoPlace {
-  const SelectedKakaoPlace({
-    required this.kakaoPlaceId,
-    required this.name,
-    required this.latitude,
-    required this.longitude,
-    this.address,
-    this.roadAddress,
+/// PlaceSearchScreen → pop(SelectedPlace) 형태로 결과 반환.
+///
+/// 두 가지 케이스:
+/// - SelectedAliasPlace: 사용자가 등록한 "내 장소"에서 선택 (BE userPlaceId)
+/// - SelectedExternalPlace: 카카오 검색/지도 핀 선택 (BE externalPlace)
+sealed class SelectedPlace {
+  const SelectedPlace({
+    required this.userLatitude,
+    required this.userLongitude,
+  });
+
+  /// 사용자 현재 위치 (검색 화면이 진입 시 GPS로 가져온 값, 권한 없으면 null)
+  /// BE 슬롯 재계산의 PostGIS 실거리 계산에 사용됨.
+  final double? userLatitude;
+  final double? userLongitude;
+}
+
+/// 사용자가 사전 등록한 "내 장소" 선택 결과 (ALIAS).
+class SelectedAliasPlace extends SelectedPlace {
+  const SelectedAliasPlace({
+    required this.userPlaceId,
+    required this.aliasName,
+    required this.placeLatitude,
+    required this.placeLongitude,
+    super.userLatitude,
+    super.userLongitude,
+  });
+
+  final int userPlaceId;
+  final String aliasName;
+  final double placeLatitude;
+  final double placeLongitude;
+}
+
+/// 카카오 검색 결과 또는 지도 핀 선택 결과 (SPECIFIC).
+/// kakaoPlaceId는 키워드 검색 결과만 존재, 지도 핀 직접 선택 시 null.
+class SelectedExternalPlace extends SelectedPlace {
+  const SelectedExternalPlace({
+    this.kakaoPlaceId,
+    required this.placeName,
+    required this.placeLatitude,
+    required this.placeLongitude,
+    this.addressName,
+    this.roadAddressName,
     this.phone,
     this.categoryGroupCode,
     this.categoryGroupName,
     this.placeUrl,
+    super.userLatitude,
+    super.userLongitude,
   });
 
-  final String kakaoPlaceId;
-  final String name;
-  final double latitude;
-  final double longitude;
-  final String? address;
-  final String? roadAddress;
+  final String? kakaoPlaceId;
+  final String placeName;
+  final double placeLatitude;
+  final double placeLongitude;
+  final String? addressName;
+  final String? roadAddressName;
   final String? phone;
   final String? categoryGroupCode;
   final String? categoryGroupName;
@@ -54,33 +90,42 @@ class KakaoPlaceItem {
   final String? placeUrl;
   final int? distance; // 미터 단위, 현재 위치 기준
 
+  /// BE 프록시(/api/v1/places/search) 응답의 단건 형태에서 파싱.
+  /// BE가 카카오 응답을 camelCase + 숫자 타입으로 정규화해서 전달.
   factory KakaoPlaceItem.fromJson(Map<String, dynamic> json) {
     return KakaoPlaceItem(
       id: json['id'] as String,
-      placeName: json['place_name'] as String,
-      latitude: double.tryParse(json['y'] as String? ?? '') ?? 0.0,
-      longitude: double.tryParse(json['x'] as String? ?? '') ?? 0.0,
-      categoryGroupCode: json['category_group_code'] as String?,
-      categoryGroupName: json['category_group_name'] as String?,
+      placeName: json['placeName'] as String,
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
+      categoryGroupCode: json['categoryGroupCode'] as String?,
+      categoryGroupName: json['categoryGroupName'] as String?,
       phone: json['phone'] as String?,
-      addressName: json['address_name'] as String?,
-      roadAddressName: json['road_address_name'] as String?,
-      placeUrl: json['place_url'] as String?,
-      distance: int.tryParse(json['distance'] as String? ?? ''),
+      addressName: json['addressName'] as String?,
+      roadAddressName: json['roadAddressName'] as String?,
+      placeUrl: json['placeUrl'] as String?,
+      distance: (json['distanceMeter'] as num?)?.toInt(),
     );
   }
 
-  SelectedKakaoPlace toSelectedPlace() => SelectedKakaoPlace(
+  /// userLatitude/userLongitude는 호출자가 채워야 함 (검색 화면이 가진 GPS 좌표).
+  SelectedExternalPlace toSelectedPlace({
+    double? userLatitude,
+    double? userLongitude,
+  }) =>
+      SelectedExternalPlace(
         kakaoPlaceId: id,
-        name: placeName,
-        latitude: latitude,
-        longitude: longitude,
-        address: addressName,
-        roadAddress: roadAddressName,
+        placeName: placeName,
+        placeLatitude: latitude,
+        placeLongitude: longitude,
+        addressName: addressName,
+        roadAddressName: roadAddressName,
         phone: phone?.isNotEmpty == true ? phone : null,
         categoryGroupCode: categoryGroupCode,
         categoryGroupName: categoryGroupName,
         placeUrl: placeUrl,
+        userLatitude: userLatitude,
+        userLongitude: userLongitude,
       );
 
   String get displayDistance {

@@ -70,6 +70,9 @@ public class TodoDetailResponse {
     @Schema(description = "링크 URL (LINK 입력이 있을 때만 존재)")
     private String sharedUrl;
 
+    @Schema(description = "후보 장소 목록 (DB에 후보가 있으면 todoType 무관하게 포함, 만료된 후보는 제외)")
+    private List<CandidatePlaceResponse> candidates;
+
     @Getter
     @Builder
     @Schema(description = "AI 구조화 결과")
@@ -105,7 +108,8 @@ public class TodoDetailResponse {
                                         List<TodoTimeCondition> timeConditions,
                                         Place primaryPlace,
                                         List<String> imageUrls,
-                                        String sharedUrl) {
+                                        String sharedUrl,
+                                        List<CandidatePlaceResponse> candidates) {
         return TodoDetailResponse.builder()
                 .id(todo.getId())
                 .content(todo.getContent())
@@ -127,6 +131,7 @@ public class TodoDetailResponse {
                 .primaryPlace(primaryPlace != null ? toPlaceResponse(primaryPlace) : null)
                 .imageUrls(imageUrls)
                 .sharedUrl(sharedUrl)
+                .candidates(candidates)
                 .build();
     }
 

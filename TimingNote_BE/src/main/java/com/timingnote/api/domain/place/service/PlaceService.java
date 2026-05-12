@@ -24,7 +24,21 @@ public interface PlaceService {
      * FE가 직접 선택하거나 지도 마커로 찍은 장소를 places 테이블에 저장.
      * - kakaoPlaceId 있음 (Kakao 검색 결과): externalPlaceId로 dedup 후 저장
      * - kakaoPlaceId 없음 (지도 마커 핀): 항상 신규 저장 (dedup 없음)
-     * Google 영업시간 보강은 하지 않는다 (AI structuring 경로에서만 수행).
+     * Google 영업시간 보강은 트랜잭션 커밋 후 비동기로 수행된다.
      */
     Place saveUserSelectedPlace(PlaceUpsertCommand command);
+
+    // ── 비동기 영업시간 보강 진입점 ────────────────────────────────────────
+    // 호출자: PlaceEnrichmentEventListener (AFTER_COMMIT + @Async)
+    // 리스너에서 placeId로 다시 로드 → fresh 트랜잭션에서 Google 호출 + 저장.
+
+    /** 신규 보강(googlePlaceId 없음) — Place name 기반 TextSearch 매칭 후 저장. */
+    void enrichOpeningHoursByPlaceId(Long placeId);
+
+    /** TTL 만료 갱신 — 이미 매핑된 googlePlaceId로 Place Details 호출. */
+    void refreshOpeningHoursByPlaceId(Long placeId);
+
+    /** GENERIC 후보 일괄 보강 — 한 번의 Google TextSearch로 N개 후보 매칭. */
+    void enrichCandidatesByPlaceIds(List<Long> placeIds, String placeText,
+                                    double latitude, double longitude);
 }

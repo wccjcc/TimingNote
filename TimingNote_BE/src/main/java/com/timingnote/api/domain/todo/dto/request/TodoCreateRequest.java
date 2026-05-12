@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.time.OffsetDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -27,4 +28,14 @@ public class TodoCreateRequest {
 
     @Schema(description = "메모 입력 시 사용자 경도 (선택)", example = "129.0585")
     private Double longitude;
+
+    @Schema(description = "이동 방향 (iOS CLLocation.course, degree, 선택)", example = "180.0")
+    private Double course;
+
+    @Schema(description = "위치 측정 시각 (ISO-8601, 선택)", example = "2026-05-07T10:30:00+09:00")
+    private OffsetDateTime occurredAt;
+
+    @Schema(description = "사용자가 명시 선택한 내 장소 ID (선택). 있으면 AI 응답의 placeText 검색 없이 직접 연결.",
+            example = "5")
+    private Long userPlaceId;
 }

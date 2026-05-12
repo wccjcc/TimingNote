@@ -2,18 +2,26 @@ package com.timingnote.api.domain.todo.service;
 
 import com.timingnote.api.common.exception.BusinessException;
 import com.timingnote.api.common.exception.ErrorCode;
+import com.timingnote.api.common.util.GeoUtils;
 import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
+import com.timingnote.api.domain.notification.entity.GeofenceSlot;
+import com.timingnote.api.domain.notification.repository.GeofenceSlotRepository;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
+import com.timingnote.api.domain.notification.service.GeofenceRecalculateOutboxService;
+import com.timingnote.api.domain.place.service.PlaceService;
+import com.timingnote.api.domain.image.service.ImageFinalizeService;
 import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
-import com.timingnote.api.domain.place.service.PlaceService;
+import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
+import com.timingnote.api.domain.todo.dto.request.TodoStatusUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoTimeConditionRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoUpdateRequest;
+import com.timingnote.api.domain.todo.dto.response.CandidatePlaceResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoCreateResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoDetailResponse;
 import com.timingnote.api.domain.todo.dto.response.TodoListItemResponse;
@@ -31,30 +39,29 @@ import com.timingnote.api.domain.todo.enums.InputType;
 import com.timingnote.api.domain.todo.enums.StructureStatus;
 import com.timingnote.api.domain.todo.enums.TodoStatus;
 import com.timingnote.api.domain.todo.enums.TodoType;
-import com.timingnote.api.infra.client.ai.AiPlaceType;
+import com.timingnote.api.domain.todo.search.service.TodoIndexer;
 import com.timingnote.api.infra.client.ai.AiClient;
 import com.timingnote.api.infra.client.ai.dto.AiStructureRequest;
-import com.timingnote.api.infra.client.ai.dto.AiStructureResponse;
-import com.timingnote.api.infra.client.ai.dto.AiTimeCondition;
+import com.timingnote.api.infra.client.ai.dto.UserPlaceAlias;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import reactor.core.scheduler.Schedulers;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+
 import java.time.format.DateTimeParseException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -66,21 +73,26 @@ public class TodoServiceImpl implements TodoService {
     private final TodoStructureRepository todoStructureRepository;
     private final TodoTimeConditionRepository todoTimeConditionRepository;
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
+    private final GeofenceSlotRepository geofenceSlotRepository;
     private final PlaceRepository placeRepository;
     private final UserPlaceRepository userPlaceRepository;
     private final AiClient aiClient;
     private final PlaceService placeService;
+    private final ImageFinalizeService imageFinalizeService;
+    // AI 비동기 콜백의 트랜잭션 경계 위임용 외부 빈 (AOP 프록시 경유 목적)
+    private final TodoStructurePersister structurePersister;
+    // todo CRUD 트랜잭션에 outbox INSERT가 합류 → 롤백 원자성 확보
+    private final GeofenceRecalculateOutboxService outboxService;
+    // ES 검색 인덱스 동기화 — afterCommit 훅 등록 (Todo 내부 이벤트 패턴)
+    private final TodoIndexer todoIndexer;
 
-    // 요일 → 비트마스크 변환 테이블 (MON=1, TUE=2, WED=4, THU=8, FRI=16, SAT=32, SUN=64)
+    // 요일 → 비트마스크 변환 테이블 (updateTodo의 사용자 시간 조건 파싱 전용)
+    // AI 파싱용은 TodoStructurePersister 에서 별도 관리
     private static final Map<String, Integer> DAY_BITMASK = Map.of(
             "MON", 1, "TUE", 2, "WED", 4,
             "THU", 8, "FRI", 16, "SAT", 32, "SUN", 64);
 
-    // @Lazy 자기 참조: subscribe() 콜백 및 동일 빈 내 프록시 경유 호출을 위해 사용.
-    // 자기 자신을 주입받는 구조상 생성자 주입은 순환 참조로 불가능하므로 필드 주입을 허용한다.
-    @Lazy
-    @Autowired
-    private TodoService self;
+    // ── 생성 ─────────────────────────────────────────────────────────────────
 
     @Override
     @Transactional
@@ -89,7 +101,7 @@ public class TodoServiceImpl implements TodoService {
                 .userId(userId)
                 .content(request.getContent())
                 .inputType(request.getInputType())
-                .todoType(TodoType.GENERAL.name())  // AI 구조화 전 기본값, saveStructure()에서 갱신
+                .todoType(TodoType.GENERAL.name())
                 .status(TodoStatus.ACTIVE.name())
                 .structureStatus(StructureStatus.PENDING.name())
                 .alertEnabled(true)
@@ -97,15 +109,21 @@ public class TodoServiceImpl implements TodoService {
 
         Todo savedTodo = todoRepository.save(todo);
 
-        // 원본 입력 보관 (inputType별 필드 분기 — VOICE/IMAGE/LINK는 추후 확장)
         todoInputRepository.save(TodoInput.builder()
                 .todo(savedTodo)
                 .inputType(InputType.valueOf(savedTodo.getInputType()))
                 .originalText(savedTodo.getContent())
                 .build());
 
-        triggerAiAnalysis(savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
-                request.getLatitude(), request.getLongitude());
+        // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue.
+        // userPlaceId가 있으면 ALIAS 매칭 시 검색 쿼리 없이 ID로 직접 연결됨.
+        triggerAiAnalysis(userId, savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
+                request.getLatitude(), request.getLongitude(),
+                request.getCourse(), request.getOccurredAt(),
+                request.getUserPlaceId());
+
+        // PENDING 상태 그대로 색인(content 검색 가능). AI 콜백에서 placeLabel 등 보강 후 재색인.
+        todoIndexer.scheduleAfterCommit(savedTodo.getId());
 
         return TodoCreateResponse.builder()
                 .todoId(savedTodo.getId())
@@ -115,9 +133,14 @@ public class TodoServiceImpl implements TodoService {
                 .build();
     }
 
+    // ── 조회 ─────────────────────────────────────────────────────────────────
+
     @Override
     @Transactional(readOnly = true)
-    public TodoListResponse getTodoList(Long userId, String status, String tab, String placeType, Long cursor, int limit) {
+    public TodoListResponse getTodoList(Long userId, String status, String tab, String placeType,
+                                        Long cursor, int limit,
+                                        Double latitude, Double longitude, Double course, OffsetDateTime occurredAt) {
+        // 좌표 4종은 향후 거리 기반 정렬/필터에 활용 예정 — 현재는 receiving만
         List<Todo> fetched = todoRepository.findTodoPage(
                 userId, status, tab, placeType, cursor, PageRequest.of(0, limit + 1));
 
@@ -126,9 +149,20 @@ public class TodoServiceImpl implements TodoService {
 
         List<Long> todoIds = page.stream().map(Todo::getId).toList();
         Map<Long, String> thumbnailMap = fetchThumbnails(todoIds);
+        Map<Long, Place> placeMap = fetchPrimaryPlaces(page);
+        // GENERIC todo는 primaryPlaceId가 null이라 좌표가 비는데, 목록에 거리 한 줄을 보여주려고
+        // 활성 슬롯을 조회·거리 비교하는 fallback은 비용 대비 가치가 낮다고 판단(상세 페이지에서
+        // 후보별 거리 확인이 가능). primary 좌표만 사용하고 GENERIC은 거리 미표시.
 
         List<TodoListItemResponse> items = page.stream()
-                .map(todo -> TodoListItemResponse.from(todo, thumbnailMap.get(todo.getId())))
+                .map(t -> {
+                    Place place = t.getPrimaryPlaceId() != null
+                            ? placeMap.get(t.getPrimaryPlaceId())
+                            : null;
+                    Double lat = place != null ? place.getLatitude() : null;
+                    Double lng = place != null ? place.getLongitude() : null;
+                    return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng);
+                })
                 .toList();
 
         return TodoListResponse.builder()
@@ -141,39 +175,22 @@ public class TodoServiceImpl implements TodoService {
     @Transactional(readOnly = true)
     public TodoDetailResponse getTodoDetail(Long userId, Long todoId) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
-
-        TodoStructure structure = todoStructureRepository.findByTodo_Id(todoId).orElse(null);
-        List<TodoTimeCondition> timeConditions =
-                todoTimeConditionRepository.findAllByTodo_Id(todoId);
-        Place primaryPlace = (todo.getPrimaryPlaceId() != null)
-                ? placeRepository.findById(todo.getPrimaryPlaceId()).orElse(null)
-                : null;
-        List<String> imageUrls = todoInputRepository
-                .findAllByTodo_IdAndImageUrlIsNotNullOrderByIdAsc(todoId)
-                .stream()
-                .flatMap(input -> input.getImageUrl().stream())
-                .limit(3)
-                .toList();
-        String sharedUrl = todoInputRepository
-                .findFirstByTodo_IdAndSharedUrlIsNotNull(todoId)
-                .map(TodoInput::getSharedUrl)
-                .orElse(null);
-
-        return TodoDetailResponse.of(todo, structure, timeConditions, primaryPlace, imageUrls, sharedUrl);
+        return assembleTodoDetail(todo);
     }
+
+    // ── 수정 ─────────────────────────────────────────────────────────────────
 
     @Override
     @Transactional
     public TodoDetailResponse updateTodo(Long userId, Long todoId, TodoUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
         if (StringUtils.hasText(request.getContent())) {
@@ -184,6 +201,9 @@ public class TodoServiceImpl implements TodoService {
         }
         if (request.getPlaceText() != null) {
             applyPlaceTextUpdate(todo, todoId, request);
+            // 장소 텍스트 변경 → 슬롯 재계산 outbox enqueue (Kakao 재검색은 방금 완료)
+            enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
+                    request.getCourse(), request.getOccurredAt());
         }
         if (request.getTimeConditions() != null) {
             todoTimeConditionRepository.deleteAllByTodo_Id(todoId);
@@ -197,10 +217,12 @@ public class TodoServiceImpl implements TodoService {
         if (request.getImageUrls() != null) {
             todoInputRepository.deleteAllByTodo_IdAndImageUrlIsNotNull(todoId);
             if (!request.getImageUrls().isEmpty()) {
+                // 수정 완료 시점에 temp 이미지 키를 최종 original 키로 확정
+                List<String> finalizedImageKeys = imageFinalizeService.finalizeImageKeys(todoId, request.getImageUrls());
                 todoInputRepository.save(TodoInput.builder()
                         .todo(todo)
                         .inputType(InputType.IMAGE)
-                        .imageUrl(request.getImageUrls())
+                        .imageUrl(finalizedImageKeys)
                         .build());
             }
         }
@@ -215,53 +237,64 @@ public class TodoServiceImpl implements TodoService {
             }
         }
 
-        return self.getTodoDetail(userId, todoId);
+        todoIndexer.scheduleAfterCommit(todoId);
+
+        // self 프록시 없이 직접 조합 — 이미 로드된 todo 재사용으로 이중 SELECT 제거
+        return assembleTodoDetail(todo);
     }
 
     @Override
     @Transactional
-    public void updateAlert(Long userId, Long todoId, boolean alertEnabled) {
+    public void updateAlert(Long userId, Long todoId, TodoAlertUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
-        todo.updateAlertEnabled(alertEnabled);
+        todo.updateAlertEnabled(request.getAlertEnabled());
+        // 알림 on/off → recalculateSlots의 hard rule(alertEnabled) 필터 변경되므로 슬롯 재계산
+        enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
+                request.getCourse(), request.getOccurredAt());
     }
 
     @Override
     @Transactional
-    public void updateStatus(Long userId, Long todoId, String status) {
+    public void updateStatus(Long userId, Long todoId, TodoStatusUpdateRequest request) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
-        todo.updateStatus(status);
+        todo.updateStatus(request.getStatus());
+        // DONE↔ACTIVE 전환 시 monitoring 쿼리(status='ACTIVE') 필터가 바뀌므로 슬롯 재계산
+        enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
+                request.getCourse(), request.getOccurredAt());
+        // status / completedAt 변경 → 검색 색인도 갱신
+        todoIndexer.scheduleAfterCommit(todoId);
     }
+
+    // ── 장소 지정/해제 ────────────────────────────────────────────────────────
 
     @Override
     @Transactional
     public TodoDetailResponse setTodoPlace(Long userId, Long todoId, TodoPlaceSetRequest req) {
-        // 상호 배타 검증
         boolean hasAlias = req.getUserPlaceId() != null;
         boolean hasExternal = req.getExternalPlace() != null;
-        if (hasAlias == hasExternal) {   // 둘 다 있거나 둘 다 없음
+        if (hasAlias == hasExternal) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR);
         }
 
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
         todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
 
         if (hasAlias) {
-            // ── ALIAS: 내 장소 목록에서 선택 ──
             UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(req.getUserPlaceId(), userId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                    .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
             Place place = userPlace.getPlace();
 
             todo.updateTodoType(TodoType.ALIAS.name());
@@ -271,9 +304,7 @@ public class TodoServiceImpl implements TodoService {
 
             log.info("[Todo/Place] todoId={} → ALIAS placeId={} alias='{}'",
                     todoId, place.getId(), userPlace.getAliasName());
-
         } else {
-            // ── SPECIFIC: Kakao 키워드/주소 검색 또는 지도 마커 핀 ──
             TodoPlaceSetRequest.ExternalPlaceInfo ext = req.getExternalPlace();
             Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
                     ext.getKakaoPlaceId(), ext.getPlaceName(),
@@ -294,78 +325,213 @@ public class TodoServiceImpl implements TodoService {
                     todoId, place.getId(), label);
         }
 
-        return self.getTodoDetail(userId, todoId);
-    }
+        // 장소 설정 → 슬롯 재계산 outbox enqueue (후보는 이미 저장됨)
+        enqueueSlotRecalculate(userId, req.getLatitude(), req.getLongitude(),
+                req.getCourse(), req.getOccurredAt());
 
-    /**
-     * SPECIFIC/ALIAS 단건 후보를 todo_candidate_places에 등록한다.
-     * distanceM은 0으로 초기화하며, 다음 geofence 재계산 시 PostGIS 실거리로 갱신된다.
-     */
-    private void saveSingleCandidate(Todo todo, Place place) {
-        todoCandidatePlaceRepository.save(TodoCandidatePlace.builder()
-                .todo(todo)
-                .place(place)
-                .distanceM(0)
-                .isMonitoringTarget(true)
-                .calculatedAt(OffsetDateTime.now(ZoneOffset.UTC))
-                .build());
-    }
+        // resolvedPlaceLabel / primaryPlaceId 변경 → 검색 색인 갱신 (placeName 새로 조인)
+        todoIndexer.scheduleAfterCommit(todoId);
 
-    @Override
-    @Transactional
-    public void deleteTodos(Long userId, List<Long> ids) {
-        if (ids.isEmpty()) return;
-
-        int affected = todoRepository.softDeleteByIdsAndUserId(ids, userId, OffsetDateTime.now(ZoneOffset.UTC));
-        if (affected != ids.size()) {
-            // 일부 ID가 타인 소유이거나 존재하지 않음 → 전체 롤백
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-
-        // 연결된 후보지 정리 (고아 레코드 방지)
-        todoCandidatePlaceRepository.deleteAllByTodoIdIn(ids);
-        log.info("[Todo/Delete] userId={} todoIds={} 소프트 삭제 완료", userId, ids);
+        // 이미 로드된 todo 재사용 — primaryPlaceId 업데이트 후 L1 캐시에서 place 조회
+        return assembleTodoDetail(todo);
     }
 
     @Override
     @Transactional
     public TodoDetailResponse removeTodoPlace(Long userId, Long todoId) {
         Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
         if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
         }
 
-        // 장소 핀 해제: 특정 장소 없는 상태(GENERAL)로 복귀
         todo.updateTodoType(TodoType.GENERAL.name());
         todo.updatePrimaryPlaceId(null);
         todo.updateResolvedPlaceLabel(null);
         todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
 
-        log.info("[Todo/Place] todoId={} 장소 연결 해제", todoId);
+        // 장소 제거 → 좌표 없으면 enqueue 스킵 (다음 액션에서 자연 복구).
+        // 좌표 없이 호출하므로 메모 모드/권한 거부 사용자 보호 가드에 의해 스킵됨.
+        enqueueSlotRecalculate(userId, null, null, null, null);
 
-        return self.getTodoDetail(userId, todoId);
+        // resolvedPlaceLabel / primaryPlaceId 모두 null로 변경 → 검색 색인 갱신
+        todoIndexer.scheduleAfterCommit(todoId);
+
+        log.info("[Todo/Place] todoId={} 장소 연결 해제", todoId);
+        return assembleTodoDetail(todo);
+    }
+
+    // ── 삭제 ─────────────────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public void deleteTodos(Long userId, List<Long> ids,
+                            Double latitude, Double longitude, Double course, OffsetDateTime occurredAt) {
+        if (ids.isEmpty()) return;
+
+        int affected = todoRepository.softDeleteByIdsAndUserId(ids, userId, OffsetDateTime.now());
+        if (affected != ids.size()) {
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
+        }
+
+        todoCandidatePlaceRepository.deleteAllByTodoIdIn(ids);
+        log.info("[Todo/Delete] userId={} todoIds={} 소프트 삭제 완료", userId, ids);
+
+        // 삭제된 todo 슬롯 비활성화 — candidates 제거 후 재계산으로 geofence_slots 정리
+        enqueueSlotRecalculate(userId, latitude, longitude, course, occurredAt);
+
+        // status=DELETED로 색인 갱신 → 검색 쿼리의 must_not 필터로 자연 제외
+        ids.forEach(todoIndexer::scheduleAfterCommit);
+    }
+
+    // ── 상세 응답 조립 ────────────────────────────────────────────────────────
+
+    /**
+     * 이미 로드된 Todo 엔티티를 기반으로 상세 응답을 조립한다.
+     *
+     * <p>호출 맥락:
+     * <ul>
+     *   <li>{@link #getTodoDetail}: 소유권 검증 후 호출 (readOnly 트랜잭션)</li>
+     *   <li>{@link #updateTodo}, {@link #setTodoPlace}, {@link #removeTodoPlace}:
+     *       이미 로드·수정된 todo 재사용 → todoRepository.findById 이중 호출 제거</li>
+     * </ul>
+     *
+     * <p>primaryPlaceId가 있을 때 placeRepository.findById 는 동일 트랜잭션 L1 캐시에서 처리된다.
+     */
+    private TodoDetailResponse assembleTodoDetail(Todo todo) {
+        Long todoId = todo.getId();
+        TodoStructure structure = todoStructureRepository.findByTodo_Id(todoId).orElse(null);
+        List<TodoTimeCondition> timeConditions = todoTimeConditionRepository.findAllByTodo_Id(todoId);
+        Place primaryPlace = (todo.getPrimaryPlaceId() != null)
+                ? placeRepository.findById(todo.getPrimaryPlaceId()).orElse(null)
+                : null;
+        List<String> imageUrls = todoInputRepository
+                .findAllByTodo_IdAndImageUrlIsNotNullOrderByIdAsc(todoId)
+                .stream()
+                .flatMap(input -> input.getImageUrl().stream())
+                .limit(3)
+                .toList();
+        String sharedUrl = todoInputRepository
+                .findFirstByTodo_IdAndSharedUrlIsNotNull(todoId)
+                .map(TodoInput::getSharedUrl)
+                .orElse(null);
+
+        List<CandidatePlaceResponse> candidates = buildCandidateResponses(todo);
+
+        return TodoDetailResponse.of(todo, structure, timeConditions, primaryPlace, imageUrls, sharedUrl, candidates);
     }
 
     /**
-     * updateTodo에서 placeText 변경을 처리하는 로직을 분리한 메서드.
-     * Cognitive Complexity 감소를 위해 추출.
-     * - 빈 문자열("") → 장소 완전 제거 (GENERAL)
-     * - non-empty → 포괄 장소(GENERIC)로 전환 후 Kakao 후보 재검색
+     * 후보 장소 목록을 응답용으로 조립한다 (디버깅 가시성용).
+     *
+     * <p>가시성 목적: 사용자에게는 "어떤 후보가 모니터링 중인지", 개발자에게는
+     * "왜 알림이 안 왔는지(점수/거리/활성 여부)" 디버깅 단서를 제공한다.
+     *
+     * <p>가드 정책: todoType 무관하게 <b>DB에 후보가 존재하면</b> 응답에 포함한다.
+     * 이유: validator 보정/AI 재분류/외부 동기화 등의 흐름에서 todoType이 SPECIFIC/ALIAS로
+     * 굳었더라도 todo_candidate_places 에는 GENERIC 시절의 잔여 후보가 남아있을 수 있다.
+     * 알림 디버깅의 목적상 이런 데이터도 보여주는 게 사용자/개발자 모두에게 유익하다.
+     * GENERIC이 아닌 todo는 자연스럽게 후보가 0개라 빈 배열로 나간다.
+     *
+     * <p>쿼리 2건만 추가됨:
+     * <ul>
+     *   <li>{@code findAllWithPlaceByTodoId} — JOIN FETCH로 N+1 방지</li>
+     *   <li>{@code findByUserIdAndActiveTrue} — 사용자 활성 슬롯 일괄 조회 (상한 18개)</li>
+     * </ul>
+     *
+     * <p>만료된 후보(expiresAt != null)는 사용자에게 노이즈이므로 응답에서 제외한다.
+     * 정렬은 활성 슬롯 우선 → 거리 ASC. FE가 상위 N개를 미리보기로 띄울 때
+     * "지금 알림 감지중인 후보"가 먼저 보이도록 한다.
+     */
+    private List<CandidatePlaceResponse> buildCandidateResponses(Todo todo) {
+        List<TodoCandidatePlace> candidates =
+                todoCandidatePlaceRepository.findAllWithPlaceByTodoId(todo.getId());
+        if (candidates.isEmpty()) return List.of();
+
+        Set<Long> activePlaceIds = geofenceSlotRepository
+                .findByUserIdAndActiveTrue(todo.getUserId())
+                .stream()
+                .filter(s -> todo.getId().equals(s.getTodoId()))
+                .map(GeofenceSlot::getPlaceId)
+                .collect(Collectors.toSet());
+
+        // 정렬: 활성 슬롯 우선 → 그 안에서 거리 오름차순.
+        // FE가 상위 N개를 미리보기로 띄울 때 "지금 알림 감지중인 후보"가 먼저 보이도록 한다.
+        Comparator<TodoCandidatePlace> byActiveFirst =
+                Comparator.comparing((TodoCandidatePlace c) ->
+                        activePlaceIds.contains(c.getPlace().getId()) ? 0 : 1);
+        Comparator<TodoCandidatePlace> byDistanceAsc =
+                Comparator.comparing(TodoCandidatePlace::getDistanceM,
+                        Comparator.nullsLast(Comparator.naturalOrder()));
+
+        return candidates.stream()
+                .filter(c -> c.getExpiresAt() == null)
+                .sorted(byActiveFirst.thenComparing(byDistanceAsc))
+                .map(c -> CandidatePlaceResponse.from(
+                        c, activePlaceIds.contains(c.getPlace().getId())))
+                .toList();
+    }
+
+    // ── AI 분석 트리거 ────────────────────────────────────────────────────────
+
+    /**
+     * AI 구조화 요청을 비동기로 발사한다.
+     *
+     * <p>subscribe 콜백은 reactor-http-nio 스레드에서 실행되므로
+     * JPA 블로킹 작업을 boundedElastic 으로 위임한다.
+     * {@code structurePersister}는 외부 빈 참조 → Spring AOP 프록시 경유 →
+     * {@code @Transactional} 새 트랜잭션 정상 시작.
+     */
+    private void triggerAiAnalysis(Long userId, Long todoId, String inputType, String content,
+                                   Double latitude, Double longitude,
+                                   Double course, OffsetDateTime occurredAt,
+                                   Long userPlaceId) {
+        List<UserPlaceAlias> aliases = userPlaceRepository.findWithPlaceByUserId(userId).stream()
+                .map(up -> UserPlaceAlias.builder().alias(up.getAliasName()).build())
+                .toList();
+
+        AiStructureRequest aiRequest = AiStructureRequest.builder()
+                .todoId(todoId)
+                .inputType(inputType)
+                .originalText(content)
+                .userPlaceAliases(aliases)
+                .build();
+
+        aiClient.structureMemo(aiRequest)
+                .subscribe(
+                        response -> {
+                            if (response == null) return;
+                            // boundedElastic: 트랜잭션 없는 스레드에서 save() 실행 → 커밋 완료 후 outbox enqueue
+                            // enqueue는 자체 @Transactional로 새 트랜잭션 시작 → 정상 동작
+                            Schedulers.boundedElastic().schedule(() -> {
+                                structurePersister.save(todoId, response, latitude, longitude, userPlaceId);
+                                enqueueSlotRecalculate(userId, latitude, longitude, course, occurredAt);
+                            });
+                        },
+                        e -> {
+                            log.error("[AI] 구조화 실패 todoId={}", todoId, e);
+                            Schedulers.boundedElastic().schedule(
+                                    () -> structurePersister.markFailed(todoId)
+                            );
+                        }
+                );
+    }
+
+    // ── 장소 헬퍼 ────────────────────────────────────────────────────────────
+
+    /**
+     * placeText 변경 처리: "" = 장소 제거(GENERAL), non-empty = GENERIC으로 전환.
      */
     private void applyPlaceTextUpdate(Todo todo, Long todoId, TodoUpdateRequest request) {
         if (request.getPlaceText().isEmpty()) {
-            // "" → 장소 완전 제거
             todo.updateResolvedPlaceLabel(null);
             todo.updatePrimaryPlaceId(null);
             todo.updateTodoType(TodoType.GENERAL.name());
             todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
         } else {
-            // non-empty → 포괄 장소(GENERIC)로 변경
             todo.updateResolvedPlaceLabel(request.getPlaceText());
             todo.updatePrimaryPlaceId(null);
             todo.updateTodoType(TodoType.GENERIC.name());
-            // 기존 후보 제거 후 새 후보 조회·등록
             todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
             resolveAndSaveGenericCandidates(todo, request.getPlaceText(),
                     request.getLatitude(), request.getLongitude());
@@ -373,8 +539,8 @@ public class TodoServiceImpl implements TodoService {
     }
 
     /**
-     * GENERIC 후보 장소를 Kakao에서 검색해 todo_candidate_places에 저장한다.
-     * 좌표가 없으면 후보 검색 자체를 건너뛴다 (PlaceService 내부에서 빈 리스트 반환).
+     * GENERIC 후보 장소를 Kakao에서 검색해 todo_candidate_places에 저장.
+     * 좌표 없으면 스킵.
      */
     private void resolveAndSaveGenericCandidates(Todo todo, String placeText,
                                                   Double latitude, Double longitude) {
@@ -389,25 +555,96 @@ public class TodoServiceImpl implements TodoService {
             return;
         }
 
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime now = OffsetDateTime.now();
         List<TodoCandidatePlace> records = candidates.stream()
-                .map(place -> {
-                    int distanceM = haversineMeters(latitude, longitude,
-                            place.getLatitude(), place.getLongitude());
-                    return TodoCandidatePlace.builder()
-                            .todo(todo)
-                            .place(place)
-                            .distanceM(distanceM)
-                            .isMonitoringTarget(true)
-                            .calculatedAt(now)
-                            .build();
-                })
+                .map(place -> TodoCandidatePlace.builder()
+                        .todo(todo)
+                        .place(place)
+                        .distanceM((int) Math.round(
+                                GeoUtils.distanceMeters(latitude, longitude,
+                                        place.getLatitude(), place.getLongitude())))
+                        .isMonitoringTarget(true)
+                        .calculatedAt(now)
+                        .build())
                 .toList();
 
         todoCandidatePlaceRepository.saveAll(records);
         log.info("[Todo/Generic] todoId={} → 후보 {}개 저장", todo.getId(), records.size());
     }
 
+    /**
+     * SPECIFIC/ALIAS 단건 후보를 todo_candidate_places에 등록.
+     * distanceM = 0 초기화, 다음 geofence 재계산 시 PostGIS 실거리로 갱신됨.
+     */
+    private void saveSingleCandidate(Todo todo, Place place) {
+        todoCandidatePlaceRepository.save(TodoCandidatePlace.builder()
+                .todo(todo)
+                .place(place)
+                .distanceM(0)
+                .isMonitoringTarget(true)
+                .calculatedAt(OffsetDateTime.now())
+                .build());
+    }
+
+    // ── 목록 조회 헬퍼 ────────────────────────────────────────────────────────
+
+    private Map<Long, String> fetchThumbnails(List<Long> todoIds) {
+        if (todoIds.isEmpty()) return Map.of();
+        return todoInputRepository.findAllByTodo_IdInAndImageUrlIsNotNullOrderByIdAsc(todoIds)
+                .stream()
+                .filter(input -> !input.getImageUrl().isEmpty())
+                .collect(Collectors.toMap(
+                        input -> input.getTodo().getId(),
+                        input -> input.getImageUrl().get(0),
+                        (a, b) -> a   // 동일 todoId에 IMAGE input 복수 시 첫 번째 유지
+                ));
+    }
+
+    /**
+     * 페이지의 primaryPlaceId 모아 한 번에 Place 조회 (N+1 회피).
+     * GENERIC/매칭 미완 todo는 primaryPlaceId가 null이므로 맵에 들어오지 않는다.
+     */
+    private Map<Long, Place> fetchPrimaryPlaces(List<Todo> todos) {
+        List<Long> placeIds = todos.stream()
+                .map(Todo::getPrimaryPlaceId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (placeIds.isEmpty()) return Map.of();
+        return placeRepository.findAllById(placeIds).stream()
+                .collect(Collectors.toMap(Place::getId, p -> p));
+    }
+
+    // ── Geofence 재계산 ───────────────────────────────────────────────────────
+
+    /**
+     * Todo CRUD 트랜잭션 안에서 호출하면 같은 트랜잭션에 outbox row INSERT가 합류(REQUIRED)
+     * → todo 변경과 outbox row가 원자적으로 커밋/롤백된다.
+     *
+     * <p>좌표 없으면 슬롯 재계산 의미 없음 — 메모 모드 사용자(위치 권한 거부) 보호.
+     * BE의 {@code recalculateSlots}는 좌표 필수 contract이므로 호출 자체를 스킵한다.
+     * occurredAt은 outbox 시그니처 미지원으로 receiving만 (정우주 영역 확장 시 전달 예정).
+     */
+    private void enqueueSlotRecalculate(Long userId, Double lat, Double lon, Double course, OffsetDateTime occurredAt) {
+        if (lat == null || lon == null) {
+            log.debug("[Todo] 좌표 없음 → 슬롯 재계산 enqueue 스킵 userId={}", userId);
+            return;
+        }
+        outboxService.enqueue(
+                userId,
+                BigDecimal.valueOf(lat),
+                BigDecimal.valueOf(lon),
+                course != null ? BigDecimal.valueOf(course) : null
+        );
+    }
+
+    // ── 시간 조건 빌더 (사용자 요청 DTO 전용) ────────────────────────────────
+
+    /**
+     * 사용자가 직접 입력한 시간 조건({@link TodoTimeConditionRequest})을 엔티티로 변환.
+     * AI 응답 DTO({@link com.timingnote.api.infra.client.ai.dto.AiTimeCondition}) 변환은
+     * {@link TodoStructurePersister}에서 처리.
+     */
     private TodoTimeCondition buildTimeCondition(Todo todo, TodoTimeConditionRequest tc) {
         return TodoTimeCondition.builder()
                 .todo(todo)
@@ -419,163 +656,6 @@ public class TodoServiceImpl implements TodoService {
                 .daysOfWeek(toDayBitmask(tc.getDaysOfWeek()))
                 .rawExpression(tc.getRawExpression())
                 .build();
-    }
-
-    private Map<Long, String> fetchThumbnails(List<Long> todoIds) {
-        if (todoIds.isEmpty()) return Map.of();
-        return todoInputRepository.findAllByTodo_IdInAndImageUrlIsNotNullOrderByIdAsc(todoIds)
-                .stream()
-                .filter(input -> !input.getImageUrl().isEmpty())
-                .collect(Collectors.toMap(
-                        input -> input.getTodo().getId(),
-                        input -> input.getImageUrl().get(0),
-                        (a, b) -> a  // 동일 todoId에 IMAGE input이 복수일 경우 첫 번째 유지
-                ));
-    }
-
-    private void triggerAiAnalysis(Long todoId, String inputType, String content,
-                                   Double latitude, Double longitude) {
-        AiStructureRequest aiRequest = AiStructureRequest.builder()
-                .todoId(todoId)
-                .inputType(inputType)
-                .originalText(content)
-                // TODO: user_places 구현 후 userId 기반으로 별칭 목록 조회하여 주입
-                .build();
-
-        aiClient.structureMemo(aiRequest)
-                .subscribe(
-                        response -> {
-                            if (response == null) return;
-                            // reactor-http-nio 스레드에서 .block() 금지 → boundedElastic 으로 직접 스케줄링
-                            // publishOn 은 WebClientAdapter 내부 operator fusion 으로 무력화될 수 있어
-                            // schedule() 은 확실하게 해당 스레드 풀에서 실행 보장
-                            Schedulers.boundedElastic().schedule(
-                                    () -> self.saveStructure(todoId, response, latitude, longitude)
-                            );
-                        },
-                        e -> {
-                            log.error("[AI] 구조화 실패 (todoId={}): {}", todoId, e.getMessage());
-                            Schedulers.boundedElastic().schedule(
-                                    () -> self.markStructureFailed(todoId)
-                            );
-                        }
-                );
-    }
-
-    @Override
-    @Transactional
-    public void saveStructure(Long todoId, AiStructureResponse response, Double latitude, Double longitude) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new IllegalStateException("Todo not found: " + todoId));
-
-        // 1. AiPlaceType 변환 (파싱 실패 시 GENERAL로 fallback)
-        AiPlaceType placeType = parseEnum(AiPlaceType.class, response.getPlaceType(), AiPlaceType.GENERAL);
-        String todoType = placeType.name();
-
-        // 2. TodoStructure 저장
-        TodoStructure structure = TodoStructure.builder()
-                .todo(todo)
-                .todoText(response.getTodoText())
-                .category(response.getCategory())
-                .placeType(placeType)
-                .placeText(response.getPlaceText())
-                .timeHintText(response.getTimeHintText())
-                .modelUsed(response.getModelUsed() != null ? response.getModelUsed() : "unknown")
-                .requestId(response.getRequestId())
-                .rawResultJson(response.getRawResultJson())
-                .build();
-
-        todoStructureRepository.save(structure);
-
-        // 3. 시간 조건 저장
-        List<AiTimeCondition> timeConditions = response.getTimeConditions();
-        if (timeConditions != null && !timeConditions.isEmpty()) {
-            List<TodoTimeCondition> conditions = timeConditions.stream()
-                    .map(tc -> TodoTimeCondition.builder()
-                            .todo(todo)
-                            .conditionType(parseConditionType(tc.getConditionType()))
-                            .startDate(parseDate(tc.getStartDate()))
-                            .endDate(parseDate(tc.getEndDate()))
-                            .startTime(parseTime(tc.getStartTime()))
-                            .endTime(parseTime(tc.getEndTime()))
-                            .daysOfWeek(toDayBitmask(tc.getDaysOfWeek()))
-                            .rawExpression(tc.getRawExpression())
-                            .build())
-                    .toList();
-            todoTimeConditionRepository.saveAll(conditions);
-        }
-
-        // 4. 장소 연동 (placeType에 따라 분기)
-        String placeText = response.getPlaceText();
-        if (placeType == AiPlaceType.SPECIFIC && StringUtils.hasText(placeText)) {
-            // SPECIFIC: 좌표 없어도 Kakao 전국 accuracy 검색 시도 (지점명 포함이라 정확도 충분)
-            // 위치 권한이 없어도 place 저장 → Geofence 등록은 알림 서버가 처리
-            // (진입 감지는 OS가 위치 권한 필요 → 알림 서버에서 권한 요청 메시지 발송)
-            placeService.resolveSpecificPlace(placeText, latitude, longitude)
-                    .ifPresent(place -> todo.updatePrimaryPlaceId(place.getId()));
-
-        } else if (placeType == AiPlaceType.GENERIC
-                && StringUtils.hasText(placeText)
-                && latitude != null && longitude != null) {
-            // GENERIC: 반경 검색이므로 좌표 필수. 위치 권한 없으면 스킵.
-            List<Place> candidates = placeService.resolveGenericCandidates(placeText, latitude, longitude);
-            if (!candidates.isEmpty()) {
-                java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
-                List<TodoCandidatePlace> candidatePlaces = candidates.stream()
-                        .map(place -> TodoCandidatePlace.builder()
-                                .todo(todo)
-                                .place(place)
-                                .distanceM(haversineMeters(
-                                        latitude, longitude,
-                                        place.getLatitude(), place.getLongitude()))
-                                .isMonitoringTarget(true)
-                                .calculatedAt(now)
-                                .build())
-                        .toList();
-                todoCandidatePlaceRepository.saveAll(candidatePlaces);
-                log.info("[Place] GENERIC 후보 {} 개 저장 (todoId={})", candidates.size(), todoId);
-            }
-
-        } else if (placeType == AiPlaceType.GENERIC && (latitude == null || longitude == null)) {
-            log.info("[Place] GENERIC — 위치 권한 없음, 장소 연동 스킵 (todoId={}, placeText={})", todoId, placeText);
-        }
-
-        // 5. Todo 상태 갱신
-        todo.updateTodoType(todoType);
-        if (StringUtils.hasText(response.getCategory())) {
-            todo.updateCategory(response.getCategory());
-        }
-        if (StringUtils.hasText(placeText)) {
-            todo.updateResolvedPlaceLabel(placeText);
-        }
-        todo.updateStructureStatus(StructureStatus.READY.name());
-
-        log.info("[AI] 구조화 저장 완료 (todoId={}, todoType={}, placeType={})", todoId, todoType, placeType);
-    }
-
-    @Override
-    @Transactional
-    public void markStructureFailed(Long todoId) {
-        todoRepository.findById(todoId).ifPresent(todo -> {
-            todo.updateStructureStatus(StructureStatus.FAILED.name());
-            log.warn("[AI] 구조화 FAILED 처리 (todoId={})", todoId);
-        });
-    }
-
-    private ConditionType parseConditionType(String value) {
-        if (!StringUtils.hasText(value)) return null;
-        if ("WEEKDAY".equalsIgnoreCase(value)) return ConditionType.WEEK;
-        return parseEnum(ConditionType.class, value, null);
-    }
-
-    private <E extends Enum<E>> E parseEnum(Class<E> enumClass, String value, E fallback) {
-        if (!StringUtils.hasText(value)) return fallback;
-        try {
-            return Enum.valueOf(enumClass, value);
-        } catch (IllegalArgumentException e) {
-            log.warn("[AI] 알 수 없는 enum 값 '{}' → {} 로 fallback", value, fallback);
-            return fallback;
-        }
     }
 
     private Short toDayBitmask(List<String> days) {
@@ -591,8 +671,9 @@ public class TodoServiceImpl implements TodoService {
         try {
             return LocalDate.parse(value);
         } catch (DateTimeParseException e) {
-            log.warn("[AI] 날짜 파싱 실패: {}", value);
-            return null;
+            // 사용자 직접 입력 경로에서만 호출됨 (buildTimeCondition).
+            // AI 응답 파싱 경로의 silent fallback은 TodoStructurePersister 쪽.
+            throw new BusinessException(ErrorCode.TODO_INVALID_TIME_FORMAT);
         }
     }
 
@@ -601,19 +682,7 @@ public class TodoServiceImpl implements TodoService {
         try {
             return LocalTime.parse(value);
         } catch (DateTimeParseException e) {
-            log.warn("[AI] 시간 파싱 실패: {}", value);
-            return null;
+            throw new BusinessException(ErrorCode.TODO_INVALID_TIME_FORMAT);
         }
-    }
-
-    /** Haversine 공식으로 두 좌표 간 거리(m) 계산 */
-    private static int haversineMeters(double lat1, double lon1, double lat2, double lon2) {
-        final double R = 6_371_000.0;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
-                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return (int) Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 }

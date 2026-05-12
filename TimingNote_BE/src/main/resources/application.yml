@@ -29,6 +29,11 @@ spring:
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
 
+  elasticsearch:
+    uris: http://${ELASTICSEARCH_HOST:localhost}:${ELASTICSEARCH_PORT:9200}
+    connection-timeout: 2s
+    socket-timeout: 5s
+
 ai:
   server:
     url: ${AI_SERVER_URL:http://localhost:8000}
@@ -46,6 +51,15 @@ google:
 
 server:
   port: ${SERVER_PORT:8080}
+  # Windows/Tomcat 환경에서 한글 query string이 깨지는 현상 방지.
+  # /api/v1/todos/search?q=약국 같은 한국어 검색어가 ES로 그대로 전달되도록 강제.
+  tomcat:
+    uri-encoding: UTF-8
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 
 swagger:
   server-url: ${SWAGGER_SERVER_URL:}
@@ -73,6 +87,7 @@ app:
   s3:
     bucket: ${AWS_S3_BUCKET}
     presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:10}
+    max-upload-size-bytes: 20971520
     original-prefix: ${AWS_S3_ORIGINAL_PREFIX:uploads/original}
     resized-prefix: ${AWS_S3_RESIZED_PREFIX:uploads/resized}
     thumbnail-prefix: ${AWS_S3_THUMBNAIL_PREFIX:uploads/thumbnail}
@@ -96,8 +111,21 @@ app:
       default-max-retry-count: 5
       retry-base-seconds: 5
       retry-max-seconds: 300
+  search:
+    todo-index: ${TODO_SEARCH_INDEX:todos}
+    enabled: ${SEARCH_ENABLED:true}
+    admin-secret: ${ADMIN_INTERNAL_SECRET:}
 
 firebase:
   admin-sdk-path: ${FIREBASE_ACCOUNT_PATH}
+
+# 환경변수 LOG_LEVEL_APP / LOG_LEVEL_ROOT 로 운영 중 오버라이드.
+# 프로파일별 yml에서 더 세부 키를 추가하면 이 디폴트보다 우선 적용됨.
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.timingnote: ${LOG_LEVEL_APP:INFO}
+    org.springframework.web.servlet.resource.ResourceHttpRequestHandler: WARN
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: WARN
 
 

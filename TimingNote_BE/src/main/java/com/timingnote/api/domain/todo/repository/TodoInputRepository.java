@@ -17,6 +17,9 @@ public interface TodoInputRepository extends JpaRepository<TodoInput, Long> {
 
     Optional<TodoInput> findFirstByTodo_IdAndSharedUrlIsNotNull(Long todoId);
 
+    @Query(value = "SELECT * FROM todo_inputs ti WHERE ti.image_url IS NOT NULL AND jsonb_exists(ti.image_url::jsonb, :imageKey)", nativeQuery = true)
+    List<TodoInput> findAllByImageUrlContainingKey(@Param("imageKey") String imageKey);
+
     @Modifying
     @Query("DELETE FROM TodoInput ti WHERE ti.todo.id = :todoId AND ti.imageUrl IS NOT NULL")
     void deleteAllByTodo_IdAndImageUrlIsNotNull(@Param("todoId") Long todoId);

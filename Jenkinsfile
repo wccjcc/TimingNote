@@ -59,6 +59,10 @@ pipeline {
                     GMS_BASE_URL
                     MAIN_MODEL
                     STT_MODEL
+                    AWS_ACCESS_KEY_ID
+                    AWS_SECRET_ACCESS_KEY
+                    AWS_REGION
+                    AWS_S3_BUCKET
                     "
 
                     for key in $required_keys; do

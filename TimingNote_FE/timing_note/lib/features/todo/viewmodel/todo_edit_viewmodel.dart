@@ -1,5 +1,9 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:typed_data';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../../../core/location/location_provider.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
@@ -17,10 +21,12 @@ class TodoEditState {
     this.latitude,
     this.longitude,
     this.imageUrls,
+    this.imagePreviewBytes = const {},
     this.sharedUrl,
     this.timeConditions,
     this.isLoading = false,
     this.isSaving = false,
+    this.isUploadingImage = false,
     this.error,
     this.savedDetail,
   });
@@ -29,18 +35,20 @@ class TodoEditState {
   final String? content;
   final String? category;
   final String? placeText;
-  final double? latitude;   // placeText GENERIC 전환 시 Kakao 후보 검색에 사용
+  final double? latitude; // placeText GENERIC 전환 시 Kakao 후보 검색에 사용
   final double? longitude;
   final List<String>? imageUrls;
+  final Map<String, Uint8List> imagePreviewBytes;
   final String? sharedUrl;
   final List<TimeConditionRequest>? timeConditions;
   final bool isLoading;
   final bool isSaving;
+  final bool isUploadingImage;
   final String? error;
   final TodoDetail? savedDetail;
 
   bool get isReady => original != null && !isLoading;
-  bool get canSave => isReady && !isSaving;
+  bool get canSave => isReady && !isSaving && !isUploadingImage;
 
   TodoEditState copyWith({
     TodoDetail? original,
@@ -50,10 +58,12 @@ class TodoEditState {
     double? latitude,
     double? longitude,
     List<String>? imageUrls,
+    Map<String, Uint8List>? imagePreviewBytes,
     String? sharedUrl,
     List<TimeConditionRequest>? timeConditions,
     bool? isLoading,
     bool? isSaving,
+    bool? isUploadingImage,
     String? error,
     bool clearError = false,
     TodoDetail? savedDetail,
@@ -66,10 +76,12 @@ class TodoEditState {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       imageUrls: imageUrls ?? this.imageUrls,
+      imagePreviewBytes: imagePreviewBytes ?? this.imagePreviewBytes,
       sharedUrl: sharedUrl ?? this.sharedUrl,
       timeConditions: timeConditions ?? this.timeConditions,
       isLoading: isLoading ?? this.isLoading,
       isSaving: isSaving ?? this.isSaving,
+      isUploadingImage: isUploadingImage ?? this.isUploadingImage,
       error: clearError ? null : (error ?? this.error),
       savedDetail: savedDetail ?? this.savedDetail,
     );
@@ -102,6 +114,7 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
         category: detail.category ?? TodoCategory.etc,
         placeText: detail.structure?.placeText ?? '',
         imageUrls: List<String>.from(detail.imageUrls),
+        imagePreviewBytes: const {},
         sharedUrl: detail.sharedUrl ?? '',
         timeConditions: detail.timeConditions
             .map(TimeConditionRequest.fromCondition)
@@ -133,10 +146,45 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
 
   void removeImageUrl(String url) {
     final current = List<String>.from(state.imageUrls ?? [])..remove(url);
-    state = state.copyWith(imageUrls: current);
+    final preview = Map<String, Uint8List>.from(state.imagePreviewBytes)
+      ..remove(url);
+    state = state.copyWith(imageUrls: current, imagePreviewBytes: preview);
   }
 
   void clearImageUrls() => state = state.copyWith(imageUrls: []);
+
+  /// 갤러리에서 선택한 이미지를 바로 S3에 업로드하고 objectKey를 상태에 추가한다.
+  /// 화면에서는 이 메서드만 호출하면 되어, 업로드/오류/중복제어를 한 곳에서 관리할 수 있다.
+  Future<void> uploadPickedImage(XFile imageFile) async {
+    if (state.isUploadingImage) return;
+
+    final current = List<String>.from(state.imageUrls ?? []);
+    if (current.length >= 3) {
+      state = state.copyWith(error: '이미지는 최대 3장까지 등록할 수 있습니다.');
+      return;
+    }
+
+    state = state.copyWith(isUploadingImage: true, clearError: true);
+    try {
+      // 업로드 전 바이트를 읽어 로컬 미리보기에 사용한다.
+      final previewBytes = await imageFile.readAsBytes();
+      final objectKey = await _service.uploadImageToS3(imageFile: imageFile);
+      final current = List<String>.from(state.imageUrls ?? []);
+      if (!current.contains(objectKey)) current.add(objectKey);
+      final preview = Map<String, Uint8List>.from(state.imagePreviewBytes)
+        ..[objectKey] = previewBytes;
+      state = state.copyWith(
+        imageUrls: current,
+        imagePreviewBytes: preview,
+        isUploadingImage: false,
+      );
+    } catch (_) {
+      state = state.copyWith(
+        isUploadingImage: false,
+        error: '이미지 업로드에 실패했습니다. 잠시 후 다시 시도해주세요.',
+      );
+    }
+  }
 
   // ── 시간 조건 관리 ────────────────────────────────────────────────
 
@@ -169,29 +217,29 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
 
     final orig = state.original!;
 
-    final contentToSend =
-        state.content != orig.content ? state.content : null;
-    final categoryToSend =
-        (state.category ?? '') != (orig.category ?? '') ? state.category : null;
+    final contentToSend = state.content != orig.content ? state.content : null;
+    final categoryToSend = (state.category ?? '') != (orig.category ?? '')
+        ? state.category
+        : null;
     final placeTextToSend =
         (state.placeText ?? '') != (orig.structure?.placeText ?? '')
-            ? state.placeText
-            : null;
-    final sharedUrlToSend =
-        (state.sharedUrl ?? '') != (orig.sharedUrl ?? '')
-            ? state.sharedUrl
-            : null;
+        ? state.placeText
+        : null;
+    final sharedUrlToSend = (state.sharedUrl ?? '') != (orig.sharedUrl ?? '')
+        ? state.sharedUrl
+        : null;
 
     final origImages = orig.imageUrls;
     final editImages = state.imageUrls ?? origImages;
-    final imageUrlsToSend =
-        _listEquals(origImages, editImages) ? null : editImages;
+    final imageUrlsToSend = _listEquals(origImages, editImages)
+        ? null
+        : editImages;
 
     final origTcKeys = orig.timeConditions.map(_tcKey).toList();
-    final editTcKeys =
-        (state.timeConditions ?? []).map(_tcRequestKey).toList();
-    final timeConditionsToSend =
-        _listStringEquals(origTcKeys, editTcKeys) ? null : state.timeConditions;
+    final editTcKeys = (state.timeConditions ?? []).map(_tcRequestKey).toList();
+    final timeConditionsToSend = _listStringEquals(origTcKeys, editTcKeys)
+        ? null
+        : state.timeConditions;
 
     if (contentToSend == null &&
         categoryToSend == null &&
@@ -205,18 +253,20 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
     state = state.copyWith(isSaving: true, clearError: true);
 
     try {
+      // placeText가 non-empty면 GENERIC 후보 검색 + 슬롯 재계산이 일어나므로 GPS 호출 — forceFresh.
+      final needsLocation =
+          placeTextToSend != null && placeTextToSend.isNotEmpty;
+      final gps = needsLocation ? await tryGetGpsSnapshot(ref, forceFresh: true) : null;
+
       final updated = await _service.update(
         _todoId,
         content: contentToSend,
         category: categoryToSend,
         placeText: placeTextToSend,
-        // placeText가 non-empty일 때만 좌표 전달 (GENERIC 후보 검색용)
-        latitude: (placeTextToSend != null && placeTextToSend.isNotEmpty)
-            ? state.latitude
-            : null,
-        longitude: (placeTextToSend != null && placeTextToSend.isNotEmpty)
-            ? state.longitude
-            : null,
+        latitude: gps?.latitude ?? (needsLocation ? state.latitude : null),
+        longitude: gps?.longitude ?? (needsLocation ? state.longitude : null),
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
         sharedUrl: sharedUrlToSend,
         imageUrls: imageUrlsToSend,
         timeConditions: timeConditionsToSend,
@@ -246,8 +296,7 @@ class TodoEditNotifier extends AutoDisposeFamilyNotifier<TodoEditState, int> {
     return true;
   }
 
-  bool _listStringEquals(List<String> a, List<String> b) =>
-      _listEquals(a, b);
+  bool _listStringEquals(List<String> a, List<String> b) => _listEquals(a, b);
 
   String _tcKey(dynamic tc) =>
       '${tc.conditionType}|${tc.startDate}|${tc.endDate}|'

@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/location/location_provider.dart';
+import '../../mypage/model/user_place.dart';
 import '../model/todo.dart';
 import '../service/todo_service.dart';
 
@@ -13,6 +15,7 @@ class TodoInputState {
     this.inputType = InputType.text,
     this.latitude,
     this.longitude,
+    this.selectedUserPlace,
     this.phase = InputSubmitPhase.idle,
     this.createdTodoId,
     this.structureStatus,
@@ -23,6 +26,8 @@ class TodoInputState {
   final String inputType;
   final double? latitude;
   final double? longitude;
+  /// 사용자가 명시 선택한 내 장소. submit 시 userPlaceId로 BE에 전달.
+  final UserPlace? selectedUserPlace;
   final InputSubmitPhase phase;
   final int? createdTodoId;
   final String? structureStatus;
@@ -39,6 +44,8 @@ class TodoInputState {
     double? latitude,
     double? longitude,
     bool clearLocation = false,
+    UserPlace? selectedUserPlace,
+    bool clearUserPlace = false,
     InputSubmitPhase? phase,
     int? createdTodoId,
     String? structureStatus,
@@ -50,6 +57,7 @@ class TodoInputState {
       inputType: inputType ?? this.inputType,
       latitude: clearLocation ? null : (latitude ?? this.latitude),
       longitude: clearLocation ? null : (longitude ?? this.longitude),
+      selectedUserPlace: clearUserPlace ? null : (selectedUserPlace ?? this.selectedUserPlace),
       phase: phase ?? this.phase,
       createdTodoId: createdTodoId ?? this.createdTodoId,
       structureStatus: structureStatus ?? this.structureStatus,
@@ -80,6 +88,10 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
 
   void clearLocation() => state = state.copyWith(clearLocation: true);
 
+  void setUserPlace(UserPlace place) => state = state.copyWith(selectedUserPlace: place);
+
+  void clearUserPlace() => state = state.copyWith(clearUserPlace: true);
+
   // ── 제출 ─────────────────────────────────────────────────────────
 
   Future<void> submit() async {
@@ -88,11 +100,20 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
     state = state.copyWith(phase: InputSubmitPhase.submitting, clearError: true);
 
     try {
+      // AI가 GENERIC 후보 검색 시 사용자 위치 기준이 필요하므로 등록 직전 GPS 호출 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      final mergedContent = _mergeAliasIntoContent(
+        state.content.trim(),
+        state.selectedUserPlace?.aliasName,
+      );
       final result = await _service.create(
-        content: state.content.trim(),
+        content: mergedContent,
         inputType: state.inputType,
-        latitude: state.latitude,
-        longitude: state.longitude,
+        latitude: gps?.latitude ?? state.latitude,
+        longitude: gps?.longitude ?? state.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+        userPlaceId: state.selectedUserPlace?.id,
       );
 
       // PENDING 여부와 무관하게 즉시 done 처리.
@@ -114,6 +135,25 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
   void reset() {
     state = const TodoInputState();
   }
+}
+
+/// 입력창의 prefix chip(별칭)은 controller.text에 포함되지 않으므로,
+/// submit 직전에 aliasName을 본문 앞에 합쳐서 BE/검색/표시에 일관되게 들어가도록 한다.
+///
+/// 규칙:
+/// - aliasName 없음 → 본문 그대로
+/// - 본문에 이미 aliasName 포함 → 그대로 (사용자가 직접 입력한 케이스)
+/// - 본문이 한국어 조사로 시작 → "별칭+본문" 공백 없이 ("에서 밥먹기" → "집에서 밥먹기")
+/// - 그 외 → "별칭 본문" 공백 한 칸
+String _mergeAliasIntoContent(String content, String? aliasName) {
+  final alias = aliasName?.trim();
+  if (alias == null || alias.isEmpty) return content;
+  if (content.isEmpty) return alias;
+  if (content.contains(alias)) return content;
+
+  const particles = ['에서', '에게', '한테', '으로부터', '으로', '부터', '까지'];
+  final hasParticlePrefix = particles.any(content.startsWith);
+  return hasParticlePrefix ? '$alias$content' : '$alias $content';
 }
 
 // ── Provider ─────────────────────────────────────────────────────

@@ -23,7 +23,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
+import java.time.OffsetDateTime;
 import java.util.List;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -78,10 +80,20 @@ public class TodoController {
             @Parameter(description = "커서 (이전 응답의 nextCursor, 첫 요청 시 미입력)")
             @RequestParam(required = false) Long cursor,
             @Parameter(description = "페이지 크기 (기본 20, 최대 50)")
-            @RequestParam(defaultValue = "20") int limit) {
+            @RequestParam(defaultValue = "20") int limit,
+            @Parameter(description = "사용자 현재 위도 (선택)")
+            @RequestParam(required = false) Double latitude,
+            @Parameter(description = "사용자 현재 경도 (선택)")
+            @RequestParam(required = false) Double longitude,
+            @Parameter(description = "이동 방향 (CLLocation.course, 선택)")
+            @RequestParam(required = false) Double course,
+            @Parameter(description = "위치 측정 시각 (ISO-8601, 선택)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime occurredAt) {
         Long userId = extractAuthenticatedUserId(request);
         int safeLimit = Math.min(limit, 50);
-        return ApiResponseDto.success(todoService.getTodoList(userId, status, tab, placeType, cursor, safeLimit));
+        return ApiResponseDto.success(
+                todoService.getTodoList(userId, status, tab, placeType, cursor, safeLimit,
+                        latitude, longitude, course, occurredAt));
     }
 
     @Operation(
@@ -137,7 +149,7 @@ public class TodoController {
             @PathVariable Long todoId,
             @Valid @RequestBody TodoAlertUpdateRequest body) {
         Long userId = extractAuthenticatedUserId(request);
-        todoService.updateAlert(userId, todoId, body.getAlertEnabled());
+        todoService.updateAlert(userId, todoId, body);
         return ApiResponseDto.success(null);
     }
 
@@ -155,7 +167,7 @@ public class TodoController {
             @PathVariable Long todoId,
             @Valid @RequestBody TodoStatusUpdateRequest body) {
         Long userId = extractAuthenticatedUserId(request);
-        todoService.updateStatus(userId, todoId, body.getStatus());
+        todoService.updateStatus(userId, todoId, body);
         return ApiResponseDto.success(null);
     }
 
@@ -175,9 +187,17 @@ public class TodoController {
     public ApiResponseDto<Void> deleteTodos(
             HttpServletRequest request,
             @Parameter(description = "삭제할 Todo ID 목록 (예: ids=1,2,3)")
-            @RequestParam List<Long> ids) {
+            @RequestParam List<Long> ids,
+            @Parameter(description = "사용자 현재 위도 (선택)")
+            @RequestParam(required = false) Double latitude,
+            @Parameter(description = "사용자 현재 경도 (선택)")
+            @RequestParam(required = false) Double longitude,
+            @Parameter(description = "이동 방향 (CLLocation.course, 선택)")
+            @RequestParam(required = false) Double course,
+            @Parameter(description = "위치 측정 시각 (ISO-8601, 선택)")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime occurredAt) {
         Long userId = extractAuthenticatedUserId(request);
-        todoService.deleteTodos(userId, ids);
+        todoService.deleteTodos(userId, ids, latitude, longitude, course, occurredAt);
         return ApiResponseDto.success(null);
     }
 

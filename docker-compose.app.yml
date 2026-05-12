@@ -26,7 +26,16 @@ services:
   redis:
     image: redis:7-alpine
     container_name: timingnote-redis
-    command: ["redis-server", "--appendonly", "yes"]
+    # maxmemory 512MB + allkeys-lru: 캐시 한도 도달 시 가장 오래 안 쓴 key 자동 삭제 → OOM 방지.
+    # places:* 캐시 예상 사용량(DAU 1만 기준 ~100MB) 대비 5배 여유.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - allkeys-lru
     volumes:
       - redis-data:/data
     healthcheck:
@@ -120,6 +129,7 @@ services:
     volumes:
       - /home/ubuntu/timingnote/secrets/timingnote-service-account.json:/run/secrets/timingnote-service-account.json:ro
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       SERVER_PORT: ${SERVER_PORT:-8080}
       SWAGGER_SERVER_URL: ${SWAGGER_SERVER_URL:-}
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
@@ -133,12 +143,25 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       AI_SERVER_URL: ${AI_SERVER_URL:-http://fastapi:8000}
       AI_INTERNAL_SECRET: ${AI_INTERNAL_SECRET}
+      KAKAO_API_KEY: ${KAKAO_API_KEY}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY}
       DEVICE_SECRET_PEPPER: ${DEVICE_SECRET_PEPPER}
+      ADMIN_INTERNAL_SECRET: ${ADMIN_INTERNAL_SECRET}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+      AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES}
+      AWS_S3_ORIGINAL_PREFIX: ${AWS_S3_ORIGINAL_PREFIX}
+      AWS_S3_RESIZED_PREFIX: ${AWS_S3_RESIZED_PREFIX}
+      AWS_S3_THUMBNAIL_PREFIX: ${AWS_S3_THUMBNAIL_PREFIX}
       ELASTICSEARCH_HOST: ${ELASTICSEARCH_HOST:-elasticsearch}
       ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9200}
       FIREBASE_ACCOUNT_PATH: /run/secrets/timingnote-service-account.json
-    ports:
-      - "8080:8080"
+#    ports:
+#      - "8080:8080"
+    expose:
+      - "8080"
     depends_on:
       postgres:
         condition: service_healthy

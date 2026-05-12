@@ -10,17 +10,19 @@ import com.timingnote.api.domain.settings.dto.response.UserSettingsUpdateRespons
 import com.timingnote.api.domain.settings.entity.UserSettings;
 import com.timingnote.api.domain.settings.repository.UserSettingsRepository;
 import com.timingnote.api.domain.user.repository.UserRepository;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class UserSettingsServiceImpl implements UserSettingsService {
 
-    private static final int DEFAULT_RADIUS_M = 100;
-    private static final int MIN_RADIUS_M = 50;
-    private static final int MAX_RADIUS_M = 20000;
+    private static final int DEFAULT_RADIUS_M = 200;
+    private static final Set<Integer> ALLOWED_RADIUS_VALUES = Set.of(50, 100, 200, 300, 400, 500);
 
     private final UserRepository userRepository;
     private final UserSettingsRepository userSettingsRepository;
@@ -34,7 +36,7 @@ public class UserSettingsServiceImpl implements UserSettingsService {
         ensureUserExists(userId);
 
         UserSettings userSettings = userSettingsRepository.findTopByUserIdOrderByUpdatedAtDesc(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.SETTINGS_NOT_FOUND));
 
         return UserSettingsGetResponseDto.builder()
                 .locationAlertEnabled(userSettings.getLocationAlertEnabled())
@@ -122,9 +124,9 @@ public class UserSettingsServiceImpl implements UserSettingsService {
     }
 
     private void validateRadius(int radiusM) {
-        if (radiusM < MIN_RADIUS_M || radiusM > MAX_RADIUS_M) {
+        if (!ALLOWED_RADIUS_VALUES.contains(radiusM)) {
             throw new BusinessException(
-                    String.format("radiusM는 %d 이상 %d 이하여야 합니다.", MIN_RADIUS_M, MAX_RADIUS_M),
+                    "radiusM는 50, 100, 200, 300, 400, 500 중 하나여야 합니다.",
                     ErrorCode.VALIDATION_ERROR
             );
         }

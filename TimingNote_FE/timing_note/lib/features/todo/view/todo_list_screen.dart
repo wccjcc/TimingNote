@@ -1,14 +1,20 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/location/location_distance.dart';
+import '../../../../core/location/location_provider.dart';
 import '../../../../shared/theme/colors.dart';
+import '../../../../shared/widgets/app_error_view.dart';
+import '../../../../shared/widgets/app_loading_view.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/status_badge.dart';
+import '../../search/model/todo_search_item.dart';
+import '../../search/viewmodel/search_viewmodel.dart';
 import '../model/todo.dart';
+import '../util/todo_type_style.dart';
 import '../viewmodel/todo_list_viewmodel.dart';
 
 // -- 카테고리 탭 정의 ----------------------------------------------
@@ -39,6 +45,8 @@ class TodoListScreen extends ConsumerStatefulWidget {
 class _TodoListScreenState extends ConsumerState<TodoListScreen>
     with SingleTickerProviderStateMixin {
   final _scrollController = ScrollController();
+  final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
   late final TabController _tabController;
 
   @override
@@ -55,6 +63,8 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
@@ -63,7 +73,13 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
   void _onScroll() {
     if (_scrollController.position.pixels >=
         _scrollController.position.maxScrollExtent - 200) {
-      ref.read(todoListProvider.notifier).loadMore();
+      // 검색 모드면 검색 페이지네이션, 아니면 todoList 페이지네이션
+      final searchActive = ref.read(searchProvider).isActive;
+      if (searchActive) {
+        ref.read(searchProvider.notifier).loadMore();
+      } else {
+        ref.read(todoListProvider.notifier).loadMore();
+      }
     }
   }
 
@@ -75,11 +91,17 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
           tab: tab,
           clearTab: tab == null,
         );
+    // 검색 모드면 새 카테고리 컨텍스트로 자동 재검색
+    ref.read(searchProvider.notifier).setContext(
+          category: tab,
+          placeType: ref.read(searchProvider).placeType,
+        );
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(todoListProvider);
+    final searchState = ref.watch(searchProvider);
 
     return Scaffold(
       body: CosmicBackground(
@@ -88,10 +110,94 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(state.items.length),
+              _buildSearchBar(searchState),
               _buildMissionChips(),
-              Expanded(child: _buildBody(state)),
+              Expanded(child: _buildBody(state, searchState)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // ── 검색바 (항상 노출) ───────────────────────────────────────────
+  Widget _buildSearchBar(SearchState searchState) {
+    final hasQuery = searchState.query.isNotEmpty;
+    final tabLabel = _kCategoryTabs[_tabController.index].label;
+    final placeholder =
+        tabLabel == '전체' ? '할 일 검색' : '$tabLabel에서 검색';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Container(
+        height: 42,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A2E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: hasQuery
+                ? SpaceColors.neonPurple
+                : SpaceColors.neonPurple.withOpacity(0.25),
+            width: hasQuery ? 1.5 : 1,
+          ),
+          boxShadow: hasQuery
+              ? [
+                  BoxShadow(
+                    color: SpaceColors.neonPurple.withOpacity(0.3),
+                    blurRadius: 10,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.search,
+              color: hasQuery
+                  ? SpaceColors.neonPurple
+                  : SpaceColors.neonPurple.withOpacity(0.6),
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                cursorColor: SpaceColors.neonPurple,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: placeholder,
+                  hintStyle: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 13,
+                    fontFamily: 'Galmuri11',
+                  ),
+                  border: InputBorder.none,
+                  isCollapsed: true,
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: (v) =>
+                    ref.read(searchProvider.notifier).setQuery(v),
+              ),
+            ),
+            if (hasQuery)
+              GestureDetector(
+                // hit test가 Icon 크기(18x18)보다 작아 미스 클릭이 잦았던 문제 보정.
+                // opaque + Padding으로 실제 터치 영역을 ~32x32로 확장.
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  _searchController.clear();
+                  ref.read(searchProvider.notifier).clear();
+                  _searchFocusNode.unfocus();
+                },
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                  child: Icon(Icons.close,
+                      color: Colors.white54, size: 18),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -154,6 +260,11 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
             placeType: value,
             clearPlaceType: value == null,
           );
+      // 검색 모드면 새 placeType 컨텍스트로 자동 재검색
+      ref.read(searchProvider.notifier).setContext(
+            category: ref.read(searchProvider).category,
+            placeType: value,
+          );
     });
   }
 
@@ -212,7 +323,12 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     );
   }
 
-  Widget _buildBody(TodoListState state) {
+  Widget _buildBody(TodoListState state, SearchState searchState) {
+    // 검색 모드: searchProvider 결과를 ListView에 노출 (todoList는 숨김)
+    if (searchState.isActive) {
+      return _buildSearchBody(searchState);
+    }
+
     if (state.isLoading && state.items.isEmpty) {
       return const Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple));
     }
@@ -245,6 +361,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
           if (activeItems.isNotEmpty) ...[
             ...activeItems.map((item) => _TodoSpaceTile(
                   item: item,
+                  currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
                   onTap: () => context.push('/todos/${item.id}'),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
@@ -276,6 +393,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
             ),
             ...doneItems.map((item) => _TodoSpaceTile(
                   item: item,
+                  currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
                   onTap: () => context.push('/todos/${item.id}'),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
@@ -301,6 +419,7 @@ class _TodoSpaceTile extends StatelessWidget {
     required this.onTap,
     required this.onToggleStatus,
     required this.onToggleAlert,
+    this.currentGps,
     this.showCategory = true,
   });
 
@@ -308,6 +427,8 @@ class _TodoSpaceTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleStatus;
   final VoidCallback onToggleAlert;
+  /// 마지막으로 알고 있는 사용자 위치 — null이면 거리 표기를 생략하고 라벨만 보여준다.
+  final GpsSnapshot? currentGps;
   final bool showCategory;
 
   @override
@@ -368,8 +489,18 @@ class _TodoSpaceTile extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (showCategory)
-                            StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              if (showCategory)
+                                StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                              StatusBadge(
+                                label: TodoType.labelOf(item.todoType),
+                                color: todoTypeColor(item.todoType),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             item.content,
@@ -383,30 +514,31 @@ class _TodoSpaceTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  _buildRadiusInfo(),
-                                  style: TextStyle(
-                                    color: badgeColor,
-                                    fontSize: 11,
-                                    fontFamily: 'Galmuri11',
+                          if (_buildPlaceLine() != null)
+                            Row(
+                              children: [
+                                Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    _buildPlaceLine()!,
+                                    style: TextStyle(
+                                      color: badgeColor,
+                                      fontSize: 11,
+                                      fontFamily: 'Galmuri11',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
                     if (item.thumbnailUrl != null) ...[
                       const SizedBox(width: 12),
-                      _buildThumbnailBox(isDone),
+                      _buildThumbnailBox(isDone, item.thumbnailUrl!),
                     ],
                   ],
                 ),
@@ -435,12 +567,31 @@ class _TodoSpaceTile extends StatelessWidget {
     }
   }
 
-  String _buildRadiusInfo() {
-    final place = item.resolvedPlaceLabel ?? '행성 탐사 중';
-    return '$place (반경 200m)';
+  /// 장소 라벨 + (가능하면) 현재 위치로부터의 거리.
+  ///
+  /// - 장소 라벨도 좌표도 없으면 null → 위치 줄 자체를 숨김
+  /// - 라벨만 있고 좌표/GPS 없음 → 라벨만 표시 ("메가커피")
+  /// - 라벨 + 좌표 + GPS 모두 있음 → "메가커피 · 350m"
+  String? _buildPlaceLine() {
+    final label = item.resolvedPlaceLabel;
+    final gps = currentGps;
+
+    final distance = (item.hasPlaceCoords && gps != null)
+        ? formatDistance(haversineMeters(
+            gps.latitude,
+            gps.longitude,
+            item.placeLatitude!,
+            item.placeLongitude!,
+          ))
+        : null;
+
+    if (label == null && distance == null) return null;
+    if (label == null) return distance;
+    if (distance == null) return label;
+    return '$label · $distance';
   }
 
-  Widget _buildThumbnailBox(bool isDone) {
+  Widget _buildThumbnailBox(bool isDone, String imageUrl) {
     return Container(
       width: 48,
       height: 48,
@@ -453,7 +604,18 @@ class _TodoSpaceTile extends StatelessWidget {
           colors: isDone ? [Colors.transparent, Colors.transparent] : [SpaceColors.white20, SpaceColors.white10],
         ),
       ),
-      child: Icon(Icons.image_outlined, size: 20, color: isDone ? SpaceColors.white10 : SpaceColors.white20),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(11),
+        child: Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Icon(
+            Icons.image_outlined,
+            size: 20,
+            color: isDone ? SpaceColors.white10 : SpaceColors.white20,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -477,6 +639,289 @@ class _ListIconButton extends StatelessWidget {
         ),
         child: Icon(icon, color: Colors.white70, size: 20),
       ),
+    );
+  }
+}
+
+// ── 검색 결과 본문 ────────────────────────────────────────────────
+extension _TodoListScreenSearch on _TodoListScreenState {
+  Widget _buildSearchBody(SearchState searchState) {
+    if (searchState.isLoading) {
+      return const AppLoadingView(message: '검색 중...', compact: true);
+    }
+    if (searchState.hasError && searchState.items.isEmpty) {
+      return AppErrorView(
+        title: '검색 실패',
+        message: searchState.error ?? '잠시 후 다시 시도해 주세요.',
+        onRetry: () => ref.read(searchProvider.notifier).retry(),
+      );
+    }
+    if (searchState.isEmptyResult) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.search_off, size: 48, color: Colors.white24),
+              const SizedBox(height: 16),
+              Text(
+                '«${searchState.query}» 결과가 없어요.',
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '다른 키워드로 다시 시도해 보세요.',
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
+      itemCount: searchState.items.length +
+          1 + // 결과 헤더
+          (searchState.isLoadingMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+            child: Text(
+              '«${searchState.query}» 검색 결과 ${searchState.total}건',
+              style: const TextStyle(
+                color: SpaceColors.neonPurple,
+                fontSize: 11,
+                fontFamily: 'Galmuri11',
+                letterSpacing: 1,
+              ),
+            ),
+          );
+        }
+        final itemIndex = index - 1;
+        if (itemIndex >= searchState.items.length) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: SpaceColors.neonPurple,
+              ),
+            ),
+          );
+        }
+        final item = searchState.items[itemIndex];
+        return _SearchResultTile(
+          item: item,
+          onTap: () => context.push('/todos/${item.id}'),
+        );
+      },
+    );
+  }
+}
+
+/// 검색 결과 한 줄 — 본문 highlight + 매칭 출처 보조 라벨.
+///
+/// BE 응답의 `highlights` 맵에 들어오는 키별로 다음과 같이 처리:
+/// - `content` → 본문에 직접 노랑 강조 (RichText)
+/// - `placeLabel` → resolvedPlaceLabel 자리에 RichText로 노랑 강조
+/// - `placeName` → 본문에 매칭이 없을 때 "📍 외부 장소: …" 보조 라벨로 표시
+///
+/// 사용자가 "왜 이 todo가 검색됐는지" 단서를 카드 안에서 즉시 확인 가능.
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({required this.item, required this.onTap});
+
+  final TodoSearchItem item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDone = item.isDone;
+    final categoryKey = item.category ?? TodoCategory.etc;
+    final badgeColor = _getCategoryColor(categoryKey);
+
+    final placeLabelHl = item.highlights['placeLabel']?.firstOrNull;
+    final placeNameHl = item.highlights['placeName']?.firstOrNull;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0x991A1A2E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF33334D)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isDone)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2, right: 8),
+                      child: Icon(Icons.check_circle_outline,
+                          size: 18, color: Colors.green),
+                    ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (item.category != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: StatusBadge(
+                              label: TodoCategory.labels[categoryKey] ??
+                                  categoryKey,
+                              color: badgeColor,
+                            ),
+                          ),
+                        // 본문 — content 매칭이 있으면 highlight 자동 적용
+                        _HighlightText(
+                          html: item.contentHighlight,
+                          baseStyle: TextStyle(
+                            color: isDone ? Colors.white54 : Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            decoration:
+                                isDone ? TextDecoration.lineThrough : null,
+                            height: 1.4,
+                          ),
+                          maxLines: 2,
+                        ),
+                        // 장소 라벨 — placeLabel 매칭이 있으면 그쪽 highlight, 없으면 원문
+                        if (item.resolvedPlaceLabel != null &&
+                            item.resolvedPlaceLabel!.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Row(
+                              children: [
+                                Icon(Icons.location_on,
+                                    size: 12,
+                                    color: badgeColor.withOpacity(0.8)),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: _HighlightText(
+                                    html: placeLabelHl ??
+                                        item.resolvedPlaceLabel!,
+                                    baseStyle: TextStyle(
+                                      color: badgeColor,
+                                      fontSize: 11,
+                                      fontFamily: 'Galmuri11',
+                                    ),
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        // 외부 장소명 매칭 — 본문/placeLabel에 검색어 없을 때 단서 제공
+                        if (placeNameHl != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.travel_explore,
+                                    size: 11, color: Colors.white38),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: _HighlightText(
+                                    html: '외부 장소: $placeNameHl',
+                                    baseStyle: const TextStyle(
+                                      color: Colors.white54,
+                                      fontSize: 10,
+                                      fontFamily: 'Galmuri11',
+                                    ),
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right,
+                      color: Colors.white24, size: 18),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case TodoCategory.dine:
+      case TodoCategory.acquire:
+        return SpaceColors.neonPurple;
+      case TodoCategory.health:
+      case TodoCategory.service:
+        return SpaceColors.neonViolet;
+      case TodoCategory.maintenance:
+        return const Color(0xFFFDBA74);
+      case TodoCategory.social:
+        return SpaceColors.neonPink;
+      default:
+        return SpaceColors.neonPurple;
+    }
+  }
+}
+
+/// `<em>...</em>` 마커가 들어있는 fragment를 RichText로 렌더링.
+///
+/// BE 응답 예시: `"…강남역 <em>약국</em>에서…"`
+/// - `<em>` 안쪽: 네온 노랑 + 굵게
+/// - 그 외: baseStyle
+class _HighlightText extends StatelessWidget {
+  const _HighlightText({
+    required this.html,
+    required this.baseStyle,
+    this.maxLines,
+  });
+
+  final String html;
+  final TextStyle baseStyle;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final spans = <TextSpan>[];
+    final parts = html.split(RegExp(r'<em>|</em>'));
+    bool emphasis = false;
+    for (final part in parts) {
+      if (part.isEmpty) {
+        emphasis = !emphasis;
+        continue;
+      }
+      spans.add(TextSpan(
+        text: part,
+        style: emphasis
+            ? baseStyle.copyWith(
+                color: SpaceColors.neonYellow,
+                fontWeight: FontWeight.w800,
+              )
+            : null,
+      ));
+      emphasis = !emphasis;
+    }
+
+    return RichText(
+      text: TextSpan(style: baseStyle, children: spans),
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }

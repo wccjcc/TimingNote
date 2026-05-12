@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
+import '../util/time_condition_formatter.dart';
 import '../viewmodel/todo_detail_viewmodel.dart';
 import '../viewmodel/todo_edit_viewmodel.dart';
 
@@ -301,18 +303,8 @@ class _TimeConditionList extends ConsumerWidget {
     if (conditions.isEmpty) return const Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text('설정된 시간 조건이 없습니다.', style: TextStyle(color: Colors.white24, fontSize: 13)));
     return Column(children: List.generate(conditions.length, (i) {
       final tc = conditions[i];
-      return Container(margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)), child: ListTile(dense: true, title: Text(_describeRequest(tc), style: const TextStyle(color: Colors.cyanAccent, fontSize: 14)), trailing: IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18), onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i))));
+      return Container(margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)), child: ListTile(dense: true, title: Text(formatTimeConditionRequest(tc), style: const TextStyle(color: Colors.cyanAccent, fontSize: 14)), trailing: IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18), onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i))));
     }));
-  }
-  String _describeRequest(TimeConditionRequest tc) {
-    switch (tc.conditionType) {
-      case ConditionType.datetime: return '${tc.startDate ?? ''} ${tc.startTime ?? ''}';
-      case ConditionType.date: return tc.startDate ?? '';
-      case ConditionType.dateRange: return '${tc.startDate} ~ ${tc.endDate}';
-      case ConditionType.week: return '${(tc.daysOfWeek ?? []).join(', ')} ${tc.startTime ?? ''}';
-      case ConditionType.timeRange: return '${tc.startTime} ~ ${tc.endTime}';
-      default: return tc.rawExpression ?? tc.conditionType;
-    }
   }
 }
 
@@ -326,6 +318,9 @@ class _ImageSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final urls = ref.watch(
       todoEditProvider(todoId).select((s) => s.imageUrls ?? []),
+    );
+    final previewMap = ref.watch(
+      todoEditProvider(todoId).select((s) => s.imagePreviewBytes),
     );
     final canAdd = urls.length < _kMaxImages;
 
@@ -362,6 +357,7 @@ class _ImageSection extends ConsumerWidget {
               // 기존 이미지 목록
               ...urls.map((url) => _ImageTile(
                 url: url,
+                previewBytes: previewMap[url],
                 onDelete: () => ref
                     .read(todoEditProvider(todoId).notifier)
                     .removeImageUrl(url),
@@ -391,20 +387,16 @@ class _ImageSection extends ConsumerWidget {
     );
     if (picked == null || !context.mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('이미지 업로드 기능 준비 중입니다'),
-        duration: Duration(seconds: 2),
-        backgroundColor: Color(0xFF1A1A2E),
-      ),
-    );
+    await ref.read(todoEditProvider(todoId).notifier).uploadPickedImage(picked);
+
   }
 }
 
 class _ImageTile extends StatelessWidget {
-  const _ImageTile({required this.url, required this.onDelete});
+  const _ImageTile({required this.url, required this.onDelete, this.previewBytes});
   final String url;
   final VoidCallback onDelete;
+  final Uint8List? previewBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -415,21 +407,28 @@ class _ImageTile extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Image.network(
-              url,
-              width: 100,
-              height: 104,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: 100,
-                height: 104,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
-              ),
-            ),
+            child: previewBytes != null
+                ? Image.memory(
+                    previewBytes!,
+                    width: 100,
+                    height: 104,
+                    fit: BoxFit.cover,
+                  )
+                : Image.network(
+                    url,
+                    width: 100,
+                    height: 104,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 100,
+                      height: 104,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
+                    ),
+                  ),
           ),
           Positioned(
             right: 4,
@@ -492,7 +491,7 @@ class _Star {
 }
 
 /// 장소 선택 타일 — 탭하면 PlaceSearchScreen으로 이동하고,
-/// 결과가 오면 todoDetailProvider.setPlace() 즉시 호출.
+/// 결과가 ALIAS면 setAliasPlace, EXTERNAL이면 setExternalPlace 즉시 호출.
 class _PlaceTile extends ConsumerWidget {
   const _PlaceTile({required this.todoId});
 
@@ -559,20 +558,15 @@ class _PlaceTile extends ConsumerWidget {
         ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
         : '/place-search';
 
-    final result = await context.push<SelectedKakaoPlace>(uri);
+    final result = await context.push<SelectedPlace>(uri);
     if (result == null || !context.mounted) return;
 
-    await ref.read(todoDetailProvider(todoId).notifier).setPlace(
-          kakaoPlaceId: result.kakaoPlaceId,
-          placeName: result.name,
-          addressName: result.address,
-          roadAddressName: result.roadAddress,
-          categoryGroupCode: result.categoryGroupCode,
-          categoryGroupName: result.categoryGroupName,
-          phone: result.phone,
-          placeUrl: result.placeUrl,
-          longitude: result.longitude,
-          latitude: result.latitude,
-        );
+    final notifier = ref.read(todoDetailProvider(todoId).notifier);
+    switch (result) {
+      case SelectedAliasPlace alias:
+        await notifier.setAliasPlace(userPlaceId: alias.userPlaceId);
+      case SelectedExternalPlace external:
+        await notifier.setExternalPlace(place: external);
+    }
   }
 }

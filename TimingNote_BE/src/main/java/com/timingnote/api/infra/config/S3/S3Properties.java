@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record S3Properties(
         String bucket,
         Long presignedUrlExpirationMinutes,
+        Long maxUploadSizeBytes,
         String originalPrefix,
         String resizedPrefix,
         String thumbnailPrefix
