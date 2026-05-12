@@ -15,6 +15,7 @@ class ApiEndpoints {
 
   /// Geofence 이벤트 전송 endpoint
   static const String geofenceEvents = '/geofence/events';
+  static const String geofenceRecalculate = '/geofence/recalculate';
   static const String notifications = '/notifications';
   static const String geofenceSlots = '/notifications/geofence/slots';
   static const String geofenceSlotsStream =

@@ -5,6 +5,7 @@
 enum GeofenceTransitionType {
   enter,
   exit,
+  significantChange,
 }
 
 /// 백엔드로 publish할 geofence 이벤트 모델입니다.
