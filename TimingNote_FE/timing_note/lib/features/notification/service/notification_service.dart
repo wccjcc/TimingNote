@@ -100,5 +100,25 @@ class NotificationService {
     );
     return envelope.data!;
   }
+
+  /// 유의미한 위치 변화(특히 iOS significant-change) 시 geofence 슬롯 재계산을 요청합니다.
+  ///
+  /// 서버는 이 요청을 비동기 outbox -> consumer 경로로 처리하므로,
+  /// 클라이언트는 accepted 응답만 받으면 됩니다.
+  Future<void> requestGeofenceRecalculation({
+    required double latitude,
+    required double longitude,
+    double? course,
+  }) async {
+    await _client.post<Map<String, dynamic>>(
+      ApiEndpoints.geofenceRecalculate,
+      data: {
+        'latitude': latitude,
+        'longitude': longitude,
+        if (course != null) 'course': course,
+      },
+      dataParser: (json) => json as Map<String, dynamic>,
+    );
+  }
 }
 

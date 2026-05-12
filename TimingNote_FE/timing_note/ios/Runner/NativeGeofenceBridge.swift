@@ -23,6 +23,7 @@ final class NativeGeofenceBridge: NSObject, CLLocationManagerDelegate, FlutterSt
   private let methodChannelName = "timing_note/geofence_method"
   private let eventChannelName = "timing_note/geofence_events"
   private let pendingEventsKey = "timing_note_geofence_pending_events"
+  private let significantChangeGeofenceId = "significant_change"
 
   private let locationManager = CLLocationManager()
   private let isoFormatter = ISO8601DateFormatter()
@@ -136,6 +137,11 @@ final class NativeGeofenceBridge: NSObject, CLLocationManagerDelegate, FlutterSt
       locationManager.startMonitoring(for: circular)
     }
 
+    // iOS 유의미한 위치 변화 서비스 시작:
+    // - 백그라운드에서도 큰 위치 변화 시 didUpdateLocations 콜백을 받습니다.
+    // - geofence enter/exit 누락 보완 및 /geofence/recalculate 트리거 용도로 사용합니다.
+    locationManager.startMonitoringSignificantLocationChanges()
+
     result(nil)
   }
 
@@ -143,6 +149,8 @@ final class NativeGeofenceBridge: NSObject, CLLocationManagerDelegate, FlutterSt
     for region in locationManager.monitoredRegions {
       locationManager.stopMonitoring(for: region)
     }
+    // geofence 감시를 정리할 때 유의미한 위치 변화 감시도 함께 중단합니다.
+    locationManager.stopMonitoringSignificantLocationChanges()
     result(nil)
   }
 
@@ -167,6 +175,37 @@ final class NativeGeofenceBridge: NSObject, CLLocationManagerDelegate, FlutterSt
 
   func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
     emitTransition(transition: "EXIT", region: region, location: manager.location)
+  }
+
+  func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    guard let latest = locations.last else { return }
+    // 너무 오래된 캐시 위치는 재계산 호출 노이즈가 되므로 건너뜁니다.
+    let age = Date().timeIntervalSince(latest.timestamp)
+    if age > 300 {
+      return
+    }
+
+    let now = Date()
+    let eventId = "\(significantChangeGeofenceId)_SIGNIFICANT_CHANGE_\(Int(now.timeIntervalSince1970 * 1000))"
+    var payload: [String: Any] = [
+      "eventId": eventId,
+      "geofenceId": significantChangeGeofenceId,
+      "transition": "SIGNIFICANT_CHANGE",
+      "occurredAt": isoFormatter.string(from: now),
+      "latitude": latest.coordinate.latitude,
+      "longitude": latest.coordinate.longitude,
+      "accuracyMeters": latest.horizontalAccuracy,
+    ]
+    if latest.course >= 0 {
+      payload["course"] = latest.course
+    }
+
+    appendPendingEvent(payload)
+
+    if let sink = eventSink {
+      sink(payload)
+      removePendingEvent(eventId: eventId)
+    }
   }
 
   private func emitTransition(transition: String, region: CLRegion, location: CLLocation?) {
