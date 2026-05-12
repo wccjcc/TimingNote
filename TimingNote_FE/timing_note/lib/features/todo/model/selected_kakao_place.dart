@@ -90,19 +90,21 @@ class KakaoPlaceItem {
   final String? placeUrl;
   final int? distance; // 미터 단위, 현재 위치 기준
 
+  /// BE 프록시(/api/v1/places/search) 응답의 단건 형태에서 파싱.
+  /// BE가 카카오 응답을 camelCase + 숫자 타입으로 정규화해서 전달.
   factory KakaoPlaceItem.fromJson(Map<String, dynamic> json) {
     return KakaoPlaceItem(
       id: json['id'] as String,
-      placeName: json['place_name'] as String,
-      latitude: double.tryParse(json['y'] as String? ?? '') ?? 0.0,
-      longitude: double.tryParse(json['x'] as String? ?? '') ?? 0.0,
-      categoryGroupCode: json['category_group_code'] as String?,
-      categoryGroupName: json['category_group_name'] as String?,
+      placeName: json['placeName'] as String,
+      latitude: (json['latitude'] as num?)?.toDouble() ?? 0.0,
+      longitude: (json['longitude'] as num?)?.toDouble() ?? 0.0,
+      categoryGroupCode: json['categoryGroupCode'] as String?,
+      categoryGroupName: json['categoryGroupName'] as String?,
       phone: json['phone'] as String?,
-      addressName: json['address_name'] as String?,
-      roadAddressName: json['road_address_name'] as String?,
-      placeUrl: json['place_url'] as String?,
-      distance: int.tryParse(json['distance'] as String? ?? ''),
+      addressName: json['addressName'] as String?,
+      roadAddressName: json['roadAddressName'] as String?,
+      placeUrl: json['placeUrl'] as String?,
+      distance: (json['distanceMeter'] as num?)?.toInt(),
     );
   }
 
