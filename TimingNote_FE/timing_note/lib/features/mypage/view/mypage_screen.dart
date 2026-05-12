@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/features/mypage/model/user_place.dart';
 import 'package:timing_note/features/mypage/service/user_place_service.dart';
@@ -38,6 +39,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   bool _isLoadingSettings = true;
   bool _isSavingRadius = false;
+  String _appVersionLabel = '확인 중';
 
   Future<List<UserPlace>> _placesFuture = Future.value(const []);
 
@@ -46,6 +48,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     super.initState();
     _placesFuture = _loadPlaces();
     _loadSettings();
+    _loadAppVersion();
   }
 
   Future<List<UserPlace>> _loadPlaces() {
@@ -57,6 +60,27 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       _placesFuture = _loadPlaces();
     });
     await _placesFuture;
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+
+      // iOS에서는 pubspec.yaml의 version/build-number가
+      // CFBundleShortVersionString/CFBundleVersion으로 반영됩니다.
+      final hasBuildNumber = info.buildNumber.trim().isNotEmpty;
+      setState(() {
+        _appVersionLabel = hasBuildNumber
+            ? 'V${info.version}+${info.buildNumber}'
+            : 'V${info.version}';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _appVersionLabel = '확인 불가';
+      });
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -363,8 +387,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       child: FutureBuilder<List<UserPlace>>(
         future: _placesFuture,
         builder: (context, snapshot) {
-          final isLoading =
-              snapshot.connectionState == ConnectionState.waiting;
+          final isLoading = snapshot.connectionState == ConnectionState.waiting;
           final count = snapshot.data?.length ?? 0;
           return _MyPlacesEntryTile(
             count: count,
@@ -387,10 +410,10 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     return _SettingGroup(
       title: 'System Intel',
       child: Column(
-        children: const [
-          _SimpleActionTile(label: '앱 버전 업데이트 안내'),
-          Divider(height: 1, color: Color(0x22A78BFA)),
-          _VersionTile(label: '현재 앱 버전', value: 'V1.0.0-PROXIMA'),
+        children: [
+          const _SimpleActionTile(label: '앱 버전 업데이트 안내'),
+          const Divider(height: 1, color: Color(0x22A78BFA)),
+          _VersionTile(label: '현재 앱 버전', value: _appVersionLabel),
         ],
       ),
     );
