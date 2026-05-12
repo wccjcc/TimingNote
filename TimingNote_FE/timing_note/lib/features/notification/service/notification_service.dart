@@ -108,6 +108,7 @@ class NotificationService {
   Future<void> requestGeofenceRecalculation({
     required double latitude,
     required double longitude,
+    required DateTime occurredAt,
     double? course,
   }) async {
     await _client.post<Map<String, dynamic>>(
@@ -115,10 +116,12 @@ class NotificationService {
       data: {
         'latitude': latitude,
         'longitude': longitude,
+        // 백엔드 DTO의 occurredAt은 필수값입니다.
+        // 네이티브에서 받은 이벤트 시각을 UTC ISO 문자열로 보내 validation 400을 막습니다.
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
         if (course != null) 'course': course,
       },
       dataParser: (json) => json as Map<String, dynamic>,
     );
   }
 }
-
