@@ -26,7 +26,16 @@ services:
   redis:
     image: redis:7-alpine
     container_name: timingnote-redis
-    command: ["redis-server", "--appendonly", "yes"]
+    # maxmemory 512MB + allkeys-lru: 캐시 한도 도달 시 가장 오래 안 쓴 key 자동 삭제 → OOM 방지.
+    # places:* 캐시 예상 사용량(DAU 1만 기준 ~100MB) 대비 5배 여유.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "512mb"
+      - --maxmemory-policy
+      - allkeys-lru
     volumes:
       - redis-data:/data
     healthcheck:
