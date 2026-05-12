@@ -45,9 +45,10 @@ String _format({
   required String? rawExpression,
 }) {
   final result = switch (type) {
-    ConditionType.datetime => _formatDateTime(startDate, startTime),
+    ConditionType.datetime => _formatDateTime(startDate, startTime, endTime),
     ConditionType.date => _formatDate(startDate),
-    ConditionType.dateRange => _formatDateRange(startDate, endDate),
+    ConditionType.dateRange =>
+        _formatDateRange(startDate, endDate, startTime, endTime),
     ConditionType.week => _formatWeek(dayNames, startTime, endTime),
     ConditionType.timeRange => _formatTimeRange(startTime, endTime),
     _ => '',
@@ -62,10 +63,10 @@ String _format({
   return _typeFallback(type);
 }
 
-/// 날짜+시간 — "5월 11일 15:00" / 시간 없으면 "5월 11일"
-String _formatDateTime(String? date, String? time) {
+/// 날짜+시간 — "5월 11일 15:00 ~ 16:00" / endTime 없으면 "5월 11일 15:00" / 시간 자체가 없으면 "5월 11일"
+String _formatDateTime(String? date, String? startTime, String? endTime) {
   final d = _formatDate(date);
-  final t = _formatTime(time);
+  final t = _formatTimeRange(startTime, endTime);
   if (d.isEmpty && t.isEmpty) return '';
   if (t.isEmpty) return d;
   if (d.isEmpty) return t;
@@ -94,8 +95,20 @@ String _formatTime(String? raw) {
   return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
 }
 
-/// 날짜 범위 — "5월 1일 ~ 5월 10일" / 한쪽만 있으면 "5월 1일부터" "~5월 10일"
-String _formatDateRange(String? start, String? end) {
+/// 날짜 범위 — "5월 1일 ~ 5월 10일 18:00 ~ 22:00" 형태.
+/// 시간 정보 없으면 날짜 범위만, 한쪽만 있으면 "5월 1일부터" / "~5월 10일".
+String _formatDateRange(
+    String? start, String? end, String? startTime, String? endTime) {
+  final dateRange = _formatDateOnlyRange(start, end);
+  final timeRange = _formatTimeRange(startTime, endTime);
+  if (dateRange.isEmpty && timeRange.isEmpty) return '';
+  if (timeRange.isEmpty) return dateRange;
+  if (dateRange.isEmpty) return timeRange;
+  return '$dateRange $timeRange';
+}
+
+/// 날짜만 비교해 범위 라벨 생성 (내부 헬퍼)
+String _formatDateOnlyRange(String? start, String? end) {
   final s = _formatDate(start);
   final e = _formatDate(end);
   if (s.isEmpty && e.isEmpty) return '';

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:logger/logger.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/core/location/location_permission_service.dart';
@@ -13,6 +14,10 @@ final _logger = Logger();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // intl의 한국어 locale data 초기화 — table_calendar의 `locale: 'ko_KR'`이
+  // 월/요일 라벨을 한글로 표시하는 데 사용한다.
+  await initializeDateFormatting('ko_KR', null);
 
   // 앱 전역 ProviderContainer를 직접 생성해 runApp 이전 초기화에 사용합니다.
   final container = ProviderContainer();

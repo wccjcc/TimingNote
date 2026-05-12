@@ -5,6 +5,8 @@
 
 services:
   # Redis Stack: Redis 서버 + Redis Insight UI (8001 포트) 포함
+  # maxmemory 512MB + allkeys-lru: 캐시 한도 도달 시 가장 오래 안 쓴 key 자동 삭제 → OOM 방지.
+  # places:* 캐시 예상 사용량(DAU 1만 기준 ~100MB) 대비 5배 여유.
   redis:
     image: redis/redis-stack:latest
     container_name: timingnote-redis
@@ -12,7 +14,7 @@ services:
       - "6379:6379" # Redis 서버 포트
       - "8001:8001" # Redis Insight UI 포트
     environment:
-      REDIS_ARGS: --appendonly yes
+      REDIS_ARGS: --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
     restart: always

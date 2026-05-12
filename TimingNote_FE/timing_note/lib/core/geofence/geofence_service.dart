@@ -49,6 +49,7 @@ class GeofenceTransitionEvent {
   final DateTime occurredAt;
   final double latitude;
   final double longitude;
+  final double? course;
   final double? accuracyMeters;
 
   const GeofenceTransitionEvent({
@@ -58,6 +59,7 @@ class GeofenceTransitionEvent {
     required this.occurredAt,
     required this.latitude,
     required this.longitude,
+    this.course,
     this.accuracyMeters,
   });
 }
@@ -132,9 +134,12 @@ class GeofenceService {
     // 4) 네이티브 이벤트 구독
     _nativeEventSubscription = _nativeBridge.events.listen((raw) {
       final transitionRaw = raw['transition']?.toString().toUpperCase();
-      final transition = transitionRaw == 'ENTER'
-          ? GeofenceTransitionType.enter
-          : GeofenceTransitionType.exit;
+      final transition = switch (transitionRaw) {
+        'ENTER' => GeofenceTransitionType.enter,
+        'EXIT' => GeofenceTransitionType.exit,
+        'SIGNIFICANT_CHANGE' => GeofenceTransitionType.significantChange,
+        _ => GeofenceTransitionType.exit,
+      };
 
       final occurredAtRaw = raw['occurredAt']?.toString();
       final occurredAt = occurredAtRaw == null
@@ -149,6 +154,7 @@ class GeofenceService {
         occurredAt: occurredAt,
         latitude: (raw['latitude'] as num?)?.toDouble() ?? 0,
         longitude: (raw['longitude'] as num?)?.toDouble() ?? 0,
+        course: (raw['course'] as num?)?.toDouble(),
         accuracyMeters: (raw['accuracyMeters'] as num?)?.toDouble(),
       );
 
