@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class GeofenceSlotQueryServiceImpl implements GeofenceSlotQueryService {
 
-    private static final int DEFAULT_RADIUS_M = 100;
+    private static final int DEFAULT_RADIUS_M = 200;
 
     private final GeofenceSlotRepository geofenceSlotRepository;
     private final PlaceRepository placeRepository;

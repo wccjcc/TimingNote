@@ -71,6 +71,7 @@ class NativeKakaoMap extends StatefulWidget {
     required this.onMapCreated,
     required this.onCameraIdle,
     required this.onCameraMoveStarted,
+    this.onMarkerTap,
     this.initialLevel = 15,
   });
 
@@ -79,6 +80,9 @@ class NativeKakaoMap extends StatefulWidget {
   final ValueChanged<NativeKakaoMapController> onMapCreated;
   final void Function(LatLng center, int zoomLevel) onCameraIdle;
   final VoidCallback onCameraMoveStarted;
+  /// 마커(Poi) 탭 시 setMarkers에서 전달한 marker.id를 콜백으로 전달.
+  /// null이면 탭 이벤트 무시.
+  final ValueChanged<String>? onMarkerTap;
 
   @override
   State<NativeKakaoMap> createState() => _NativeKakaoMapState();
@@ -87,6 +91,9 @@ class NativeKakaoMap extends StatefulWidget {
 class _NativeKakaoMapState extends State<NativeKakaoMap> {
   static const String _viewType = 'timing_note/native_kakao_map';
   MethodChannel? _eventChannel;
+  // KakaoMap 엔진 준비 신호 — 첫 onCameraIdle 이벤트(=addViewSucceeded 후) 시점에 true.
+  // 그 전엔 placeholder + CircularProgressIndicator 위에 덮어서 빈 화면 인상 제거.
+  bool _isMapReady = false;
 
   @override
   Widget build(BuildContext context) {
@@ -99,26 +106,54 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
       );
     }
 
-    return UiKitView(
-      viewType: _viewType,
-      creationParamsCodec: const StandardMessageCodec(),
-      creationParams: {
-        'latitude': widget.center.latitude,
-        'longitude': widget.center.longitude,
-        'level': widget.initialLevel,
-      },
-      // 지도는 드래그/핀치 제스처를 네이티브 뷰가 바로 받아야 자연스럽습니다.
-      // EagerGestureRecognizer를 쓰면 Flutter 스크롤 제스처와 경쟁하지 않고
-      // iOS 지도 SDK가 터치를 즉시 처리할 수 있습니다.
-      gestureRecognizers: {
-        Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
-      },
-      onPlatformViewCreated: (viewId) {
-        final controller = NativeKakaoMapController._(viewId);
-        _eventChannel = MethodChannel('timing_note/native_kakao_map_$viewId')
-          ..setMethodCallHandler(_handleNativeEvent);
-        widget.onMapCreated(controller);
-      },
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        UiKitView(
+          viewType: _viewType,
+          creationParamsCodec: const StandardMessageCodec(),
+          creationParams: {
+            'latitude': widget.center.latitude,
+            'longitude': widget.center.longitude,
+            'level': widget.initialLevel,
+          },
+          // 지도는 드래그/핀치 제스처를 네이티브 뷰가 바로 받아야 자연스럽습니다.
+          // - EagerGestureRecognizer: 한 손가락 드래그/탭을 부모(ListView 스크롤)와 경쟁 없이 즉시 네이티브로.
+          // - ScaleGestureRecognizer: 두 손가락 핀치 줌인/줌아웃을 인식해 네이티브로 전달.
+          //   PlatformView는 multi-touch를 별도 인식기로 등록해야 동작.
+          // 주의: Factory의 generic 타입이 같으면 Flutter가 dedup하면서 assertion 실패한다
+          //   ("multiple gesture recognizer factories for the same type"). 각각 구체 타입을 명시해
+          //   별도 키로 인식되도록 한다.
+          gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+            Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
+            Factory<ScaleGestureRecognizer>(() => ScaleGestureRecognizer()),
+          },
+          onPlatformViewCreated: (viewId) {
+            final controller = NativeKakaoMapController._(viewId);
+            _eventChannel = MethodChannel('timing_note/native_kakao_map_$viewId')
+              ..setMethodCallHandler(_handleNativeEvent);
+            widget.onMapCreated(controller);
+          },
+        ),
+        // 엔진 준비 전 placeholder — IgnorePointer로 지도 제스처 영향 X.
+        // ready 후엔 안 그려지므로 추가 비용 없음.
+        if (!_isMapReady)
+          const IgnorePointer(
+            child: ColoredBox(
+              color: Color(0xFF1A1A2E),
+              child: Center(
+                child: SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Color(0xFFA78BFA),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -133,6 +168,15 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
         final longitude = (args['longitude'] as num).toDouble();
         final level = (args['level'] as num?)?.toInt() ?? widget.initialLevel;
         widget.onCameraIdle(LatLng(latitude, longitude), level);
+        // 첫 idle = 엔진 준비 완료 신호. placeholder 제거.
+        if (!_isMapReady && mounted) {
+          setState(() => _isMapReady = true);
+        }
+        return;
+      case 'onPoiTapped':
+        final args = Map<Object?, Object?>.from(call.arguments as Map);
+        final id = args['id'] as String?;
+        if (id != null) widget.onMarkerTap?.call(id);
         return;
     }
   }

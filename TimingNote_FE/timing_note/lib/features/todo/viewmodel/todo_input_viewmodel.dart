@@ -100,8 +100,8 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
     state = state.copyWith(phase: InputSubmitPhase.submitting, clearError: true);
 
     try {
-      // AI가 GENERIC 후보 검색 시 사용자 위치 기준이 필요하므로 등록 직전 GPS 호출
-      final gps = await tryGetGpsSnapshot(ref);
+      // AI가 GENERIC 후보 검색 시 사용자 위치 기준이 필요하므로 등록 직전 GPS 호출 — forceFresh.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       final mergedContent = _mergeAliasIntoContent(
         state.content.trim(),
         state.selectedUserPlace?.aliasName,

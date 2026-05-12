@@ -53,7 +53,8 @@ class _AliasInputSheet extends StatefulWidget {
 }
 
 class _AliasInputSheetState extends State<_AliasInputSheet> {
-  static const int _maxLength = 12;
+  // BE는 50자까지 허용. FE는 후보 카드/마커 라벨 표시영역을 고려해 20자로 제한.
+  static const int _maxLength = 20;
 
   late final TextEditingController _controller;
 
@@ -115,12 +116,6 @@ class _AliasInputSheetState extends State<_AliasInputSheet> {
         !_isEditing &&
         ((widget.placeName != null && widget.placeName!.isNotEmpty) ||
             (widget.placeAddress != null && widget.placeAddress!.isNotEmpty));
-    final remaining = _maxLength - _controller.text.runes.length;
-    final remainingColor = remaining < 0
-        ? SpaceColors.error
-        : remaining <= 2
-            ? SpaceColors.neonYellow
-            : SpaceColors.neonPurple.withValues(alpha: 0.5);
 
     return AnimatedPadding(
       duration: const Duration(milliseconds: 200),
@@ -190,31 +185,16 @@ class _AliasInputSheetState extends State<_AliasInputSheet> {
                   hasError: _errorText != null,
                   onSubmitted: (_) => _submit(),
                 ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _errorText ?? '집, 회사처럼 짧고 알아보기 쉬운 이름이 좋아요',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: _errorText != null
-                              ? SpaceColors.error
-                              : SpaceColors.neonLavender.withValues(alpha: 0.45),
-                        ),
-                      ),
+                if (_errorText != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _errorText!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: SpaceColors.error,
                     ),
-                    Text(
-                      '$remaining',
-                      style: TextStyle(
-                        fontFamily: SpaceTypography.pixelFontFamily,
-                        fontSize: 11,
-                        color: remainingColor,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 NeonButton(
                   label: _isEditing ? '저장' : '등록하기',
@@ -257,7 +237,7 @@ class _AliasField extends StatelessWidget {
       child: TextField(
         controller: controller,
         autofocus: true,
-        maxLength: maxLength + 4, // 시각적 입력은 약간 여유, 검증은 _maxLength로
+        maxLength: maxLength, // 20자 hard cap — 입력 자체가 막힘
         textInputAction: TextInputAction.done,
         onSubmitted: onSubmitted,
         style: const TextStyle(

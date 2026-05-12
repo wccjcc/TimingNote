@@ -150,21 +150,15 @@ public class TodoServiceImpl implements TodoService {
         List<Long> todoIds = page.stream().map(Todo::getId).toList();
         Map<Long, String> thumbnailMap = fetchThumbnails(todoIds);
         Map<Long, Place> placeMap = fetchPrimaryPlaces(page);
-        // GENERIC todo는 primaryPlaceId가 null이라 좌표를 못 채운다. FE 목록 거리 표시를 위해
-        // 활성 슬롯(=현재 알림 트리거 후보) 중 하나의 placeId로 fallback 좌표를 제공한다.
-        // 18개 상한이라 쿼리 비용 가벼움. todo당 슬롯 여러 개면 임의 1개 선택 (점수 차이 크지 않음).
-        Map<Long, Long> activeSlotPlaceByTodoId = fetchActiveSlotPlaceByTodoId(userId, todoIds);
-        Map<Long, Place> fallbackPlaceMap = fetchPlacesByIds(activeSlotPlaceByTodoId.values());
+        // GENERIC todo는 primaryPlaceId가 null이라 좌표가 비는데, 목록에 거리 한 줄을 보여주려고
+        // 활성 슬롯을 조회·거리 비교하는 fallback은 비용 대비 가치가 낮다고 판단(상세 페이지에서
+        // 후보별 거리 확인이 가능). primary 좌표만 사용하고 GENERIC은 거리 미표시.
 
         List<TodoListItemResponse> items = page.stream()
                 .map(t -> {
-                    Place place;
-                    if (t.getPrimaryPlaceId() != null) {
-                        place = placeMap.get(t.getPrimaryPlaceId());
-                    } else {
-                        Long slotPlaceId = activeSlotPlaceByTodoId.get(t.getId());
-                        place = slotPlaceId != null ? fallbackPlaceMap.get(slotPlaceId) : null;
-                    }
+                    Place place = t.getPrimaryPlaceId() != null
+                            ? placeMap.get(t.getPrimaryPlaceId())
+                            : null;
                     Double lat = place != null ? place.getLatitude() : null;
                     Double lng = place != null ? place.getLongitude() : null;
                     return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng);
@@ -604,36 +598,6 @@ public class TodoServiceImpl implements TodoService {
                         input -> input.getImageUrl().get(0),
                         (a, b) -> a   // 동일 todoId에 IMAGE input 복수 시 첫 번째 유지
                 ));
-    }
-
-    /**
-     * 페이지에 포함된 todo의 활성 슬롯에서 placeId를 todoId 키로 추출한다.
-     * 사용자 전체 활성 슬롯(상한 18개)을 한 번에 조회 → 페이지 todoId로 필터.
-     * GENERIC todo가 primaryPlaceId 없을 때 목록 응답의 좌표 fallback으로 사용.
-     */
-    private Map<Long, Long> fetchActiveSlotPlaceByTodoId(Long userId, List<Long> todoIds) {
-        if (todoIds.isEmpty()) return Map.of();
-        Set<Long> pageTodoIds = Set.copyOf(todoIds);
-        return geofenceSlotRepository.findByUserIdAndActiveTrue(userId).stream()
-                .filter(s -> pageTodoIds.contains(s.getTodoId()))
-                .collect(Collectors.toMap(
-                        GeofenceSlot::getTodoId,
-                        GeofenceSlot::getPlaceId,
-                        (a, b) -> a)); // todo당 다수 슬롯이면 임의 1개 (점수 차이 미미)
-    }
-
-    /**
-     * placeId 컬렉션을 받아 Place를 일괄 조회해 id→Place 맵 반환.
-     * 비어 있으면 추가 쿼리 안 발생.
-     */
-    private Map<Long, Place> fetchPlacesByIds(Iterable<Long> placeIds) {
-        List<Long> distinctIds = java.util.stream.StreamSupport.stream(placeIds.spliterator(), false)
-                .filter(java.util.Objects::nonNull)
-                .distinct()
-                .toList();
-        if (distinctIds.isEmpty()) return Map.of();
-        return placeRepository.findAllById(distinctIds).stream()
-                .collect(Collectors.toMap(Place::getId, p -> p));
     }
 
     /**

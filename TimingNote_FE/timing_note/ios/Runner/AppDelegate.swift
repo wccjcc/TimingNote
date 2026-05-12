@@ -124,13 +124,14 @@ import UserNotifications
     UNUserNotificationCenter.current().setNotificationCategories([geofenceCategory])
   }
 
-  /// 앱이 foreground일 때도 푸시 배너/소리를 그대로 보여주도록 설정합니다.
+  /// 앱이 foreground일 때는 시스템 푸시 UI를 표시하지 않습니다.
+  /// Flutter(onMessage)에서 인앱 토스트만 노출하도록 위임합니다.
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    completionHandler([.banner, .list, .sound, .badge])
+    completionHandler([])
   }
 
   /// 사용자가 알림 액션 버튼을 눌렀을 때 호출됩니다.
@@ -377,10 +378,22 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       let options = PoiOptions(styleID: styleID, poiID: id)
       // rank: 활성 후보가 더 높은 우선순위를 가져 위에 그려지도록 조정
       options.rank = active ? index : index + 1000
+      options.clickable = true // 사용자가 마커를 탭하면 Flutter에 poiId 전달
       let point = MapPoint(longitude: lng, latitude: lat)
       let poi = layer?.addPoi(option: options, at: point)
+      // Poi 단위로 tap handler 등록 — handler에서 itemID(=Flutter에서 전달한 id) 회수해 채널 전송.
+      _ = poi?.addPoiTappedEventHandler(
+        target: self,
+        handler: TimingNoteNativeKakaoMapView.handlePoiTapped
+      )
       poi?.show()
     }
+  }
+
+  /// 마커 탭 이벤트 → Flutter "onPoiTapped" 호출. id는 setMarkers 시 전달했던 문자열.
+  private func handlePoiTapped(_ param: PoiInteractionEventParam) {
+    let poiId = param.poiItem.itemID
+    channel.invokeMethod("onPoiTapped", arguments: ["id": poiId])
   }
 
   /// LabelLayer를 1회만 생성하고 캐시한다. 같은 layerID가 이미 등록돼 있으면 그대로 재사용.

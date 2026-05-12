@@ -36,6 +36,7 @@ import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -295,12 +296,106 @@ class NotificationServiceImplTest {
         assertThat(result.isSent()).isFalse();
     }
 
+    @Test
+    void send_false_when_datetimeConditionIsFuture() {
+        TodoTimeCondition dateTime = condition(ConditionType.DATETIME);
+        ReflectionTestUtils.setField(dateTime, "startDate", LocalDate.now().plusDays(1));
+        ReflectionTestUtils.setField(dateTime, "startTime", LocalTime.of(18, 0));
+        mockBaseForTodoValidation();
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(dateTime));
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+        assertThat(result.isSent()).isFalse();
+    }
+
+    @Test
+    void send_true_when_datetimeConditionIsPast() throws Exception {
+        LocalDateTime base = LocalDateTime.now().minusMinutes(1);
+        TodoTimeCondition dateTime = condition(ConditionType.DATETIME);
+        ReflectionTestUtils.setField(dateTime, "startDate", base.toLocalDate());
+        ReflectionTestUtils.setField(dateTime, "startTime", base.toLocalTime().withNano(0));
+
+        when(geofenceSlotRepository.findById(SLOT_ID)).thenReturn(Optional.of(slot));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(dateTime));
+        when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+        assertThat(result.isSent()).isTrue();
+    }
+
+    @Test
+    void send_false_when_weekMaskMatchesButTimeWindowNotMatch() {
+        short todayMask = dayBit(OffsetDateTime.now().getDayOfWeek());
+        TodoTimeCondition weekCondition = condition(ConditionType.WEEK);
+        ReflectionTestUtils.setField(weekCondition, "daysOfWeek", todayMask);
+        ReflectionTestUtils.setField(weekCondition, "startTime", LocalTime.of(1, 0));
+        ReflectionTestUtils.setField(weekCondition, "endTime", LocalTime.of(1, 30));
+        mockBaseForTodoValidation();
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(weekCondition));
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+        assertThat(result.isSent()).isFalse();
+    }
+
+    @Test
+    void send_true_when_weekMaskAndTimeWindowBothMatch() throws Exception {
+        short todayMask = dayBit(OffsetDateTime.now().getDayOfWeek());
+        LocalTime now = LocalTime.now();
+        TodoTimeCondition weekCondition = condition(ConditionType.WEEK);
+        ReflectionTestUtils.setField(weekCondition, "daysOfWeek", todayMask);
+        ReflectionTestUtils.setField(weekCondition, "startTime", now.minusMinutes(3));
+        ReflectionTestUtils.setField(weekCondition, "endTime", now.plusMinutes(3));
+
+        when(geofenceSlotRepository.findById(SLOT_ID)).thenReturn(Optional.of(slot));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(weekCondition));
+        when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+        assertThat(result.isSent()).isTrue();
+    }
+
     // DATE_RANGE inclusive boundaries
     @Test
     void send_true_when_dateRangeBoundaryInclusive() throws Exception {
         TodoTimeCondition dateRange = condition(ConditionType.DATE_RANGE);
         ReflectionTestUtils.setField(dateRange, "startDate", LocalDate.now());
         ReflectionTestUtils.setField(dateRange, "endDate", LocalDate.now());
+
+        when(geofenceSlotRepository.findById(SLOT_ID)).thenReturn(Optional.of(slot));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(dateRange));
+        when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+        assertThat(result.isSent()).isTrue();
+    }
+
+    @Test
+    void send_false_when_dateConditionTimeWindowNotMatch() {
+        TodoTimeCondition date = condition(ConditionType.DATE);
+        ReflectionTestUtils.setField(date, "startDate", LocalDate.now());
+        ReflectionTestUtils.setField(date, "startTime", LocalTime.of(1, 0));
+        ReflectionTestUtils.setField(date, "endTime", LocalTime.of(1, 30));
+        mockBaseForTodoValidation();
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of(date));
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+        assertThat(result.isSent()).isFalse();
+    }
+
+    @Test
+    void send_true_when_dateRangeAndTimeWindowMatch() throws Exception {
+        LocalTime now = LocalTime.now();
+        TodoTimeCondition dateRange = condition(ConditionType.DATE_RANGE);
+        ReflectionTestUtils.setField(dateRange, "startDate", LocalDate.now().minusDays(1));
+        ReflectionTestUtils.setField(dateRange, "endDate", LocalDate.now().plusDays(1));
+        ReflectionTestUtils.setField(dateRange, "startTime", now.minusMinutes(3));
+        ReflectionTestUtils.setField(dateRange, "endTime", now.plusMinutes(3));
 
         when(geofenceSlotRepository.findById(SLOT_ID)).thenReturn(Optional.of(slot));
         when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));

@@ -1,6 +1,7 @@
 package com.timingnote.api.infra.config;
 
 import com.timingnote.api.infra.client.google.GooglePlacesClient;
+import com.timingnote.api.infra.client.kakao.KakaoGeoClient;
 import com.timingnote.api.infra.client.kakao.KakaoLocalClient;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.timeout.ReadTimeoutHandler;
@@ -34,6 +35,19 @@ public class ExternalApiWebClientConfig {
 
     @Bean
     public KakaoLocalClient kakaoLocalClient() {
+        return buildKakaoClient(KakaoLocalClient.class);
+    }
+
+    @Bean
+    public KakaoGeoClient kakaoGeoClient() {
+        return buildKakaoClient(KakaoGeoClient.class);
+    }
+
+    /**
+     * Kakao Local API 호출용 HTTP Service 프록시 빌더.
+     * 같은 baseUrl/인증 헤더를 공유하므로 서로 다른 path 그룹의 클라이언트들을 한 메서드로 생성.
+     */
+    private <T> T buildKakaoClient(Class<T> clientType) {
         WebClient webClient = WebClient.builder()
                 .baseUrl("https://dapi.kakao.com")
                 .defaultHeader("Authorization", "KakaoAK " + kakaoApiKey)
@@ -41,7 +55,7 @@ public class ExternalApiWebClientConfig {
         HttpServiceProxyFactory factory = HttpServiceProxyFactory
                 .builderFor(WebClientAdapter.create(webClient))
                 .build();
-        return factory.createClient(KakaoLocalClient.class);
+        return factory.createClient(clientType);
     }
 
     @Bean
