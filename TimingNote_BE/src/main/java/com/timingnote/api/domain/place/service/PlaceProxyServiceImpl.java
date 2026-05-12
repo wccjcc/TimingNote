@@ -33,10 +33,18 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
         final int clampedSize = Math.max(1, Math.min(size, 15));
         final String x = userLongitude == null ? null : userLongitude.toString();
         final String y = userLatitude == null ? null : userLatitude.toString();
+        final boolean sortByDistance = (userLatitude != null && userLongitude != null);
 
         KakaoLocalSearchResponse response = kakaoLocalClient
                 .searchByKeyword(query.trim(), x, y, clampedSize)
                 .block();
+
+        int resultCount = (response == null || response.getDocuments() == null)
+                ? 0
+                : response.getDocuments().size();
+        // BE 프록시 경유 확인용 로그. 단계 2(Redis 캐시) 도입 시 hit/miss 분기도 같이 찍는다.
+        log.info("[PLACE_PROXY][SEARCH] query='{}' sortByDistance={} size={} → results={}",
+                query.trim(), sortByDistance, clampedSize, resultCount);
 
         if (response == null || response.getDocuments() == null) {
             return Collections.emptyList();
@@ -52,18 +60,20 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
                 .reverseGeocode(String.valueOf(longitude), String.valueOf(latitude))
                 .block();
 
-        if (response == null || response.getDocuments() == null
-                || response.getDocuments().isEmpty()) {
-            return null;
+        String address = null;
+        if (response != null && response.getDocuments() != null
+                && !response.getDocuments().isEmpty()) {
+            KakaoReverseGeocodeResponse.Document first = response.getDocuments().get(0);
+            // 도로명 우선, 없으면 지번
+            if (first.getRoadAddress() != null && first.getRoadAddress().getAddressName() != null) {
+                address = first.getRoadAddress().getAddressName();
+            } else if (first.getAddress() != null && first.getAddress().getAddressName() != null) {
+                address = first.getAddress().getAddressName();
+            }
         }
-        KakaoReverseGeocodeResponse.Document first = response.getDocuments().get(0);
-        // 도로명 우선, 없으면 지번
-        if (first.getRoadAddress() != null && first.getRoadAddress().getAddressName() != null) {
-            return first.getRoadAddress().getAddressName();
-        }
-        if (first.getAddress() != null && first.getAddress().getAddressName() != null) {
-            return first.getAddress().getAddressName();
-        }
-        return null;
+
+        log.info("[PLACE_PROXY][REVERSE_GEOCODE] lat={} lng={} → matched={}",
+                latitude, longitude, address != null);
+        return address;
     }
 }
