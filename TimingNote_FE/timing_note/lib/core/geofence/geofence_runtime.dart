@@ -5,7 +5,6 @@ import 'package:logger/logger.dart';
 
 import '../../features/notification/service/notification_service.dart';
 import '../location/location_permission_service.dart';
-import 'geofence_event.dart';
 import 'geofence_region_store.dart';
 import 'geofence_service.dart';
 import 'geofence_sse_client.dart';
@@ -196,10 +195,6 @@ class GeofenceRuntime {
   Future<void> _handleTransition(
     GeofenceTransitionEvent transitionEvent,
   ) async {
-    if (transitionEvent.transition != GeofenceTransitionType.enter) {
-      return;
-    }
-
     final slotId = _extractSlotId(transitionEvent.geofenceId);
     if (slotId == null) {
       _logger.w(
@@ -210,9 +205,15 @@ class GeofenceRuntime {
 
     try {
       final sent = await _notificationService.sendGeofenceNotification(slotId);
-      _logger.i('[GEOFENCE_NOTI_REQUESTED] slotId=$slotId sent=$sent');
+      _logger.i(
+        '[GEOFENCE_NOTI_REQUESTED] '
+        'slotId=$slotId transition=${transitionEvent.transition.name} sent=$sent',
+      );
     } catch (e) {
-      _logger.e('[GEOFENCE_NOTI_FAILED] slotId=$slotId error=$e');
+      _logger.e(
+        '[GEOFENCE_NOTI_FAILED] '
+        'slotId=$slotId transition=${transitionEvent.transition.name} error=$e',
+      );
     }
   }
 

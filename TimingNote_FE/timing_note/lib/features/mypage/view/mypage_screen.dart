@@ -148,8 +148,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   Future<void> _saveRadiusOnChangeEnd(double value) async {
     // 슬라이더는 인덱스(0~5)를 움직이고, 실제 저장값은 허용 반경 목록에서 꺼냅니다.
-    final index =
-        value.round().clamp(0, _allowedRadiusMeters.length - 1) as int;
+    final index = value.round().clamp(0, _allowedRadiusMeters.length - 1);
     final newRadius = _allowedRadiusMeters[index];
     if (newRadius == _savedRadiusMeter || _isSavingRadius) {
       return;
@@ -335,7 +334,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
                   final index = value.round().clamp(
                     0,
                     _allowedRadiusMeters.length - 1,
-                  ) as int;
+                  );
                   setState(() => _radiusMeter = _allowedRadiusMeters[index]);
                 },
                 onChangeEnd: _saveRadiusOnChangeEnd,
