@@ -3,7 +3,6 @@ package com.timingnote.api.domain.place.service;
 import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import com.timingnote.api.infra.client.kakao.KakaoGeoClient;
 import com.timingnote.api.infra.client.kakao.KakaoLocalClient;
-import com.timingnote.api.infra.client.kakao.dto.KakaoDocument;
 import com.timingnote.api.infra.client.kakao.dto.KakaoLocalSearchResponse;
 import com.timingnote.api.infra.client.kakao.dto.KakaoReverseGeocodeResponse;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +12,12 @@ import org.springframework.stereotype.Service;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * 카카오 Local API 프록시 서비스 구현.
+ *
+ * <p>호출 흐름: {@link PlaceSearchCache}를 먼저 거치고, 캐시 miss일 때만 카카오 호출.
+ * 캐시 정책(좌표 grid, TTL, hit/miss 로그)은 cache 컴포넌트에 격리.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -20,6 +25,7 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
 
     private final KakaoLocalClient kakaoLocalClient;
     private final KakaoGeoClient kakaoGeoClient;
+    private final PlaceSearchCache cache;
 
     @Override
     public List<PlaceSearchItemResponse> searchByKeyword(
@@ -31,20 +37,38 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
         if (query == null || query.isBlank()) return Collections.emptyList();
 
         final int clampedSize = Math.max(1, Math.min(size, 15));
-        final String x = userLongitude == null ? null : userLongitude.toString();
-        final String y = userLatitude == null ? null : userLatitude.toString();
         final boolean sortByDistance = (userLatitude != null && userLongitude != null);
 
+        return cache.getOrLoadSearch(query, userLatitude, userLongitude,
+                clampedSize, sortByDistance,
+                () -> callKakaoSearch(query.trim(), userLatitude, userLongitude, clampedSize));
+    }
+
+    @Override
+    public String reverseGeocode(double latitude, double longitude) {
+        return cache.getOrLoadReverseGeocode(latitude, longitude,
+                () -> callKakaoReverseGeocode(latitude, longitude));
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 카카오 호출 (cache miss 시에만 실행)
+    // ─────────────────────────────────────────────────────────────────
+
+    private List<PlaceSearchItemResponse> callKakaoSearch(
+            String query, Double lat, Double lng, int size
+    ) {
+        final String x = lng == null ? null : lng.toString();
+        final String y = lat == null ? null : lat.toString();
+
         KakaoLocalSearchResponse response = kakaoLocalClient
-                .searchByKeyword(query.trim(), x, y, clampedSize)
+                .searchByKeyword(query, x, y, size)
                 .block();
 
         int resultCount = (response == null || response.getDocuments() == null)
                 ? 0
                 : response.getDocuments().size();
-        // BE 프록시 경유 확인용 로그. 단계 2(Redis 캐시) 도입 시 hit/miss 분기도 같이 찍는다.
-        log.info("[PLACE_PROXY][SEARCH] query='{}' sortByDistance={} size={} → results={}",
-                query.trim(), sortByDistance, clampedSize, resultCount);
+        log.info("[PLACE_PROXY][SEARCH][KAKAO] query='{}' size={} → results={}",
+                query, size, resultCount);
 
         if (response == null || response.getDocuments() == null) {
             return Collections.emptyList();
@@ -54,8 +78,7 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
                 .toList();
     }
 
-    @Override
-    public String reverseGeocode(double latitude, double longitude) {
+    private String callKakaoReverseGeocode(double latitude, double longitude) {
         KakaoReverseGeocodeResponse response = kakaoGeoClient
                 .reverseGeocode(String.valueOf(longitude), String.valueOf(latitude))
                 .block();
@@ -72,7 +95,7 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
             }
         }
 
-        log.info("[PLACE_PROXY][REVERSE_GEOCODE] lat={} lng={} → matched={}",
+        log.info("[PLACE_PROXY][REVERSE_GEOCODE][KAKAO] lat={} lng={} → matched={}",
                 latitude, longitude, address != null);
         return address;
     }
