@@ -242,6 +242,7 @@ class GeofenceRuntime {
       await _notificationService.requestGeofenceRecalculation(
         latitude: transitionEvent.latitude,
         longitude: transitionEvent.longitude,
+        occurredAt: transitionEvent.occurredAt,
         course: transitionEvent.course,
       );
       _logger.i(
