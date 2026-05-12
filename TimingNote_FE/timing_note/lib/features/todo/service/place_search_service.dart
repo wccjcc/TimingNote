@@ -1,26 +1,23 @@
-import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/kakao_config.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/network/api_endpoints.dart';
+import '../../../core/network/api_provider.dart';
 import '../model/selected_kakao_place.dart';
 
+/// 장소 검색/역지오코딩 서비스.
+///
+/// 이전: FE에서 카카오 REST API(`dapi.kakao.com`)를 직접 호출 (REST key 노출 문제).
+/// 현재: BE 프록시(`/api/v1/places/*`)를 통한 호출. 카카오 키는 BE 환경변수로 격리되고,
+///       카카오 개발자센터에서 BE 서버 IP를 허용 IP로 등록해 키 탈취 시도를 차단한다.
+///       X-Device-Secret은 ApiClient의 interceptor가 자동 주입.
 class PlaceSearchService {
-  PlaceSearchService()
-      : _dio = Dio(
-          BaseOptions(
-            baseUrl: 'https://dapi.kakao.com',
-            connectTimeout: const Duration(seconds: 8),
-            receiveTimeout: const Duration(seconds: 8),
-            headers: {
-              'Authorization': 'KakaoAK ${KakaoConfig.restApiKey}',
-            },
-          ),
-        );
+  PlaceSearchService({required ApiClient apiClient}) : _client = apiClient;
 
-  final Dio _dio;
+  final ApiClient _client;
 
   /// 키워드로 장소 검색.
-  /// [lat], [lng] 제공 시 거리순 정렬, 미제공 시 정확도순.
+  /// [lat], [lng] 제공 시 거리순 정렬(반경 20km), 미제공 시 정확도순.
   Future<List<KakaoPlaceItem>> searchKeyword(
     String query, {
     double? lat,
@@ -29,46 +26,35 @@ class PlaceSearchService {
   }) async {
     if (query.trim().isEmpty) return [];
 
-    final params = <String, dynamic>{
-      'query': query.trim(),
-      'size': size,
-      if (lat != null && lng != null) ...{
-        'y': lat.toString(),
-        'x': lng.toString(),
-        'sort': 'distance',
-        'radius': 20000,
+    final envelope = await _client.get<List<KakaoPlaceItem>>(
+      ApiEndpoints.placesSearch,
+      queryParameters: {
+        'query': query.trim(),
+        'size': size,
+        'lat': ?lat,
+        'lng': ?lng,
       },
-    };
-
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/v2/local/search/keyword.json',
-      queryParameters: params,
+      dataParser: (json) => (json as List<dynamic>)
+          .map((e) => KakaoPlaceItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
-
-    final documents = response.data?['documents'] as List<dynamic>? ?? [];
-    return documents
-        .map((e) => KakaoPlaceItem.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return envelope.data ?? const [];
   }
 
   /// 좌표 → 도로명/지번 주소 (지도 핀 드래그 시 역지오코딩).
   Future<String?> reverseGeocode(double lat, double lng) async {
-    final response = await _dio.get<Map<String, dynamic>>(
-      '/v2/local/geo/coord2address.json',
-      queryParameters: {'x': lng.toString(), 'y': lat.toString()},
+    final envelope = await _client.get<String?>(
+      ApiEndpoints.placesReverseGeocode,
+      queryParameters: {'lat': lat, 'lng': lng},
+      dataParser: (json) {
+        final map = json as Map<String, dynamic>;
+        return map['address'] as String?;
+      },
     );
-
-    final documents = response.data?['documents'] as List<dynamic>? ?? [];
-    if (documents.isEmpty) return null;
-
-    final first = documents.first as Map<String, dynamic>;
-    final road = first['road_address'] as Map<String, dynamic>?;
-    final jibun = first['address'] as Map<String, dynamic>?;
-    return road?['address_name'] as String? ??
-        jibun?['address_name'] as String?;
+    return envelope.data;
   }
 }
 
 final placeSearchServiceProvider = Provider<PlaceSearchService>(
-  (_) => PlaceSearchService(),
+  (ref) => PlaceSearchService(apiClient: ref.read(apiClientProvider)),
 );

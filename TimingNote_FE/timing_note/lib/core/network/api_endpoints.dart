@@ -19,4 +19,8 @@ class ApiEndpoints {
   static const String geofenceSlots = '/notifications/geofence/slots';
   static const String geofenceSlotsStream =
       '/notifications/geofence/slots/stream';
+
+  /// 장소 검색 프록시 (BE → Kakao Local API). Kakao REST key 격리 목적.
+  static const String placesSearch = '/places/search';
+  static const String placesReverseGeocode = '/places/reverse-geocode';
 }
