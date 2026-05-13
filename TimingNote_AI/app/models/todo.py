@@ -49,10 +49,10 @@ class StructureRequest(BaseModel):
 class TodoStructureOutput(BaseModel):
     """AI 분석 결과.
 
-    placeType은 BE 책임으로 이관(2026-05-12 결정) — AI는 placeText 추출만 담당.
-    BE가 검색 결과·user_places 매핑·일반명사 사전으로 자체 결정한다.
+    AI는 원문을 재해석/재구성하지 않고 카테고리·장소·시간 정보만 추출한다.
+    todoText는 사용자 원문이 그대로 보존되므로 AI 응답에 포함하지 않는다 (BE가 todo.content 사용).
+    placeType도 BE 책임 (검색 결과·user_places·일반명사 사전으로 자체 결정).
     """
-    todoText: str
     category: TodoCategory
     placeText: Optional[str] = None
     timeHintText: Optional[str] = None
