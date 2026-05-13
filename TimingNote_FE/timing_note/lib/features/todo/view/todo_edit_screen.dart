@@ -124,27 +124,41 @@ class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
   }
 
   void _showAddTimeConditionSheet(BuildContext context) {
-    showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, builder: (_) => _AddTimeConditionSheet(onAdd: (tc) => ref.read(todoEditProvider(widget.todoId).notifier).addTimeCondition(tc)));
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => TimeConditionEditSheet(
+        onSubmit: (tc) => ref
+            .read(todoEditProvider(widget.todoId).notifier)
+            .addTimeCondition(tc),
+      ),
+    );
   }
+
 }
 
-class _AddTimeConditionSheet extends StatefulWidget {
-  const _AddTimeConditionSheet({required this.onAdd});
-  final ValueChanged<TimeConditionRequest> onAdd;
+class TimeConditionEditSheet extends StatefulWidget {
+  const TimeConditionEditSheet({super.key, required this.onSubmit, this.initial});
+
+  final ValueChanged<TimeConditionRequest> onSubmit;
+  /// non-null이면 수정 모드 — 필드 prefill + 버튼·타이틀 라벨 변경.
+  final TimeConditionRequest? initial;
+
   @override
-  State<_AddTimeConditionSheet> createState() => _AddTimeConditionSheetState();
+  State<TimeConditionEditSheet> createState() => _TimeConditionEditSheetState();
 }
 
-class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
-  String _type = ConditionType.datetime;
-  DateTime _selectedDate = DateTime.now();
+class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
+  late String _type;
+  late DateTime _selectedDate;
   DateTimeRange? _selectedDateRange;
-  bool _timeEnabled = true; // 시간 활성화 여부 토글
-  int _startHour = DateTime.now().hour;
-  int _startMinute = (DateTime.now().minute ~/ 5) * 5;
-  int _endHour = (DateTime.now().hour + 1) % 24;
-  int _endMinute = (DateTime.now().minute ~/ 5) * 5;
-  final Set<String> _selectedDays = {};
+  late bool _timeEnabled; // 시간 활성화 여부 토글
+  late int _startHour;
+  late int _startMinute;
+  late int _endHour;
+  late int _endMinute;
+  late final Set<String> _selectedDays;
   static const _dayLabels = {'MON': '월', 'TUE': '화', 'WED': '수', 'THU': '목', 'FRI': '금', 'SAT': '토', 'SUN': '일'};
 
   // 타입별 시간 정책:
@@ -173,7 +187,55 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
   @override
   void initState() {
     super.initState();
-    _selectedDateRange = DateTimeRange(start: DateTime.now(), end: DateTime.now().add(const Duration(days: 1)));
+    final now = DateTime.now();
+    final init = widget.initial;
+    if (init != null) {
+      // 수정 모드: 기존 값 prefill
+      _type = init.conditionType;
+      final startDate = init.startDate != null
+          ? DateTime.tryParse(init.startDate!) ?? now
+          : now;
+      _selectedDate = startDate;
+      if (init.conditionType == ConditionType.dateRange &&
+          init.startDate != null &&
+          init.endDate != null) {
+        final s = DateTime.tryParse(init.startDate!) ?? now;
+        final e = DateTime.tryParse(init.endDate!) ?? s.add(const Duration(days: 1));
+        _selectedDateRange = DateTimeRange(start: s, end: e);
+      } else {
+        _selectedDateRange = DateTimeRange(start: now, end: now.add(const Duration(days: 1)));
+      }
+      final hasTime = init.startTime != null && init.endTime != null;
+      _timeEnabled = hasTime;
+      if (hasTime) {
+        final sParts = init.startTime!.split(':');
+        _startHour = int.tryParse(sParts[0]) ?? now.hour;
+        // wheel은 5분 단위라 5의 배수로 round-down.
+        final sm = int.tryParse(sParts.length > 1 ? sParts[1] : '0') ?? 0;
+        _startMinute = (sm ~/ 5) * 5;
+        final eParts = init.endTime!.split(':');
+        _endHour = int.tryParse(eParts[0]) ?? (now.hour + 1) % 24;
+        final em = int.tryParse(eParts.length > 1 ? eParts[1] : '0') ?? 0;
+        _endMinute = (em ~/ 5) * 5;
+      } else {
+        _startHour = now.hour;
+        _startMinute = (now.minute ~/ 5) * 5;
+        _endHour = (now.hour + 1) % 24;
+        _endMinute = (now.minute ~/ 5) * 5;
+      }
+      _selectedDays = (init.daysOfWeek ?? const <String>[]).toSet();
+    } else {
+      // 추가 모드: 기본값
+      _type = ConditionType.datetime;
+      _selectedDate = now;
+      _selectedDateRange = DateTimeRange(start: now, end: now.add(const Duration(days: 1)));
+      _timeEnabled = true;
+      _startHour = now.hour;
+      _startMinute = (now.minute ~/ 5) * 5;
+      _endHour = (now.hour + 1) % 24;
+      _endMinute = (now.minute ~/ 5) * 5;
+      _selectedDays = <String>{};
+    }
   }
 
   @override
@@ -187,7 +249,10 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
         children: [
           Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2)))),
           const SizedBox(height: 24),
-          const Text('시간 조건 설정', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11')),
+          Text(
+            widget.initial == null ? '시간 조건 추가' : '시간 조건 수정',
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11'),
+          ),
           const SizedBox(height: 20),
           SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [_buildTypeChip('날짜', ConditionType.datetime), _buildTypeChip('기간', ConditionType.dateRange), _buildTypeChip('매주', ConditionType.week), _buildTypeChip('시간대', ConditionType.timeRange)])),
           const SizedBox(height: 32),
@@ -218,7 +283,24 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
             ),
           ],
           const SizedBox(height: 40),
-          SizedBox(width: double.infinity, height: 56, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: _kPurpleAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 8, shadowColor: _kPurpleAccent.withOpacity(0.5)), onPressed: _submit, child: const Text('조건 적용하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kPurpleAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 8,
+                shadowColor: _kPurpleAccent.withOpacity(0.5),
+              ),
+              onPressed: _submit,
+              child: Text(
+                widget.initial == null ? '추가하기' : '수정 적용하기',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -496,9 +578,9 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
       endTimeStr = '${_endHour.toString().padLeft(2, '0')}:${_endMinute.toString().padLeft(2, '0')}';
     }
     if (_type == ConditionType.dateRange && _selectedDateRange != null) {
-      widget.onAdd(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDateRange!.start.year}-${_selectedDateRange!.start.month.toString().padLeft(2, '0')}-${_selectedDateRange!.start.day.toString().padLeft(2, '0')}', endDate: '${_selectedDateRange!.end.year}-${_selectedDateRange!.end.month.toString().padLeft(2, '0')}-${_selectedDateRange!.end.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr));
+      widget.onSubmit(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDateRange!.start.year}-${_selectedDateRange!.start.month.toString().padLeft(2, '0')}-${_selectedDateRange!.start.day.toString().padLeft(2, '0')}', endDate: '${_selectedDateRange!.end.year}-${_selectedDateRange!.end.month.toString().padLeft(2, '0')}-${_selectedDateRange!.end.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr));
     } else {
-      widget.onAdd(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr, daysOfWeek: _selectedDays.toList()));
+      widget.onSubmit(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr, daysOfWeek: _selectedDays.toList()));
     }
     Navigator.pop(context);
   }
@@ -522,13 +604,59 @@ class _TimeConditionList extends ConsumerWidget {
   const _TimeConditionList({required this.todoId, required this.conditions});
   final int todoId;
   final List<TimeConditionRequest> conditions;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (conditions.isEmpty) return const Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text('설정된 시간 조건이 없습니다.', style: TextStyle(color: Colors.white24, fontSize: 13)));
+    if (conditions.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Text('설정된 시간 조건이 없습니다.', style: TextStyle(color: Colors.white24, fontSize: 13)),
+      );
+    }
     return Column(children: List.generate(conditions.length, (i) {
       final tc = conditions[i];
-      return Container(margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)), child: ListTile(dense: true, title: Text(formatTimeConditionRequest(tc), style: const TextStyle(color: Colors.cyanAccent, fontSize: 14)), trailing: IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18), onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i))));
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.03),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ListTile(
+          dense: true,
+          // 항목 탭 시 같은 Sheet를 수정 모드로 열어 빠른 편집 가능.
+          onTap: () => _openEditSheet(context, ref, i, tc),
+          title: Text(
+            formatTimeConditionRequest(tc),
+            style: const TextStyle(color: Colors.cyanAccent, fontSize: 14),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.edit_outlined, color: Colors.white38, size: 16),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18),
+                onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i),
+              ),
+            ],
+          ),
+        ),
+      );
     }));
+  }
+
+  void _openEditSheet(BuildContext context, WidgetRef ref, int index, TimeConditionRequest initial) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => TimeConditionEditSheet(
+        initial: initial,
+        onSubmit: (tc) => ref
+            .read(todoEditProvider(todoId).notifier)
+            .updateTimeCondition(index, tc),
+      ),
+    );
   }
 }
 

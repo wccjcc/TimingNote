@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/location/location_provider.dart';
 import '../model/selected_kakao_place.dart';
+import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../service/todo_service.dart';
@@ -213,6 +214,55 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         userLongitude: gps?.longitude,
         course: gps?.course,
         occurredAt: gps?.occurredAt,
+      );
+      state = state.copyWith(detail: updated, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  // ── 시간 조건 CRUD ─────────────────────────────────────────────
+  // BE PATCH /api/v1/todos/{id}는 timeConditions 배열을 받으면 deleteAll + saveAll
+  // (전체 교체) 한다. 클라에서도 새 배열을 만들어 통째 전송하는 게 깔끔.
+
+  Future<void> addTimeCondition(TimeConditionRequest tc) async {
+    final current = state.detail;
+    if (current == null) return;
+    final list = [
+      ...current.timeConditions.map(TimeConditionRequest.fromCondition),
+      tc,
+    ];
+    await _updateTimeConditions(list);
+  }
+
+  Future<void> updateTimeCondition(int index, TimeConditionRequest tc) async {
+    final current = state.detail;
+    if (current == null) return;
+    final list = current.timeConditions
+        .map(TimeConditionRequest.fromCondition)
+        .toList();
+    if (index < 0 || index >= list.length) return;
+    list[index] = tc;
+    await _updateTimeConditions(list);
+  }
+
+  Future<void> removeTimeCondition(int index) async {
+    final current = state.detail;
+    if (current == null) return;
+    final list = current.timeConditions
+        .map(TimeConditionRequest.fromCondition)
+        .toList();
+    if (index < 0 || index >= list.length) return;
+    list.removeAt(index);
+    await _updateTimeConditions(list);
+  }
+
+  Future<void> _updateTimeConditions(List<TimeConditionRequest> conditions) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final updated = await _service.update(
+        _todoId,
+        timeConditions: conditions,
       );
       state = state.copyWith(detail: updated, isLoading: false);
     } catch (e) {
