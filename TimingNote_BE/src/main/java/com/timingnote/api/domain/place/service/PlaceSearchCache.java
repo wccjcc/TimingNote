@@ -21,6 +21,9 @@ import java.util.function.Supplier;
  *   <li><b>좌표 grid 키 정규화</b>: lat/lng를 양자화해 동일 지역 사용자들이 캐시 공유.
  *       search는 1km grid(multiplier 100), reverse geocode는 30m grid(multiplier 3000).
  *       정확도 손실은 거의 없고(grid 내 매장 정렬 차이 무시 가능) 인기 검색어 quota 절감 효과 큼.</li>
+ *   <li><b>단일 캐시</b>: FE 검색창 경로와 내부 흐름(searchAndStoreAll)이 동일한
+ *       {@link PlaceSearchItemResponse} 캐시를 공유한다 ({@code places:search:*}).
+ *       categoryName까지 DTO에 포함시켜 raw KakaoDocument와 정보 손실 없음.</li>
  *   <li><b>TTL</b>: search 7일, reverse geocode 24시간. 카카오 데이터 stale 위험(1주일 ~0.4%) 대비
  *       hit 효율의 sweet spot.</li>
  *   <li><b>JSON 직렬화</b>: {@link StringRedisTemplate} + {@link ObjectMapper} 조합. Spring Cache
@@ -55,31 +58,34 @@ public class PlaceSearchCache {
     private static final int GRID_MULTIPLIER_GEO = 3000;
 
     // ── TTL ────────────────────────────────────────────────────────────
+    // search 7일: 카카오 매장 데이터 stale 위험 ~0.4%/주 대비 hit 효율 sweet spot.
+    // geo 7일: 도로명 주소는 신축/재개발 외엔 변동 없음 (연 변동률 ~0.4%, 7일 stale ~0.01%).
+    //         하루 단위에서 일주일 단위로 늘려 quota 약 7배 절감.
     private static final Duration TTL_SEARCH = Duration.ofDays(7);
-    private static final Duration TTL_GEO = Duration.ofHours(24);
+    private static final Duration TTL_GEO = Duration.ofDays(7);
 
     // ─────────────────────────────────────────────────────────────────
-    // Keyword search
+    // Keyword search — FE/내부 흐름 공용
     // ─────────────────────────────────────────────────────────────────
 
     /**
      * 키워드 검색 캐시 조회 후 miss면 loader 실행 + 결과 저장.
+     * <p>카카오 size는 기본값(15 = max) 고정으로 키에서 제외 — 호출자가 size 지정 불가.
+     * <p>sort 분리 키 없음: 우리는 카카오에 sort 파라미터를 전달하지 않고 좌표만 보낸다.
+     * 좌표 유무에 따른 응답 차이(거리 가중 accuracy vs 순수 accuracy)는 키의 grid 부분
+     * (`3750:12703` vs `no-loc`)이 이미 자연 분리한다.
      *
      * @param query 검색어 (정규화: trim + lowercase)
      * @param lat/lng 사용자 좌표 (null이면 grid 무시, "no-loc"로 키 구성)
-     * @param size 결과 개수 (캐시 키 일부)
-     * @param sortByDistance 거리순/정확도순 분리 키
      * @param loader miss 시 실행할 카카오 호출 람다
      */
     public List<PlaceSearchItemResponse> getOrLoadSearch(
             String query,
             Double lat,
             Double lng,
-            int size,
-            boolean sortByDistance,
             Supplier<List<PlaceSearchItemResponse>> loader
     ) {
-        final String key = buildSearchKey(query, lat, lng, size, sortByDistance);
+        final String key = buildSearchKey(query, lat, lng);
 
         String cached = redis.opsForValue().get(key);
         if (cached != null) {
@@ -145,8 +151,10 @@ public class PlaceSearchCache {
     // 키 생성 — 모든 키는 동일 prefix + grid 정규화
     // ─────────────────────────────────────────────────────────────────
 
-    private String buildSearchKey(String query, Double lat, Double lng, int size, boolean sortByDistance) {
-        String q = query.trim().toLowerCase();
+    private String buildSearchKey(String query, Double lat, Double lng) {
+        // 띄어쓰기까지 제거해 "스타벅스 강남점"·"스타벅스강남점"·"스타벅스  강남점"이 같은 키를 가지도록 정규화.
+        // 카카오 호출 시에는 사용자 원문을 그대로 전달(검색 정확도 보존) — 키만 정규화한다.
+        String q = query.trim().toLowerCase().replaceAll("\\s+", "");
         String loc;
         if (lat == null || lng == null) {
             loc = "no-loc";
@@ -155,8 +163,7 @@ public class PlaceSearchCache {
             int gridLng = (int) Math.round(lng * GRID_MULTIPLIER_SEARCH);
             loc = gridLat + ":" + gridLng;
         }
-        String sort = sortByDistance ? "distance" : "accuracy";
-        return KEY_PREFIX_SEARCH + q + ":" + loc + ":" + size + ":" + sort;
+        return KEY_PREFIX_SEARCH + q + ":" + loc;
     }
 
     private String buildGeoKey(double lat, double lng) {

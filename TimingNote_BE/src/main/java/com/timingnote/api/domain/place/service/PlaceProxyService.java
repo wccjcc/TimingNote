@@ -18,17 +18,15 @@ import java.util.List;
 public interface PlaceProxyService {
 
     /**
-     * 키워드 검색.
+     * 키워드 검색. 항상 최대(15개) 반환 — 카카오 기본값을 그대로 사용한다.
      * @param query 검색어 (필수, blank 시 빈 결과)
      * @param userLatitude  사용자 위도. null이면 정확도순.
      * @param userLongitude 사용자 경도. null이면 정확도순.
-     * @param size 1~15
      */
     List<PlaceSearchItemResponse> searchByKeyword(
             String query,
             Double userLatitude,
-            Double userLongitude,
-            int size
+            Double userLongitude
     );
 
     /**

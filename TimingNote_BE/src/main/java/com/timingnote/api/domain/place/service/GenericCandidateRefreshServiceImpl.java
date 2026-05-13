@@ -58,10 +58,13 @@ public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefre
             String placeLabel = entry.getKey();
             List<Todo> todosForLabel = entry.getValue();
 
-            // 3. HTTP 호출 — 트랜잭션 없음 (커넥션 점유 없음)
+            // 3. HTTP 호출 — 트랜잭션 없음 (커넥션 점유 없음).
+            // 등록 흐름(AI)과 동일한 searchAndStoreAll 사용 — 좌표만, radius/sort 미지정, Redis 캐시 경유.
+            // 같은 grid·키워드는 카카오 호출 0건으로 흡수된다 (1km grid, 7일 TTL).
             List<Place> newPlaces;
             try {
-                newPlaces = placeService.resolveGenericCandidates(placeLabel, lat, lon);
+                PlaceService.SearchResult sr = placeService.searchAndStoreAll(placeLabel, lat, lon);
+                newPlaces = sr.storedPlaces();
             } catch (Exception e) {
                 log.warn("[GenericRefresh] Kakao 검색 실패 — 스킵: placeLabel='{}' error={}",
                         placeLabel, e.getMessage());

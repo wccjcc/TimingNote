@@ -31,17 +31,12 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
     public List<PlaceSearchItemResponse> searchByKeyword(
             String query,
             Double userLatitude,
-            Double userLongitude,
-            int size
+            Double userLongitude
     ) {
         if (query == null || query.isBlank()) return Collections.emptyList();
 
-        final int clampedSize = Math.max(1, Math.min(size, 15));
-        final boolean sortByDistance = (userLatitude != null && userLongitude != null);
-
         return cache.getOrLoadSearch(query, userLatitude, userLongitude,
-                clampedSize, sortByDistance,
-                () -> callKakaoSearch(query.trim(), userLatitude, userLongitude, clampedSize));
+                () -> callKakaoSearch(query.trim(), userLatitude, userLongitude));
     }
 
     @Override
@@ -55,20 +50,19 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
     // ─────────────────────────────────────────────────────────────────
 
     private List<PlaceSearchItemResponse> callKakaoSearch(
-            String query, Double lat, Double lng, int size
+            String query, Double lat, Double lng
     ) {
         final String x = lng == null ? null : lng.toString();
         final String y = lat == null ? null : lat.toString();
 
         KakaoLocalSearchResponse response = kakaoLocalClient
-                .searchByKeyword(query, x, y, size)
+                .searchByKeyword(query, x, y)
                 .block();
 
         int resultCount = (response == null || response.getDocuments() == null)
                 ? 0
                 : response.getDocuments().size();
-        log.info("[PLACE_PROXY][SEARCH][KAKAO] query='{}' size={} → results={}",
-                query, size, resultCount);
+        log.info("[PLACE_PROXY][SEARCH][KAKAO] query='{}' → results={}", query, resultCount);
 
         if (response == null || response.getDocuments() == null) {
             return Collections.emptyList();

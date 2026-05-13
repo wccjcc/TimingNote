@@ -35,16 +35,16 @@ public class PlaceProxyController {
     private final PlaceProxyService placeProxyService;
 
     @Operation(summary = "장소 키워드 검색",
-            description = "카카오 키워드 검색 프록시. 사용자 좌표 제공 시 거리순(반경 20km), 미제공 시 정확도순.")
+            description = "카카오 키워드 검색 프록시. 사용자 좌표 제공 시 거리순(반경 20km), 미제공 시 정확도순. "
+                    + "항상 최대(15개) 반환 — 카카오 기본 size 사용.")
     @GetMapping("/search")
     public ApiResponseDto<List<PlaceSearchItemResponse>> searchByKeyword(
             @RequestParam("query") String query,
             @RequestParam(value = "lat", required = false) Double userLatitude,
-            @RequestParam(value = "lng", required = false) Double userLongitude,
-            @RequestParam(value = "size", defaultValue = "15") int size
+            @RequestParam(value = "lng", required = false) Double userLongitude
     ) {
         List<PlaceSearchItemResponse> results = placeProxyService.searchByKeyword(
-                query, userLatitude, userLongitude, size);
+                query, userLatitude, userLongitude);
         return ApiResponseDto.success(results);
     }
 
