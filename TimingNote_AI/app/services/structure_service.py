@@ -31,9 +31,17 @@ class StructureService:
             latency_ms = int((time.time() - start_time) * 1000)
             meta_info["latency_ms"] = latency_ms
 
+            # timeHintText 후처리: rawExpression들을 join. LLM 출력에서 제거 → 출력 토큰 절감.
+            # 복수 시간 표현은 ", "로 연결 (예: "내일 오전" + "모레 오후" → "내일 오전, 모레 오후").
+            time_hint = ", ".join(
+                tc.rawExpression for tc in analysis_output.timeConditions
+                if tc.rawExpression
+            ) or None
+
             response = StructureResponse(
                 todoId=request.todoId,
                 **analysis_output.model_dump(),
+                timeHintText=time_hint,
                 modelUsed=settings.AI_MAIN_MODEL,
                 requestId=request_id,
                 rawResultJson=meta_info,

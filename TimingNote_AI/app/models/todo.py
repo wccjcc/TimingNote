@@ -47,19 +47,22 @@ class StructureRequest(BaseModel):
     originalText: str
 
 class TodoStructureOutput(BaseModel):
-    """AI 분석 결과.
+    """AI 분석 결과 (LLM 응답 스키마).
 
     AI는 원문을 재해석/재구성하지 않고 카테고리·장소·시간 정보만 추출한다.
     todoText는 사용자 원문이 그대로 보존되므로 AI 응답에 포함하지 않는다 (BE가 todo.content 사용).
     placeType도 BE 책임 (검색 결과·user_places·일반명사 사전으로 자체 결정).
+    timeHintText는 LLM이 채우지 않고 AI 서버가 rawExpression들을 join해서 후처리로 생성한다
+    (2026-05-13 결정 — rawExpression과의 중복 출력 토큰 절감).
     """
     category: TodoCategory
     placeText: Optional[str] = None
-    timeHintText: Optional[str] = None
     timeConditions: List[TimeCondition] = Field(default_factory=list)
 
 class StructureResponse(TodoStructureOutput):
     todoId: int
+    # AI 서버가 timeConditions.rawExpression들을 join 해서 채움 (LLM 출력 X).
+    timeHintText: Optional[str] = None
     modelUsed: str
     requestId: str
     rawResultJson: Dict[str, Any]
