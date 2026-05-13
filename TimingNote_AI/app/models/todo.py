@@ -11,12 +11,6 @@ class TodoCategory(str, Enum):
     SOCIAL = "SOCIAL"
     ETC = "ETC"
 
-class PlaceType(str, Enum):
-    SPECIFIC = "SPECIFIC"
-    GENERIC = "GENERIC"
-    ALIAS = "ALIAS"
-    GENERAL = "GENERAL"
-
 class ConditionType(str, Enum):
     DATETIME = "DATETIME"     # 날짜+시간 (내일 오후 3시)
     DATE = "DATE"             # 날짜만 (내일, 이번 주 금요일)
@@ -42,19 +36,24 @@ class TimeCondition(BaseModel):
     daysOfWeek: Optional[List[DayOfWeek]] = None  # BE에서 비트마스크로 변환
     rawExpression: Optional[str] = None    # 원문 시간 표현 보존
 
-class UserPlaceAlias(BaseModel):
-    alias: str  # 사용자 등록 별칭 (예: "집", "회사")
-
 class StructureRequest(BaseModel):
+    """AI 분석 요청.
+
+    user_places 별칭 매핑은 BE 책임으로 이관(2026-05-12 결정) — AI는 텍스트만 받음.
+    BE가 보내는 추가 필드(예: 과거 userPlaceAliases)는 pydantic 기본 동작(extra='ignore')으로 무시.
+    """
     todoId: int
     inputType: str
     originalText: str
-    userPlaceAliases: List[UserPlaceAlias] = Field(default_factory=list)
 
 class TodoStructureOutput(BaseModel):
+    """AI 분석 결과.
+
+    placeType은 BE 책임으로 이관(2026-05-12 결정) — AI는 placeText 추출만 담당.
+    BE가 검색 결과·user_places 매핑·일반명사 사전으로 자체 결정한다.
+    """
     todoText: str
     category: TodoCategory
-    placeType: PlaceType
     placeText: Optional[str] = None
     timeHintText: Optional[str] = None
     timeConditions: List[TimeCondition] = Field(default_factory=list)
