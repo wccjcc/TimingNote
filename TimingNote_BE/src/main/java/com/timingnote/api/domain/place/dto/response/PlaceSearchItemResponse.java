@@ -25,6 +25,7 @@ public class PlaceSearchItemResponse {
     private final String placeName;
     private final Double latitude;
     private final Double longitude;
+    private final String categoryName;        // 전체 경로 ("음식점 > 한식 > 국밥"). 내부 Place 저장에 사용
     private final String categoryGroupCode;
     private final String categoryGroupName;
     private final String phone;
@@ -39,6 +40,7 @@ public class PlaceSearchItemResponse {
                 .placeName(doc.getPlaceName())
                 .latitude(parseDoubleOrNull(doc.getY()))
                 .longitude(parseDoubleOrNull(doc.getX()))
+                .categoryName(doc.getCategoryName())
                 .categoryGroupCode(doc.getCategoryGroupCode())
                 .categoryGroupName(doc.getCategoryGroupName())
                 .phone(emptyToNull(doc.getPhone()))

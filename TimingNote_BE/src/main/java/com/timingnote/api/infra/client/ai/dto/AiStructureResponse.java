@@ -17,7 +17,6 @@ import java.util.Map;
 @NoArgsConstructor
 public class AiStructureResponse {
     private Long todoId;
-    private String todoText;
     private String placeText;
     private String timeHintText;
     private String category;
