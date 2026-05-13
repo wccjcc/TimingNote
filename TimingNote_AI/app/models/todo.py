@@ -28,13 +28,23 @@ class DayOfWeek(str, Enum):
     SUN = "SUN"
 
 class TimeCondition(BaseModel):
-    conditionType: ConditionType
-    startDate: Optional[str] = None        # yyyy-MM-dd
-    endDate: Optional[str] = None          # yyyy-MM-dd
-    startTime: Optional[str] = None        # HH:mm
-    endTime: Optional[str] = None          # HH:mm
-    daysOfWeek: Optional[List[DayOfWeek]] = None  # BE에서 비트마스크로 변환
-    rawExpression: Optional[str] = None    # 원문 시간 표현 보존
+    # Field description은 instructor → JSON Schema → OpenAI Structured Output으로 전달돼
+    # LLM이 각 필드를 채우는 시점에 즉시 활성화되는 hint 채널이 된다.
+    # 시스템 프롬프트의 룰과 별도 채널이라 중복 위험 작고, 응답 정확도 ↑.
+    conditionType: ConditionType = Field(
+        description="DATETIME/DATE/DATE_RANGE/WEEK/TIME_RANGE 중 하나"
+    )
+    startDate: Optional[str] = Field(default=None, description="YYYY-MM-DD")
+    endDate: Optional[str] = Field(default=None, description="YYYY-MM-DD")
+    startTime: Optional[str] = Field(default=None, description="HH:MM")
+    endTime: Optional[str] = Field(default=None, description="HH:MM")
+    daysOfWeek: Optional[List[DayOfWeek]] = Field(
+        default=None,
+        description="WEEK 타입일 때만. 각 요일을 배열 원소로 풀어 열거 (월~금 같은 범위 표기 금지)"
+    )
+    rawExpression: Optional[str] = Field(
+        default=None, description="원문 시간 표현 그대로 보존"
+    )
 
 class StructureRequest(BaseModel):
     """AI 분석 요청.
@@ -47,19 +57,30 @@ class StructureRequest(BaseModel):
     originalText: str
 
 class TodoStructureOutput(BaseModel):
-    """AI 분석 결과.
+    """AI 분석 결과 (LLM 응답 스키마).
 
     AI는 원문을 재해석/재구성하지 않고 카테고리·장소·시간 정보만 추출한다.
     todoText는 사용자 원문이 그대로 보존되므로 AI 응답에 포함하지 않는다 (BE가 todo.content 사용).
     placeType도 BE 책임 (검색 결과·user_places·일반명사 사전으로 자체 결정).
+    timeHintText는 LLM이 채우지 않고 AI 서버가 rawExpression들을 join해서 후처리로 생성한다
+    (2026-05-13 결정 — rawExpression과의 중복 출력 토큰 절감).
     """
-    category: TodoCategory
-    placeText: Optional[str] = None
-    timeHintText: Optional[str] = None
-    timeConditions: List[TimeCondition] = Field(default_factory=list)
+    category: TodoCategory = Field(
+        description="행동 카테고리 7종 중 하나. 정보 부족·분류 모호 시 ETC"
+    )
+    placeText: Optional[str] = Field(
+        default=None,
+        description="원문 장소 키워드 그대로. 의역·동사 추가 금지. 없으면 null"
+    )
+    timeConditions: List[TimeCondition] = Field(
+        default_factory=list,
+        description="시간 표현 배열. 여러 표현은 각각 별도 항목으로 분리. 없으면 빈 배열"
+    )
 
 class StructureResponse(TodoStructureOutput):
     todoId: int
+    # AI 서버가 timeConditions.rawExpression들을 join 해서 채움 (LLM 출력 X).
+    timeHintText: Optional[str] = None
     modelUsed: str
     requestId: str
     rawResultJson: Dict[str, Any]
