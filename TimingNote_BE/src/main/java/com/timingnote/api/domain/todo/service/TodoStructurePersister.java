@@ -1,12 +1,12 @@
 package com.timingnote.api.domain.todo.service;
 
 import com.timingnote.api.common.util.GeoUtils;
+import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.place.service.PlaceTypeResolver;
-import com.timingnote.api.infra.client.kakao.dto.KakaoDocument;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.entity.TodoStructure;
 import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
@@ -110,11 +110,16 @@ public class TodoStructurePersister {
 
     // ── 단계별 저장 ─────────────────────────────────────────────────────────
 
-    /** AI 응답을 todo_structures 테이블에 저장 */
+    /**
+     * AI 응답을 todo_structures 테이블에 저장.
+     *
+     * <p>todoText는 AI가 해석/재구성하지 못하도록 응답에서 제거됨(2026-05-13). 사용자 원문(todo.content)을
+     * 그대로 복사한다. 입력 필드 자체가 100자 제한이라 별도 truncate 불필요.
+     */
     private void saveStructureRecord(Todo todo, AiStructureResponse response, AiPlaceType placeType) {
         todoStructureRepository.save(TodoStructure.builder()
                 .todo(todo)
-                .todoText(response.getTodoText())
+                .todoText(todo.getContent())
                 .category(response.getCategory())
                 .placeType(placeType)
                 .placeText(response.getPlaceText())
@@ -197,18 +202,18 @@ public class TodoStructurePersister {
             return AiPlaceType.GENERAL;
         }
 
-        // 6. PlaceTypeResolver 분류 — 카테고리 분포 분석 + 일반명사 사전 + 결과 수
-        PlaceTypeResolver.Result resolved = placeTypeResolver.resolve(placeText, searchResult.rawDocuments());
+        // 6. PlaceTypeResolver 분류 — 일반명사 사전 + 결과 수
+        PlaceTypeResolver.Result resolved = placeTypeResolver.resolve(placeText, searchResult.searchItems());
         if (resolved.placeType() == null) {
             log.info("[Place] resolver MEMO → GENERAL (todoId={}, placeText='{}')",
                     todo.getId(), placeText);
             return AiPlaceType.GENERAL;
         }
 
-        // 7. 분기 저장 — resolver가 돌려준 documents를 storedPlaces에서 lookup
-        List<Place> matchedPlaces = matchStoredPlaces(searchResult, resolved.documents());
+        // 7. 분기 저장 — resolver가 돌려준 items를 storedPlaces에서 lookup
+        List<Place> matchedPlaces = matchStoredPlaces(searchResult, resolved.items());
         if (matchedPlaces.isEmpty()) {
-            log.warn("[Place] documents가 storedPlaces에 없음 — 저장 실패? (todoId={})", todo.getId());
+            log.warn("[Place] items가 storedPlaces에 없음 — 저장 실패? (todoId={})", todo.getId());
             return AiPlaceType.GENERAL;
         }
 
@@ -226,16 +231,16 @@ public class TodoStructurePersister {
     }
 
     /**
-     * resolver가 돌려준 KakaoDocument들을 SearchResult의 storedPlaces에서 externalPlaceId 매칭으로 찾는다.
+     * resolver가 돌려준 검색 결과 DTO들을 SearchResult의 storedPlaces에서 externalPlaceId 매칭으로 찾는다.
      * 순서 유지 — 카카오 응답 순서(정확도·거리 가중치)를 그대로 따른다.
      */
-    private List<Place> matchStoredPlaces(PlaceService.SearchResult sr, List<KakaoDocument> docs) {
+    private List<Place> matchStoredPlaces(PlaceService.SearchResult sr, List<PlaceSearchItemResponse> items) {
         Map<String, Place> byExternalId = sr.storedPlaces().stream()
                 .filter(p -> p.getExternalPlaceId() != null)
                 .collect(java.util.stream.Collectors.toMap(
                         Place::getExternalPlaceId, p -> p, (a, b) -> a));
-        return docs.stream()
-                .map(doc -> byExternalId.get(doc.getId()))
+        return items.stream()
+                .map(item -> byExternalId.get(item.getId()))
                 .filter(java.util.Objects::nonNull)
                 .toList();
     }

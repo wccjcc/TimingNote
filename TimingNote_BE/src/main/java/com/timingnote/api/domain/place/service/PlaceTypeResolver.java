@@ -1,7 +1,7 @@
 package com.timingnote.api.domain.place.service;
 
+import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import com.timingnote.api.infra.client.ai.AiPlaceType;
-import com.timingnote.api.infra.client.kakao.dto.KakaoDocument;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +25,9 @@ import java.util.List;
  *   <li>동음이의어("약국이라는 음식점")는 발생 확률 극히 낮고, geofence 활성 후보 결정 단계에서
  *       거리 기준으로 자연 거름</li>
  * </ul>
+ *
+ * <p>2026-05-13 통일: 입력 타입을 {@link PlaceSearchItemResponse}로 일원화 — FE 검색창 캐시와
+ * 같은 DTO를 다루므로 raw KakaoDocument 의존 제거.
  */
 @Slf4j
 @Component
@@ -32,16 +35,16 @@ public class PlaceTypeResolver {
 
     /**
      * 분류 결과. placeType이 null이면 매칭 실패(MEMO 처리).
-     * documents는 카카오 응답을 그대로 전달 (필터링 없음).
+     * items는 카카오 응답 순서를 그대로 전달 (필터링 없음).
      */
-    public record Result(AiPlaceType placeType, List<KakaoDocument> documents) {
+    public record Result(AiPlaceType placeType, List<PlaceSearchItemResponse> items) {
         public static Result memo() {
             return new Result(null, Collections.emptyList());
         }
     }
 
-    public Result resolve(String placeText, List<KakaoDocument> rawResults) {
-        if (rawResults == null || rawResults.isEmpty()) {
+    public Result resolve(String placeText, List<PlaceSearchItemResponse> items) {
+        if (items == null || items.isEmpty()) {
             log.info("[PLACE_TYPE] MEMO — 검색 결과 0건 (placeText='{}')", placeText);
             return Result.memo();
         }
@@ -49,14 +52,14 @@ public class PlaceTypeResolver {
         // 1. 일반명사 사전 매칭 → GENERIC 강제
         if (PlaceTextNormalizer.isGenericKeyword(placeText)) {
             log.info("[PLACE_TYPE] GENERIC 강제 — 사전 일반명사 (placeText='{}', count={})",
-                    placeText, rawResults.size());
-            return new Result(AiPlaceType.GENERIC, rawResults);
+                    placeText, items.size());
+            return new Result(AiPlaceType.GENERIC, items);
         }
 
         // 2. 결과 수로 판정 — 1건 SPECIFIC, 다수 GENERIC
-        AiPlaceType type = (rawResults.size() == 1) ? AiPlaceType.SPECIFIC : AiPlaceType.GENERIC;
+        AiPlaceType type = (items.size() == 1) ? AiPlaceType.SPECIFIC : AiPlaceType.GENERIC;
         log.info("[PLACE_TYPE] {} — 결과 수 기반 (placeText='{}', count={})",
-                type, placeText, rawResults.size());
-        return new Result(type, rawResults);
+                type, placeText, items.size());
+        return new Result(type, items);
     }
 }

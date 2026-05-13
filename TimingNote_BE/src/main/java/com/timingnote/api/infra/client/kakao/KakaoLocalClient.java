@@ -10,28 +10,21 @@ import reactor.core.publisher.Mono;
 public interface KakaoLocalClient {
 
     /**
-     * SPECIFIC 장소 검색 — 이름으로 검색 + 사용자 좌표로 정확도 향상
-     * x, y: 선택(null 가능). 없으면 전국 accuracy 정렬.
+     * 카카오 키워드 검색 — 좌표가 있으면 거리 가중치가 accuracy 정렬에 반영돼
+     * 가까운 매장이 우선 (실측 검증 완료).
+     *
+     * <p>2026-05-13 통일: radius/sort 강제 호출(과거 {@code searchByKeywordNearby})은 제거.
+     * 등록·후보 재계산 모두 좌표만 전달하는 단일 정책으로 통일한다.
+     *
+     * <p>2026-05-13 size 제거: 카카오 기본값 15(= max)이 항상 우리 수요와 일치하므로 미전송.
+     * 캐시 키 단순화 + FE/BE 호출 시그니처 통일 효과.
+     *
+     * <p>x, y: 선택(null 가능). 없으면 전국 accuracy 정렬.
      */
     @GetExchange("/keyword.json")
     Mono<KakaoLocalSearchResponse> searchByKeyword(
             @RequestParam("query") String query,
             @RequestParam(value = "x", required = false) String x,
-            @RequestParam(value = "y", required = false) String y,
-            @RequestParam("size") int size
-    );
-
-    /**
-     * GENERIC 키워드 검색 — 반경 내 키워드 검색 + 거리순.
-     * x, y, radius 필수. placeText 그대로 query 로 전달한다.
-     */
-    @GetExchange("/keyword.json")
-    Mono<KakaoLocalSearchResponse> searchByKeywordNearby(
-            @RequestParam("query") String query,
-            @RequestParam("x") String x,
-            @RequestParam("y") String y,
-            @RequestParam("radius") int radius,
-            @RequestParam("size") int size,
-            @RequestParam("sort") String sort
+            @RequestParam(value = "y", required = false) String y
     );
 }
