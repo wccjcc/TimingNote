@@ -12,12 +12,14 @@ import '../../../shared/widgets/neon_button.dart';
 import '../../../shared/widgets/space_card.dart';
 import '../../../shared/widgets/status_badge.dart';
 import '../model/selected_kakao_place.dart';
+import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../util/time_condition_formatter.dart';
 import '../util/todo_type_style.dart';
 import '../viewmodel/todo_detail_viewmodel.dart';
 import '../widgets/native_kakao_map.dart';
+import 'todo_edit_screen.dart' show TimeConditionEditSheet;
 
 class TodoDetailScreen extends ConsumerWidget {
   const TodoDetailScreen({super.key, required this.todoId});
@@ -347,7 +349,7 @@ class TodoDetailScreen extends ConsumerWidget {
             padding: EdgeInsets.symmetric(vertical: 16),
             child: Divider(color: SpaceColors.white10, height: 1),
           ),
-          // 시간 정보
+          // 시간 정보 — 옵션 B (Mini-card per condition + type badge + 추가/수정/삭제)
           Row(
             children: [
               const Icon(
@@ -355,50 +357,67 @@ class TodoDetailScreen extends ConsumerWidget {
                 color: Colors.cyanAccent,
                 size: 20,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '실행 시간',
-                      style: TextStyle(
-                        color: SpaceColors.white50,
-                        fontSize: 11,
+              const SizedBox(width: 8),
+              const Text(
+                '실행 시간',
+                style: TextStyle(color: SpaceColors.white50, fontSize: 11),
+              ),
+              const Spacer(),
+              // 시간 추가 — 상세 화면에서 직접 Sheet 호출, BE PATCH로 즉시 반영.
+              GestureDetector(
+                onTap: () => _openAddTimeSheet(context, ref),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.cyanAccent.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add, color: Colors.cyanAccent, size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        '추가',
+                        style: TextStyle(
+                          color: Colors.cyanAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    detail.timeConditions.isEmpty
-                        ? Text(
-                            '시간 조건 없음',
-                            style: TextStyle(
-                              color: SpaceColors.white.withOpacity(0.7),
-                              fontSize: 15,
-                            ),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: detail.timeConditions
-                                .map(
-                                  (tc) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Text(
-                                      formatTimeCondition(tc),
-                                      style: const TextStyle(
-                                        color: Colors.cyanAccent,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          if (detail.timeConditions.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Text(
+                '시간 조건 없음',
+                style: TextStyle(
+                  color: SpaceColors.white.withOpacity(0.5),
+                  fontSize: 14,
+                ),
+              ),
+            )
+          else
+            Column(
+              children: List.generate(detail.timeConditions.length, (i) {
+                final tc = detail.timeConditions[i];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _TimeConditionCard(
+                    condition: tc,
+                    onTap: () => _openEditTimeSheet(context, ref, i, tc),
+                    onDelete: () => _confirmDeleteTime(context, ref, i, tc),
+                  ),
+                );
+              }),
+            ),
         ],
       ),
     );
@@ -537,6 +556,74 @@ class TodoDetailScreen extends ConsumerWidget {
   String _formatDate(DateTime dt) =>
       '${dt.year}.${dt.month.toString().padLeft(2, '0')}.${dt.day.toString().padLeft(2, '0')}';
 
+  /// 시간 추가 — 상세 화면에서 직접 Sheet 호출 → BE PATCH로 즉시 반영.
+  void _openAddTimeSheet(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => TimeConditionEditSheet(
+        onSubmit: (tc) =>
+            ref.read(todoDetailProvider(todoId).notifier).addTimeCondition(tc),
+      ),
+    );
+  }
+
+  /// 시간 수정 — 기존 항목을 prefill로 Sheet 열기.
+  void _openEditTimeSheet(
+    BuildContext context,
+    WidgetRef ref,
+    int index,
+    TimeCondition tc,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => TimeConditionEditSheet(
+        initial: TimeConditionRequest.fromCondition(tc),
+        onSubmit: (newTc) => ref
+            .read(todoDetailProvider(todoId).notifier)
+            .updateTimeCondition(index, newTc),
+      ),
+    );
+  }
+
+  /// 시간 삭제 확인 다이얼로그 → BE PATCH.
+  Future<void> _confirmDeleteTime(
+    BuildContext context,
+    WidgetRef ref,
+    int index,
+    TimeCondition tc,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text('시간 조건 삭제', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '"${formatTimeCondition(tc)}" 조건을 삭제할까요?',
+          style: const TextStyle(color: SpaceColors.white50),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소', style: TextStyle(color: SpaceColors.white50)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('삭제', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref
+          .read(todoDetailProvider(todoId).notifier)
+          .removeTimeCondition(index);
+    }
+  }
+
   Future<void> _onEditPlaceTap(
     BuildContext context,
     WidgetRef ref,
@@ -562,6 +649,103 @@ class TodoDetailScreen extends ConsumerWidget {
 }
 
 // -- 하위 컴포넌트 --------------------------------------------------
+
+/// 시간 조건 mini-card — type badge + 표현 + 우측 삭제 아이콘.
+/// 카드 자체 탭으로 수정 sheet 열림 (옵션 B).
+class _TimeConditionCard extends StatelessWidget {
+  const _TimeConditionCard({
+    required this.condition,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final TimeCondition condition;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.cyanAccent.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.cyanAccent.withOpacity(0.15)),
+          ),
+          child: Row(
+            children: [
+              // type badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.cyanAccent.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _typeLabel(condition.conditionType),
+                  style: const TextStyle(
+                    color: Colors.cyanAccent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  formatTimeCondition(condition),
+                  style: const TextStyle(
+                    color: Colors.cyanAccent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                onPressed: onDelete,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                icon: Icon(
+                  Icons.delete_outline,
+                  color: Colors.redAccent.withOpacity(0.7),
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// BE enum string → 사용자 친화 한글 라벨 매핑.
+  /// formatTimeCondition이 본문 표현을 만들고, 배지는 conditionType 카테고리만 짧게 표시.
+  String _typeLabel(String type) {
+    switch (type) {
+      case 'DATETIME':
+        return '일정';
+      case 'DATE':
+        return '날짜';
+      case 'DATE_RANGE':
+        return '기간';
+      case 'WEEK':
+        return '매주';
+      case 'TIME_RANGE':
+        return '시간대';
+      default:
+        return type;
+    }
+  }
+}
 
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title});
