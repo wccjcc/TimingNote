@@ -42,14 +42,15 @@ class TimeCondition(BaseModel):
     daysOfWeek: Optional[List[DayOfWeek]] = None  # BE에서 비트마스크로 변환
     rawExpression: Optional[str] = None    # 원문 시간 표현 보존
 
-class UserPlaceAlias(BaseModel):
-    alias: str  # 사용자 등록 별칭 (예: "집", "회사")
-
 class StructureRequest(BaseModel):
+    """AI 분석 요청.
+
+    user_places 별칭 매핑은 BE 책임으로 이관(2026-05-12 결정) — AI는 텍스트만 받음.
+    BE가 보내는 추가 필드(예: 과거 userPlaceAliases)는 pydantic 기본 동작(extra='ignore')으로 무시.
+    """
     todoId: int
     inputType: str
     originalText: str
-    userPlaceAliases: List[UserPlaceAlias] = Field(default_factory=list)
 
 class TodoStructureOutput(BaseModel):
     todoText: str

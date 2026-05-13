@@ -23,8 +23,9 @@ class StructureService:
         with logger.contextualize(request_id=request_id):
             logger.info(f"분석 시작: {request.todoId}")
 
+            # user_places 별칭 매핑은 BE 책임으로 이관 — AI에는 텍스트만 전달.
             analysis_output, meta_info = await self._llm_provider.extract_structure(
-                request.originalText, request.userPlaceAliases
+                request.originalText
             )
 
             latency_ms = int((time.time() - start_time) * 1000)
