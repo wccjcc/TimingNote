@@ -196,9 +196,26 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
           if (_showTimeToggle) _buildTimeToggle(),
           if (_showTimeSection) ...[
             const SizedBox(height: 16),
-            _buildStartTimeSection(),
-            const SizedBox(height: 20),
-            _buildEndTimeSection(),
+            // 시작 시간과 종료 시간을 가로로 배치 — 한 눈에 비교 가능 + 세로 공간 절약.
+            // crossAxisAlignment.end: 두 섹션 wheel 박스 하단을 맞춰 가운데 '~'가 wheel 사이에 위치.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(child: _buildStartTimeSection()),
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 36),
+                  child: Text(
+                    '~',
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Expanded(child: _buildEndTimeSection()),
+              ],
+            ),
           ],
           const SizedBox(height: 40),
           SizedBox(width: double.infinity, height: 56, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: _kPurpleAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 8, shadowColor: _kPurpleAccent.withOpacity(0.5)), onPressed: _submit, child: const Text('조건 적용하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
@@ -294,19 +311,25 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
     }).toList());
   }
 
-  /// 시작 시간 섹션 — hour 0~23, minute 0~55(5분). 변경 시 종료가 시작 이하면 종료 자동 보정.
+  /// 시작 시간 섹션 — hour 0~23, minute 0~55(5분).
+  /// 단 시작 hour가 23일 때는 분 max=50으로 제한 — 5분 단위 wheel 특성상 23:55 시작이면 종료를
+  /// 5분 간격으로 표현 못 함(24:00은 정책상 금지). 즉 23:50까지만 시작 가능.
   Widget _buildStartTimeSection() {
+    final startMinuteMax = _startHour == 23 ? 11 : 12; // 23시면 0~50 (11개), 그 외 0~55 (12개)
+    final startMinuteIdx = (_startMinute ~/ 5).clamp(0, startMinuteMax - 1);
     return _buildTimeSectionFrame(
       title: '시작 시간',
       hourCount: 24,
       hourInitial: _startHour,
       hourValueFrom: (idx) => idx,
       hourLabelFrom: (idx) => idx.toString().padLeft(2, '0'),
-      minuteCount: 12,
-      minuteInitial: _startMinute ~/ 5,
+      minuteCount: startMinuteMax,
+      minuteInitial: startMinuteIdx,
       minuteValueFrom: (idx) => idx * 5,
       onHourChanged: (h) => setState(() {
         _startHour = h;
+        // 23시로 바꾸면서 분이 50을 넘으면 50으로 clamp
+        if (_startHour == 23 && _startMinute > 50) _startMinute = 50;
         _normalizeEndAfterStart();
       }),
       onMinuteChanged: (m) => setState(() {
@@ -329,8 +352,11 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
     final isSameHour = _endHour == _startHour;
     final minuteFloor = isSameHour ? (((_startMinute ~/ 5) + 1) * 5) : 0;
     final minuteCount = (60 - minuteFloor) ~/ 5;
-    final endMinuteIdx =
-        ((_endMinute - minuteFloor) ~/ 5).clamp(0, minuteCount - 1);
+    // minuteCount가 0이면(23:55+ 극단 케이스) clamp(0, -1)에서 ArgumentError 발생.
+    // 시작 wheel max로 사실상 차단되지만 안전망으로 0으로 fallback (_buildWheel이 단일 행 표시).
+    final endMinuteIdx = minuteCount > 0
+        ? ((_endMinute - minuteFloor) ~/ 5).clamp(0, minuteCount - 1)
+        : 0;
 
     return _buildTimeSectionFrame(
       title: '종료 시간',
@@ -393,7 +419,9 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
           Container(
             height: 36,
             width: double.infinity,
-            margin: const EdgeInsets.symmetric(horizontal: 20),
+            // 가로 배치로 박스 자체가 좁아져 좌우 여유를 줄여(20 → 12) wheel과 highlight band가
+            // 자연스럽게 맞물리도록 한다.
+            margin: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: _kPurpleAccent.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
@@ -431,13 +459,13 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
   }) {
     // count가 1 이하면 wheel scroll이 무의미 — 단일 행 표시. (시작이 23:55 이상인 극단 케이스)
     if (count <= 0) {
-      return SizedBox(width: 70, height: 100, child: Center(
+      return SizedBox(width: 56, height: 100, child: Center(
         child: Text('${labelFrom(0)}$suffix',
-            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
       ));
     }
     return SizedBox(
-      width: 70,
+      width: 56,
       child: ListWheelScrollView.useDelegate(
         // count가 변경되면(예: 시작 시간 변경 시 종료 wheel의 항목 수가 줄어드는 경우) key가 달라져
         // wheel widget이 새로 만들어진다. controller도 새로 생성되어 initialValue 위치로 점프.
@@ -454,7 +482,7 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
           childCount: count,
           builder: (context, index) => Center(
             child: Text('${labelFrom(index)}$suffix',
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
           ),
         ),
       ),
