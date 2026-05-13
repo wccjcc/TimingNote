@@ -2,11 +2,32 @@ package com.timingnote.api.domain.place.service;
 
 import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
 import com.timingnote.api.domain.place.entity.Place;
+import com.timingnote.api.infra.client.kakao.dto.KakaoDocument;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface PlaceService {
+
+    /**
+     * 통합 검색 + Place DB 누적 — 등록 시점에 1회 호출.
+     *
+     * <p>2026-05-12 설계 결정: placeType을 검색 전에 정하지 않고, 카카오 결과를 그대로 받아
+     * 호출자({@code PlaceTypeResolver})가 카테고리 분포·결과 수로 판정한다.
+     *
+     * <p>호출 시 radius/sort/size 미지정 — 좌표가 거리 가중치로 작동해 사실상 가까운 매장 우선.
+     *
+     * @return raw 카카오 문서 + DB에 저장된 Place 리스트 (둘 다 호출자가 사용)
+     */
+    SearchResult searchAndStoreAll(String placeText, Double latitude, Double longitude);
+
+    /** 카카오 raw 결과 + DB 저장된 Place 리스트. */
+    record SearchResult(List<KakaoDocument> rawDocuments, List<Place> storedPlaces) {
+        public static SearchResult empty() {
+            return new SearchResult(List.of(), List.of());
+        }
+        public boolean isEmpty() { return rawDocuments.isEmpty(); }
+    }
 
     /**
      * SPECIFIC: placeText + 사용자 좌표 → Kakao keyword 검색 → Google 영업시간 보강 → Place 반환

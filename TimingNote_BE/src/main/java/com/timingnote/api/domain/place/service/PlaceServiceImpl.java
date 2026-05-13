@@ -176,6 +176,47 @@ public class PlaceServiceImpl implements PlaceService {
         return places;
     }
 
+    // ── 통합 검색 (Phase C, 2026-05-12 설계) ──────────────────────────────────
+
+    @Override
+    @Transactional
+    public SearchResult searchAndStoreAll(String placeText, Double latitude, Double longitude) {
+        log.info("[SEARCH_ALL] 시작: placeText='{}' lat={} lon={}", placeText, latitude, longitude);
+
+        if (placeText == null || placeText.isBlank()) {
+            log.warn("[SEARCH_ALL] placeText 비어있음 → 빈 결과");
+            return SearchResult.empty();
+        }
+        if (!isCoordRangeValid(latitude, longitude)) {
+            log.warn("[SEARCH_ALL] 좌표 범위 초과 → 빈 결과: lat={} lon={}", latitude, longitude);
+            return SearchResult.empty();
+        }
+
+        // radius/sort/size 미지정 — 좌표만 전달. 카카오 sort=accuracy(기본)이 거리 가중치를
+        // 반영해 가까운 매장이 우선 (실측 검증 완료). size 기본 15.
+        String x = toLon(longitude);
+        String y = toLat(latitude);
+        KakaoLocalSearchResponse res;
+        try {
+            res = kakaoLocalClient.searchByKeyword(placeText, x, y, 15).block();
+        } catch (Exception e) {
+            log.error("[SEARCH_ALL] 카카오 호출 실패: '{}' - {}", placeText, e.getMessage());
+            return SearchResult.empty();
+        }
+
+        if (res == null || res.getDocuments() == null || res.getDocuments().isEmpty()) {
+            log.info("[SEARCH_ALL] 카카오 결과 0건: '{}'", placeText);
+            return SearchResult.empty();
+        }
+
+        List<KakaoDocument> docs = res.getDocuments();
+        // Place DB 누적 — 사용자 이동 시 활성 후보로 자동 전환되는 자산이 됨
+        List<Place> stored = saveCandidates(docs);
+        log.info("[SEARCH_ALL] 완료: placeText='{}' → kakao={}개 stored={}개",
+                placeText, docs.size(), stored.size());
+        return new SearchResult(docs, stored);
+    }
+
     // ── 사용자 선택 장소 저장 ─────────────────────────────────────────────────
 
     @Override
