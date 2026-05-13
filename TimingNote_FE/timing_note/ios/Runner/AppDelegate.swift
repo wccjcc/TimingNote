@@ -429,17 +429,67 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     candidateStylesRegistered = true
   }
 
-  /// 단색 원 + 흰 테두리로 구성된 작은 마커 이미지를 그린다.
+  /// Material `Icons.location_on` 스타일 핀 마커를 그린다.
+  /// 위쪽 둥근 머리 + 아래쪽 뾰족한 꼬리 + 안쪽 흰 highlight (물방울 형태).
+  /// place_search_screen의 Flutter 위젯 오버레이(Icons.location_on)와 톤 통일.
   private func makeMarkerImage(color: UIColor) -> UIImage? {
-    let size = CGSize(width: 24, height: 24)
+    let size = CGSize(width: 28, height: 36)
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
-      let circle = CGRect(origin: .zero, size: size).insetBy(dx: 3, dy: 3)
-      ctx.cgContext.setFillColor(color.cgColor)
-      ctx.cgContext.fillEllipse(in: circle)
-      ctx.cgContext.setStrokeColor(UIColor.white.cgColor)
-      ctx.cgContext.setLineWidth(2.5)
-      ctx.cgContext.strokeEllipse(in: circle)
+      let cg = ctx.cgContext
+
+      // 머리 + 꼬리를 한 path로 합쳐서 한 번에 fill — 경계 안티앨리어싱 자국 방지.
+      let headCenter = CGPoint(x: size.width / 2, y: 13)
+      let headRadius: CGFloat = 11
+      let tailTipY = size.height - 2
+      // 머리 양옆 접선 각도 (수평선 기준 약 30° 아래) — 꼬리가 자연스럽게 이어지는 폭.
+      let tangentAngle: CGFloat = .pi / 6   // 30°
+      let rightTangent = CGPoint(
+        x: headCenter.x + headRadius * cos(tangentAngle),
+        y: headCenter.y + headRadius * sin(tangentAngle)
+      )
+      let leftTangent = CGPoint(
+        x: headCenter.x - headRadius * cos(tangentAngle),
+        y: headCenter.y + headRadius * sin(tangentAngle)
+      )
+
+      let path = UIBezierPath()
+      // 오른쪽 접점 → 꼬리 끝 → 왼쪽 접점
+      path.move(to: rightTangent)
+      path.addLine(to: CGPoint(x: headCenter.x, y: tailTipY))
+      path.addLine(to: leftTangent)
+      // 왼쪽 접점 → 위쪽 호 → 오른쪽 접점.
+      // UIKit 좌표(y 아래 양수)에서 angle 양수가 시계방향이라 clockwise=true가
+      // 150°→180°→270°→0°→30° 경로로 머리 위쪽을 돌아간다.
+      path.addArc(
+        withCenter: headCenter,
+        radius: headRadius,
+        startAngle: .pi - tangentAngle,    // 왼 접점 각도 (180° - 30° = 150°)
+        endAngle: tangentAngle,            // 오른 접점 각도 (30°)
+        clockwise: true                    // 위쪽으로 호
+      )
+      path.close()
+
+      cg.setFillColor(color.cgColor)
+      cg.addPath(path.cgPath)
+      cg.fillPath()
+
+      // 흰 테두리 (얇게)
+      cg.setStrokeColor(UIColor.white.cgColor)
+      cg.setLineWidth(1.5)
+      cg.addPath(path.cgPath)
+      cg.strokePath()
+
+      // 안쪽 흰 highlight (Material location_on의 작은 원 부분)
+      let innerRadius: CGFloat = 4
+      let innerRect = CGRect(
+        x: headCenter.x - innerRadius,
+        y: headCenter.y - innerRadius,
+        width: innerRadius * 2,
+        height: innerRadius * 2
+      )
+      cg.setFillColor(UIColor.white.cgColor)
+      cg.fillEllipse(in: innerRect)
     }
   }
 
