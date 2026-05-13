@@ -28,13 +28,23 @@ class DayOfWeek(str, Enum):
     SUN = "SUN"
 
 class TimeCondition(BaseModel):
-    conditionType: ConditionType
-    startDate: Optional[str] = None        # yyyy-MM-dd
-    endDate: Optional[str] = None          # yyyy-MM-dd
-    startTime: Optional[str] = None        # HH:mm
-    endTime: Optional[str] = None          # HH:mm
-    daysOfWeek: Optional[List[DayOfWeek]] = None  # BE에서 비트마스크로 변환
-    rawExpression: Optional[str] = None    # 원문 시간 표현 보존
+    # Field description은 instructor → JSON Schema → OpenAI Structured Output으로 전달돼
+    # LLM이 각 필드를 채우는 시점에 즉시 활성화되는 hint 채널이 된다.
+    # 시스템 프롬프트의 룰과 별도 채널이라 중복 위험 작고, 응답 정확도 ↑.
+    conditionType: ConditionType = Field(
+        description="DATETIME/DATE/DATE_RANGE/WEEK/TIME_RANGE 중 하나"
+    )
+    startDate: Optional[str] = Field(default=None, description="YYYY-MM-DD")
+    endDate: Optional[str] = Field(default=None, description="YYYY-MM-DD")
+    startTime: Optional[str] = Field(default=None, description="HH:MM")
+    endTime: Optional[str] = Field(default=None, description="HH:MM")
+    daysOfWeek: Optional[List[DayOfWeek]] = Field(
+        default=None,
+        description="WEEK 타입일 때만. 각 요일 개별 열거 — BE에서 비트마스크로 변환"
+    )
+    rawExpression: Optional[str] = Field(
+        default=None, description="원문 시간 표현 그대로 보존"
+    )
 
 class StructureRequest(BaseModel):
     """AI 분석 요청.
@@ -55,9 +65,17 @@ class TodoStructureOutput(BaseModel):
     timeHintText는 LLM이 채우지 않고 AI 서버가 rawExpression들을 join해서 후처리로 생성한다
     (2026-05-13 결정 — rawExpression과의 중복 출력 토큰 절감).
     """
-    category: TodoCategory
-    placeText: Optional[str] = None
-    timeConditions: List[TimeCondition] = Field(default_factory=list)
+    category: TodoCategory = Field(
+        description="행동 카테고리 7종 중 하나. 정보 부족·분류 모호 시 ETC"
+    )
+    placeText: Optional[str] = Field(
+        default=None,
+        description="원문 장소 키워드 그대로. 의역·동사 추가 금지. 없으면 null"
+    )
+    timeConditions: List[TimeCondition] = Field(
+        default_factory=list,
+        description="시간 표현 배열. 여러 표현은 각각 별도 항목으로 분리. 없으면 빈 배열"
+    )
 
 class StructureResponse(TodoStructureOutput):
     todoId: int
