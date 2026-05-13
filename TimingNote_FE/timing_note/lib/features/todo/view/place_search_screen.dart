@@ -768,9 +768,10 @@ class _SearchSheetState extends State<_SearchSheet> {
   List<KakaoPlaceItem> _results = [];
   List<String> _recentSearches = [];
   bool _isSearching = false;
-  bool _sortByDistance = true;
   Timer? _debounce;
-  // 세션 내 검색 결과 캐시 (key: "query|sortByDistance")
+  // 세션 내 검색 결과 캐시 (key: query)
+  // 2026-05-13 정확도순 토글 폐기 — 좌표는 항상 권한 있으면 보내고, 정렬은 카카오 기본(좌표 가중
+  // accuracy)에 위임한다. "정확도순=좌표 강제 무시"는 위치 기반 앱 시나리오에서 가치가 없었음.
   final Map<String, List<KakaoPlaceItem>> _cache = {};
 
   @override
@@ -834,17 +835,19 @@ class _SearchSheetState extends State<_SearchSheet> {
 
   Future<void> _doSearch(String query) async {
     if (!mounted || query.trim().isEmpty) return;
-    final cacheKey = '${query.trim()}|$_sortByDistance';
+    final cacheKey = query.trim();
     if (_cache.containsKey(cacheKey)) {
       setState(() => _results = _cache[cacheKey]!);
       return;
     }
     setState(() => _isSearching = true);
     try {
+      // 좌표 권한 있으면 항상 전달 → 카카오가 좌표 가중치로 주변 매장 우선.
+      // 권한 없으면(null) 전국 accuracy 검색 fallback.
       final items = await widget.placeSearchService.searchKeyword(
         query,
-        lat: _sortByDistance ? widget.currentLat : null,
-        lng: _sortByDistance ? widget.currentLng : null,
+        lat: widget.currentLat,
+        lng: widget.currentLng,
       );
       if (!mounted) return;
       _cache[cacheKey] = items;
@@ -1061,33 +1064,6 @@ class _SearchSheetState extends State<_SearchSheet> {
   Widget _buildResults() {
     return Column(
       children: [
-        // 정렬 칩
-        if (_results.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(left: 16, bottom: 12),
-            child: Row(
-              children: [
-                _SortChip(
-                  label: '거리순',
-                  selected: _sortByDistance,
-                  onTap: () {
-                    setState(() => _sortByDistance = true);
-                    _doSearch(_controller.text);
-                  },
-                ),
-                const SizedBox(width: 8),
-                _SortChip(
-                  label: '정확도순',
-                  selected: !_sortByDistance,
-                  onTap: () {
-                    setState(() => _sortByDistance = false);
-                    _doSearch(_controller.text);
-                  },
-                ),
-              ],
-            ),
-          ),
-
         // 로딩
         if (_isSearching)
           const Padding(
@@ -1157,42 +1133,6 @@ class _ResultTile extends StatelessWidget {
               style: const TextStyle(color: Colors.white38, fontSize: 12),
             )
           : null,
-    );
-  }
-}
-
-// ── 정렬 칩 ───────────────────────────────────────────────────────────
-class _SortChip extends StatelessWidget {
-  const _SortChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected ? _kPurpleAccent : Colors.white.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? _kPurpleAccent : _kBorderWhite),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : Colors.white54,
-            fontSize: 13,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
     );
   }
 }
