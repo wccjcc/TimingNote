@@ -40,7 +40,7 @@ class TimeCondition(BaseModel):
     endTime: Optional[str] = Field(default=None, description="HH:MM")
     daysOfWeek: Optional[List[DayOfWeek]] = Field(
         default=None,
-        description="WEEK 타입일 때만. 각 요일 개별 열거 — BE에서 비트마스크로 변환"
+        description="WEEK 타입일 때만. 각 요일을 배열 원소로 풀어 열거 (월~금 같은 범위 표기 금지)"
     )
     rawExpression: Optional[str] = Field(
         default=None, description="원문 시간 표현 그대로 보존"
