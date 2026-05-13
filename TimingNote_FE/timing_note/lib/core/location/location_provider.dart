@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'location_permission_service.dart';
@@ -56,11 +57,24 @@ void invalidateGpsCache() {
 ///
 /// 신선한 측정이 성공하면 캐시도 갱신.
 Future<GpsSnapshot?> tryGetGpsSnapshot(Ref ref, {bool forceFresh = false}) async {
+  // [GPS-LOG] 캐싱 흐름 단계별 추적 — debug 빌드에서만 출력 (release 자동 미출력).
   if (_cachedSnapshot != null && _cachedAt != null) {
     final age = DateTime.now().difference(_cachedAt!);
     final ttl = forceFresh ? _kFreshTtl : _kCacheTtl;
-    if (age < ttl) return _cachedSnapshot;
+    if (age < ttl) {
+      debugPrint('[GPS] memory-cache HIT  | age=${age.inSeconds}s '
+          '(ttl=${ttl.inSeconds}s, forceFresh=$forceFresh) | '
+          'lat=${_cachedSnapshot!.latitude.toStringAsFixed(6)} '
+          'lng=${_cachedSnapshot!.longitude.toStringAsFixed(6)} | '
+          'measuredAt=${_cachedSnapshot!.occurredAt.toIso8601String()}');
+      return _cachedSnapshot;
+    }
+    debugPrint('[GPS] memory-cache STALE | age=${age.inSeconds}s > ttl=${ttl.inSeconds}s '
+        '→ LocationService 호출 (fastMode=${!forceFresh})');
+  } else {
+    debugPrint('[GPS] memory-cache EMPTY → LocationService 호출 (fastMode=${!forceFresh})');
   }
+
   try {
     // 표시용(forceFresh=false)은 fastMode로 디바이스 캐시(getLastKnownPosition) 우선.
     // 알림 트리거(forceFresh=true)는 medium 정확도로 새 측정.
@@ -76,8 +90,14 @@ Future<GpsSnapshot?> tryGetGpsSnapshot(Ref ref, {bool forceFresh = false}) async
     );
     _cachedSnapshot = snapshot;
     _cachedAt = DateTime.now();
+    final measureAge = DateTime.now().difference(pos.timestamp);
+    debugPrint('[GPS] cache UPDATED      | '
+        'lat=${pos.latitude.toStringAsFixed(6)} '
+        'lng=${pos.longitude.toStringAsFixed(6)} | '
+        'measuredAt=${pos.timestamp.toIso8601String()} (age=${measureAge.inSeconds}s)');
     return snapshot;
-  } catch (_) {
+  } catch (e) {
+    debugPrint('[GPS] FAILED            | $e');
     return null;
   }
 }
