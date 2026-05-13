@@ -47,5 +47,17 @@ class StructureService:
                 rawResultJson=meta_info,
             )
 
-            logger.info(f"분석 완료 ({latency_ms}ms)")
+            # 분석 결과 요약 로그 — 필드별 추출 정확도·시간 매핑·hint join 결과를 한 줄로 검증.
+            # originalText(메모 본문)는 민감도 높아 제외. category/placeText/timeConditions/hint만 노출.
+            conditions_summary = ", ".join(
+                f"{tc.conditionType.value}({tc.startTime or '-'}~{tc.endTime or '-'})"
+                for tc in analysis_output.timeConditions
+            ) or "none"
+            logger.info(
+                f"분석 완료 ({latency_ms}ms) | "
+                f"category={analysis_output.category.value} | "
+                f"placeText={analysis_output.placeText!r} | "
+                f"conditions=[{conditions_summary}] | "
+                f"hint={time_hint!r}"
+            )
             return response
