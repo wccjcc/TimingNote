@@ -18,11 +18,11 @@ class PlaceSearchService {
 
   /// 키워드로 장소 검색.
   /// [lat], [lng] 제공 시 거리순 정렬(반경 20km), 미제공 시 정확도순.
+  /// 항상 최대(15개) 반환 — BE/카카오 기본 size 사용 (2026-05-13 통일).
   Future<List<KakaoPlaceItem>> searchKeyword(
     String query, {
     double? lat,
     double? lng,
-    int size = 15,
   }) async {
     if (query.trim().isEmpty) return [];
 
@@ -30,7 +30,6 @@ class PlaceSearchService {
       ApiEndpoints.placesSearch,
       queryParameters: {
         'query': query.trim(),
-        'size': size,
         'lat': ?lat,
         'lng': ?lng,
       },
