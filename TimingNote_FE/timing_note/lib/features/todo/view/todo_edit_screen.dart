@@ -105,46 +105,85 @@ class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
         _GlassInputCard(child: TextField(controller: _contentController, maxLines: 4, style: const TextStyle(color: Colors.white, fontSize: 16), decoration: const InputDecoration(hintText: '무엇을 해야 하나요?', hintStyle: TextStyle(color: Colors.white24), border: InputBorder.none), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setContent(v))),
         const SizedBox(height: 24),
         const _SectionTitle(title: '카테고리'),
-        _GlassInputCard(child: DropdownButtonHideUnderline(child: DropdownButton<String>(value: state.category, dropdownColor: _kSurfaceDark, isExpanded: true, icon: const Icon(Icons.keyboard_arrow_down, color: _kPurpleAccent), items: TodoCategory.labels.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(color: Colors.white, fontSize: 15)))).toList(), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setCategory(v!)))),
+        _CategoryDropdown(
+          value: state.category ?? TodoCategory.etc,
+          onChanged: (v) => ref
+              .read(todoEditProvider(widget.todoId).notifier)
+              .setCategory(v),
+        ),
         const SizedBox(height: 24),
         const _SectionTitle(title: '장소'),
         _PlaceTile(todoId: widget.todoId),
         const SizedBox(height: 24),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const _SectionTitle(title: '시간 조건'), TextButton.icon(onPressed: () => _showAddTimeConditionSheet(context), icon: const Icon(Icons.add, size: 16, color: Colors.cyanAccent), label: const Text('추가', style: TextStyle(color: Colors.cyanAccent, fontSize: 13)))]),
-        _TimeConditionList(todoId: widget.todoId, conditions: state.timeConditions ?? []),
+        const _SectionTitle(title: '시간 조건'),
+        _TimeConditionBox(
+          todoId: widget.todoId,
+          conditions: state.timeConditions ?? const [],
+          onAdd: () => _showAddTimeConditionSheet(context),
+        ),
         const SizedBox(height: 24),
         const _SectionTitle(title: '이미지'),
         _ImageSection(todoId: widget.todoId),
         const SizedBox(height: 24),
         const _SectionTitle(title: '참조 링크'),
-        _GlassInputCard(child: TextField(controller: _sharedUrlController, style: const TextStyle(color: Colors.cyan, fontSize: 14), decoration: const InputDecoration(hintText: 'https://...', hintStyle: TextStyle(color: Colors.white24), border: InputBorder.none, prefixIcon: Icon(Icons.link, color: Colors.cyan, size: 20)), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setSharedUrl(v))),
+        // prefixIcon 제거 — 다른 입력란과 좌측 정렬 일치. cyan 색은 글자 색으로 유지.
+        _GlassInputCard(
+          child: TextField(
+            controller: _sharedUrlController,
+            style: const TextStyle(color: Colors.cyan, fontSize: 14),
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(
+              hintText: 'https://...',
+              hintStyle: TextStyle(color: Colors.white24),
+              border: InputBorder.none,
+            ),
+            onChanged: (v) => ref
+                .read(todoEditProvider(widget.todoId).notifier)
+                .setSharedUrl(v),
+          ),
+        ),
         const SizedBox(height: 100),
       ],
     );
   }
 
   void _showAddTimeConditionSheet(BuildContext context) {
-    showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, builder: (_) => _AddTimeConditionSheet(onAdd: (tc) => ref.read(todoEditProvider(widget.todoId).notifier).addTimeCondition(tc)));
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => TimeConditionEditSheet(
+        onSubmit: (tc) => ref
+            .read(todoEditProvider(widget.todoId).notifier)
+            .addTimeCondition(tc),
+      ),
+    );
   }
+
 }
 
-class _AddTimeConditionSheet extends StatefulWidget {
-  const _AddTimeConditionSheet({required this.onAdd});
-  final ValueChanged<TimeConditionRequest> onAdd;
+class TimeConditionEditSheet extends StatefulWidget {
+  const TimeConditionEditSheet({super.key, required this.onSubmit, this.initial});
+
+  final ValueChanged<TimeConditionRequest> onSubmit;
+  /// non-null이면 수정 모드 — 필드 prefill + 버튼·타이틀 라벨 변경.
+  final TimeConditionRequest? initial;
+
   @override
-  State<_AddTimeConditionSheet> createState() => _AddTimeConditionSheetState();
+  State<TimeConditionEditSheet> createState() => _TimeConditionEditSheetState();
 }
 
-class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
-  String _type = ConditionType.datetime;
-  DateTime _selectedDate = DateTime.now();
+class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
+  late String _type;
+  late DateTime _selectedDate;
   DateTimeRange? _selectedDateRange;
-  bool _timeEnabled = true; // 시간 활성화 여부 토글
-  int _startHour = DateTime.now().hour;
-  int _startMinute = (DateTime.now().minute ~/ 5) * 5;
-  int _endHour = (DateTime.now().hour + 1) % 24;
-  int _endMinute = (DateTime.now().minute ~/ 5) * 5;
-  final Set<String> _selectedDays = {};
+  late bool _timeEnabled; // 시간 활성화 여부 토글
+  late int _startHour;
+  late int _startMinute;
+  late int _endHour;
+  late int _endMinute;
+  late final Set<String> _selectedDays;
   static const _dayLabels = {'MON': '월', 'TUE': '화', 'WED': '수', 'THU': '목', 'FRI': '금', 'SAT': '토', 'SUN': '일'};
 
   // 타입별 시간 정책:
@@ -173,7 +212,55 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
   @override
   void initState() {
     super.initState();
-    _selectedDateRange = DateTimeRange(start: DateTime.now(), end: DateTime.now().add(const Duration(days: 1)));
+    final now = DateTime.now();
+    final init = widget.initial;
+    if (init != null) {
+      // 수정 모드: 기존 값 prefill
+      _type = init.conditionType;
+      final startDate = init.startDate != null
+          ? DateTime.tryParse(init.startDate!) ?? now
+          : now;
+      _selectedDate = startDate;
+      if (init.conditionType == ConditionType.dateRange &&
+          init.startDate != null &&
+          init.endDate != null) {
+        final s = DateTime.tryParse(init.startDate!) ?? now;
+        final e = DateTime.tryParse(init.endDate!) ?? s.add(const Duration(days: 1));
+        _selectedDateRange = DateTimeRange(start: s, end: e);
+      } else {
+        _selectedDateRange = DateTimeRange(start: now, end: now.add(const Duration(days: 1)));
+      }
+      final hasTime = init.startTime != null && init.endTime != null;
+      _timeEnabled = hasTime;
+      if (hasTime) {
+        final sParts = init.startTime!.split(':');
+        _startHour = int.tryParse(sParts[0]) ?? now.hour;
+        // wheel은 5분 단위라 5의 배수로 round-down.
+        final sm = int.tryParse(sParts.length > 1 ? sParts[1] : '0') ?? 0;
+        _startMinute = (sm ~/ 5) * 5;
+        final eParts = init.endTime!.split(':');
+        _endHour = int.tryParse(eParts[0]) ?? (now.hour + 1) % 24;
+        final em = int.tryParse(eParts.length > 1 ? eParts[1] : '0') ?? 0;
+        _endMinute = (em ~/ 5) * 5;
+      } else {
+        _startHour = now.hour;
+        _startMinute = (now.minute ~/ 5) * 5;
+        _endHour = (now.hour + 1) % 24;
+        _endMinute = (now.minute ~/ 5) * 5;
+      }
+      _selectedDays = (init.daysOfWeek ?? const <String>[]).toSet();
+    } else {
+      // 추가 모드: 기본값
+      _type = ConditionType.datetime;
+      _selectedDate = now;
+      _selectedDateRange = DateTimeRange(start: now, end: now.add(const Duration(days: 1)));
+      _timeEnabled = true;
+      _startHour = now.hour;
+      _startMinute = (now.minute ~/ 5) * 5;
+      _endHour = (now.hour + 1) % 24;
+      _endMinute = (now.minute ~/ 5) * 5;
+      _selectedDays = <String>{};
+    }
   }
 
   @override
@@ -187,7 +274,10 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
         children: [
           Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2)))),
           const SizedBox(height: 24),
-          const Text('시간 조건 설정', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11')),
+          Text(
+            widget.initial == null ? '시간 조건 추가' : '시간 조건 수정',
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11'),
+          ),
           const SizedBox(height: 20),
           SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [_buildTypeChip('날짜', ConditionType.datetime), _buildTypeChip('기간', ConditionType.dateRange), _buildTypeChip('매주', ConditionType.week), _buildTypeChip('시간대', ConditionType.timeRange)])),
           const SizedBox(height: 32),
@@ -218,7 +308,24 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
             ),
           ],
           const SizedBox(height: 40),
-          SizedBox(width: double.infinity, height: 56, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: _kPurpleAccent, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 8, shadowColor: _kPurpleAccent.withOpacity(0.5)), onPressed: _submit, child: const Text('조건 적용하기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)))),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kPurpleAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 8,
+                shadowColor: _kPurpleAccent.withOpacity(0.5),
+              ),
+              onPressed: _submit,
+              child: Text(
+                widget.initial == null ? '추가하기' : '수정 적용하기',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -496,19 +603,30 @@ class _AddTimeConditionSheetState extends State<_AddTimeConditionSheet> {
       endTimeStr = '${_endHour.toString().padLeft(2, '0')}:${_endMinute.toString().padLeft(2, '0')}';
     }
     if (_type == ConditionType.dateRange && _selectedDateRange != null) {
-      widget.onAdd(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDateRange!.start.year}-${_selectedDateRange!.start.month.toString().padLeft(2, '0')}-${_selectedDateRange!.start.day.toString().padLeft(2, '0')}', endDate: '${_selectedDateRange!.end.year}-${_selectedDateRange!.end.month.toString().padLeft(2, '0')}-${_selectedDateRange!.end.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr));
+      widget.onSubmit(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDateRange!.start.year}-${_selectedDateRange!.start.month.toString().padLeft(2, '0')}-${_selectedDateRange!.start.day.toString().padLeft(2, '0')}', endDate: '${_selectedDateRange!.end.year}-${_selectedDateRange!.end.month.toString().padLeft(2, '0')}-${_selectedDateRange!.end.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr));
     } else {
-      widget.onAdd(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr, daysOfWeek: _selectedDays.toList()));
+      widget.onSubmit(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr, daysOfWeek: _selectedDays.toList()));
     }
     Navigator.pop(context);
   }
 }
 
 class _GlassInputCard extends StatelessWidget {
-  const _GlassInputCard({required this.child});
+  const _GlassInputCard({required this.child, this.padding});
   final Widget child;
+  /// null이면 default(horizontal 16, vertical 4). 시간 조건처럼 내부에서 자체 패딩이
+  /// 필요한 케이스는 EdgeInsets.zero로 외곽만 박스 처리.
+  final EdgeInsetsGeometry? padding;
   @override
-  Widget build(BuildContext context) => Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withOpacity(0.1))), child: child);
+  Widget build(BuildContext context) => Container(
+        padding: padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
+        ),
+        child: child,
+      );
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -518,17 +636,305 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(left: 4, bottom: 8), child: Text(title, style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)));
 }
 
-class _TimeConditionList extends ConsumerWidget {
-  const _TimeConditionList({required this.todoId, required this.conditions});
+/// 시간 조건 박스 — 다른 섹션(내용/카테고리/장소/링크)과 동일한 _GlassInputCard 외곽으로 감싼다.
+/// 박스 안에: (항목 없을 때) 빈 상태 메시지 + 추가 버튼 / (있을 때) 항목 리스트 + 하단 추가 버튼.
+/// 기존 헤더 우측의 별도 "+ 추가" 버튼은 제거 — 액션 표면을 박스 내부로 단일화.
+class _TimeConditionBox extends ConsumerWidget {
+  const _TimeConditionBox({
+    required this.todoId,
+    required this.conditions,
+    required this.onAdd,
+  });
+
   final int todoId;
   final List<TimeConditionRequest> conditions;
+  final VoidCallback onAdd;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (conditions.isEmpty) return const Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text('설정된 시간 조건이 없습니다.', style: TextStyle(color: Colors.white24, fontSize: 13)));
-    return Column(children: List.generate(conditions.length, (i) {
-      final tc = conditions[i];
-      return Container(margin: const EdgeInsets.only(bottom: 8), decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(12)), child: ListTile(dense: true, title: Text(formatTimeConditionRequest(tc), style: const TextStyle(color: Colors.cyanAccent, fontSize: 14)), trailing: IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 18), onPressed: () => ref.read(todoEditProvider(todoId).notifier).removeTimeCondition(i))));
-    }));
+    return _GlassInputCard(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      child: conditions.isEmpty
+          ? _emptyState()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ...List.generate(conditions.length, (i) {
+                  final tc = conditions[i];
+                  return _TimeConditionRow(
+                    label: formatTimeConditionRequest(tc),
+                    onTap: () => _openEditSheet(context, ref, i, tc),
+                    onRemove: () => ref
+                        .read(todoEditProvider(todoId).notifier)
+                        .removeTimeCondition(i),
+                  );
+                }),
+                const SizedBox(height: 4),
+                _AddTimeConditionButton(onTap: onAdd),
+              ],
+            ),
+    );
+  }
+
+  Widget _emptyState() {
+    return Builder(
+      builder: (context) => Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 14, bottom: 10),
+            child: Text(
+              '설정된 시간 조건이 없어요',
+              style: TextStyle(color: Colors.white38, fontSize: 13),
+            ),
+          ),
+          _AddTimeConditionButton(onTap: onAdd),
+        ],
+      ),
+    );
+  }
+
+  void _openEditSheet(BuildContext context, WidgetRef ref, int index, TimeConditionRequest initial) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => TimeConditionEditSheet(
+        initial: initial,
+        onSubmit: (tc) => ref
+            .read(todoEditProvider(todoId).notifier)
+            .updateTimeCondition(index, tc),
+      ),
+    );
+  }
+}
+
+/// 시간 조건 항목 한 줄 — affordance 하이브리드:
+/// - 카드 전체 InkWell 탭 가능 (큰 hit target, 효율 동선)
+/// - 우측 연필 IconButton도 동일 onTap 호출 (명시적 시각 affordance)
+/// - 그 옆 삭제 IconButton은 별도 액션, gap으로 misclick 방지
+class _TimeConditionRow extends StatelessWidget {
+  const _TimeConditionRow({
+    required this.label,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                // 연필: 카드 탭과 동일 액션. IconButton으로 두어 명시 affordance.
+                IconButton(
+                  icon: const Icon(
+                    Icons.edit_outlined,
+                    color: Colors.white54,
+                    size: 16,
+                  ),
+                  onPressed: onTap,
+                  tooltip: '수정',
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                // 삭제와 6px gap으로 misclick 방지.
+                const SizedBox(width: 2),
+                IconButton(
+                  icon: const Icon(
+                    Icons.remove_circle_outline,
+                    color: Colors.redAccent,
+                    size: 18,
+                  ),
+                  onPressed: onRemove,
+                  tooltip: '삭제',
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 박스 내부 하단의 추가 버튼 — 점선 느낌 대신 cyan 톤의 ghost 버튼.
+class _AddTimeConditionButton extends StatelessWidget {
+  const _AddTimeConditionButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.cyanAccent.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: Colors.cyanAccent.withOpacity(0.25),
+            ),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.add, size: 16, color: Colors.cyanAccent),
+              SizedBox(width: 6),
+              Text(
+                '시간 조건 추가',
+                style: TextStyle(
+                  color: Colors.cyanAccent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 카테고리 드롭다운 — Material `DropdownButton` 대신 `MenuAnchor` 사용.
+/// 트리거 박스 바로 아래로 라운드 박스 펼침(아래로 주르륵), 선택 항목 체크/하이라이트,
+/// chevron 회전 애니메이션. 메뉴 폭은 LayoutBuilder로 트리거 폭과 동기화.
+class _CategoryDropdown extends StatelessWidget {
+  const _CategoryDropdown({required this.value, required this.onChanged});
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final menuWidth = constraints.maxWidth;
+        return MenuAnchor(
+          // 메뉴를 트리거 바로 아래 + 4px 떨어뜨려 빈 라운드 박스로 보이게.
+          alignmentOffset: const Offset(0, 6),
+          style: MenuStyle(
+            backgroundColor: const WidgetStatePropertyAll(_kSurfaceDark),
+            elevation: const WidgetStatePropertyAll(8),
+            padding: const WidgetStatePropertyAll(
+              EdgeInsets.symmetric(vertical: 4),
+            ),
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: _kBorderWhite),
+              ),
+            ),
+          ),
+          menuChildren: TodoCategory.labels.entries.map((e) {
+            final selected = e.key == value;
+            return SizedBox(
+              width: menuWidth,
+              child: MenuItemButton(
+                onPressed: () => onChanged(e.key),
+                style: MenuItemButton.styleFrom(
+                  foregroundColor: selected ? _kPurpleAccent : Colors.white,
+                  backgroundColor: selected
+                      ? _kPurpleAccent.withOpacity(0.10)
+                      : null,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                ),
+                trailingIcon: selected
+                    ? const Icon(Icons.check, size: 16, color: _kPurpleAccent)
+                    : null,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    e.value,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+          builder: (context, controller, child) {
+            return GestureDetector(
+              onTap: () =>
+                  controller.isOpen ? controller.close() : controller.open(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        TodoCategory.labels[value] ?? value,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    AnimatedRotation(
+                      duration: const Duration(milliseconds: 180),
+                      turns: controller.isOpen ? 0.5 : 0,
+                      child: const Icon(
+                        Icons.keyboard_arrow_down,
+                        color: _kPurpleAccent,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
 
@@ -791,6 +1197,8 @@ class _PlaceTile extends ConsumerWidget {
         await notifier.setAliasPlace(userPlaceId: alias.userPlaceId);
       case SelectedExternalPlace external:
         await notifier.setExternalPlace(place: external);
+      case SelectedGenericKeyword keyword:
+        await notifier.setGenericKeyword(keyword: keyword.keyword);
     }
   }
 }

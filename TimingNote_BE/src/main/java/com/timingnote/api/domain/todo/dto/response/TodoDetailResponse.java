@@ -92,10 +92,14 @@ public class TodoDetailResponse {
     @Schema(description = "장소 정보")
     public static class PlaceResponse {
         private Long id;
+        /// 카카오 장소 ID — FE에서 후보를 SPECIFIC으로 지정할 때 setTodoPlace API에 그대로 전달.
+        /// 지도 핀(외부 ID 없음)은 null.
+        private String externalPlaceId;
         private String name;
         private String address;
         private String roadAddress;
         private String phone;
+        private String categoryGroupCode;
         private String categoryGroupName;
         private String businessStatus;
         private String placeUrl;
@@ -147,10 +151,12 @@ public class TodoDetailResponse {
     private static PlaceResponse toPlaceResponse(Place p) {
         return PlaceResponse.builder()
                 .id(p.getId())
+                .externalPlaceId(p.getExternalPlaceId())
                 .name(p.getName())
                 .address(p.getAddress())
                 .roadAddress(p.getRoadAddress())
                 .phone(p.getPhone())
+                .categoryGroupCode(p.getCategoryGroupCode())
                 .categoryGroupName(p.getCategoryGroupName())
                 .businessStatus(p.getBusinessStatus())
                 .placeUrl(p.getPlaceUrl())

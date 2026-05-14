@@ -254,6 +254,10 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   private let candidateLayerID = "timing_note_candidates"
   private let candidateActiveStyleID = "tn_candidate_active"
   private let candidateInactiveStyleID = "tn_candidate_inactive"
+  // 마커 클릭 시 말풍선 표시 토글용 — 마지막으로 라벨이 보이는 PoiID.
+  // 다른 마커 탭/지도 드래그 시 이 ID를 hideBadge로 닫고 갱신.
+  private let bubbleBadgeID = "tn_bubble"
+  private var activeBubblePoiId: String?
 
   init(
     frame: CGRect,
@@ -367,6 +371,9 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     let layer = ensureCandidateLayer(manager: manager)
     layer?.clearAllItems()
 
+    // 활성 말풍선 추적 초기화 — 마커 리스트가 갱신되면 이전 표시는 자동 무효.
+    activeBubblePoiId = nil
+
     for (index, marker) in markers.enumerated() {
       guard let lat = marker["latitude"] as? Double,
             let lng = marker["longitude"] as? Double,
@@ -374,7 +381,22 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
         continue
       }
       let active = (marker["active"] as? Bool) ?? false
-      let styleID = active ? candidateActiveStyleID : candidateInactiveStyleID
+      let name = marker["name"] as? String
+      // 매장별 styleID — 말풍선 이미지(이름 포함)가 매장마다 다르므로 styleID도 매장 고유.
+      // 같은 매장 다시 등록 시 LabelManager가 덮어써서 누적 회피 (실측 검증 권장).
+      let styleID: String
+      if let name = name, !name.isEmpty {
+        let activeKey = active ? "act" : "in"
+        styleID = "tn_label_\(id)_\(activeKey)"
+        registerLabeledStyleIfNeeded(
+          manager: manager,
+          styleID: styleID,
+          active: active,
+          name: name
+        )
+      } else {
+        styleID = active ? candidateActiveStyleID : candidateInactiveStyleID
+      }
       let options = PoiOptions(styleID: styleID, poiID: id)
       // rank: 활성 후보가 더 높은 우선순위를 가져 위에 그려지도록 조정
       options.rank = active ? index : index + 1000
@@ -386,14 +408,144 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
         target: self,
         handler: TimingNoteNativeKakaoMapView.handlePoiTapped
       )
+      // 초기엔 말풍선 badge 숨김 — 마커 클릭 시점에만 노출.
+      if name != nil && !name!.isEmpty {
+        poi?.hideBadge(badgeID: bubbleBadgeID)
+      }
       poi?.show()
     }
   }
 
-  /// 마커 탭 이벤트 → Flutter "onPoiTapped" 호출. id는 setMarkers 시 전달했던 문자열.
+  /// 매장명이 포함된 라벨용 PoiStyle을 styleID 별로 등록한다.
+  /// 같은 styleID로 재등록 시 SDK가 덮어쓰기 처리 (마커 갱신마다 안전).
+  private func registerLabeledStyleIfNeeded(
+    manager: LabelManager,
+    styleID: String,
+    active: Bool,
+    name: String
+  ) {
+    // 1) 핀 아이콘 — 기존 makeMarkerImage 재사용.
+    let pinColor = active
+      ? UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 1.0)
+      : UIColor(white: 0.6, alpha: 0.85)
+    guard let pin = makeMarkerImage(color: pinColor) else { return }
+
+    // 2) 말풍선 badge — 매장명을 그려넣은 이미지(박스 + 꼬리 + 텍스트).
+    let bubble = makeBubbleImage(text: name)
+
+    let iconStyle: PoiIconStyle
+    if let bubble = bubble {
+      // anchor: 핀 머리 위쪽으로 말풍선이 뜨도록 음수 y로 띄움.
+      let badge = PoiBadge(
+        badgeID: bubbleBadgeID,
+        image: bubble,
+        offset: CGPoint(x: 0.5, y: -0.4),
+        zOrder: 1
+      )
+      iconStyle = PoiIconStyle(symbol: pin, badges: [badge])
+    } else {
+      iconStyle = PoiIconStyle(symbol: pin)
+    }
+    let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
+    manager.addPoiStyle(PoiStyle(styleID: styleID, styles: [perLevel]))
+  }
+
+  /// 말풍선 이미지 — 화이트 반투명 박스 + 진회색 글씨 + 아래 꼬리.
+  /// 매장명별로 가변 폭이 자연. 16자 이상은 ellipsis로 잘라 가독성 + 박스 폭 한계.
+  private func makeBubbleImage(text: String) -> UIImage? {
+    let display = text.count > 16 ? "\(text.prefix(15))…" : text
+    let font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+    let textColor = UIColor(white: 0.15, alpha: 1.0)
+    let attrs: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .foregroundColor: textColor,
+    ]
+    let textSize = (display as NSString).size(withAttributes: attrs)
+
+    let hPad: CGFloat = 10
+    let vPad: CGFloat = 6
+    let tailHeight: CGFloat = 6
+    let cornerRadius: CGFloat = 8
+
+    let boxWidth = ceil(textSize.width) + hPad * 2
+    let boxHeight = ceil(textSize.height) + vPad * 2
+    let size = CGSize(width: boxWidth, height: boxHeight + tailHeight)
+
+    let renderer = UIGraphicsImageRenderer(size: size)
+    return renderer.image { ctx in
+      let cg = ctx.cgContext
+
+      // 박스(둥근 모서리) path
+      let boxRect = CGRect(x: 0, y: 0, width: boxWidth, height: boxHeight)
+      let boxPath = UIBezierPath(roundedRect: boxRect, cornerRadius: cornerRadius)
+
+      // 꼬리(아래 가운데 삼각) path를 박스 path에 합성
+      let tail = UIBezierPath()
+      let tailHalfWidth: CGFloat = 6
+      tail.move(to: CGPoint(x: boxWidth / 2 - tailHalfWidth, y: boxHeight))
+      tail.addLine(to: CGPoint(x: boxWidth / 2, y: boxHeight + tailHeight))
+      tail.addLine(to: CGPoint(x: boxWidth / 2 + tailHalfWidth, y: boxHeight))
+      tail.close()
+      boxPath.append(tail)
+
+      // 배경 — 화이트 반투명 (지도 위에서 자연 융화)
+      cg.setFillColor(UIColor(white: 1.0, alpha: 0.92).cgColor)
+      cg.addPath(boxPath.cgPath)
+      cg.fillPath()
+
+      // 외곽 얇은 선 — 박스+꼬리 경계 강조
+      cg.setStrokeColor(UIColor(white: 0.55, alpha: 0.7).cgColor)
+      cg.setLineWidth(0.5)
+      cg.addPath(boxPath.cgPath)
+      cg.strokePath()
+
+      // 텍스트 — 박스 중앙 정렬
+      let textRect = CGRect(
+        x: hPad,
+        y: vPad,
+        width: textSize.width,
+        height: textSize.height
+      )
+      (display as NSString).draw(in: textRect, withAttributes: attrs)
+    }
+  }
+
+  /// 마커 탭 이벤트.
+  /// 1) 말풍선 toggle — 같은 마커 재탭하면 닫고, 다른 마커면 이전 마커 닫고 새 마커 열기.
+  /// 2) Flutter "onPoiTapped" 호출 — id는 setMarkers 시 전달했던 문자열.
   private func handlePoiTapped(_ param: PoiInteractionEventParam) {
     let poiId = param.poiItem.itemID
+    toggleBubble(for: poiId)
     channel.invokeMethod("onPoiTapped", arguments: ["id": poiId])
+  }
+
+  /// 말풍선 표시 토글. 같은 마커면 닫기, 다른 마커면 이전 닫고 새로 열기.
+  private func toggleBubble(for poiId: String) {
+    guard let layer = candidateLayer else { return }
+
+    // 같은 마커 재탭 → 현재 표시 닫기.
+    if let current = activeBubblePoiId, current == poiId {
+      layer.getPoi(poiID: current)?.hideBadge(badgeID: bubbleBadgeID)
+      activeBubblePoiId = nil
+      return
+    }
+
+    // 이전 표시가 다른 마커면 먼저 닫기.
+    if let prev = activeBubblePoiId, prev != poiId {
+      layer.getPoi(poiID: prev)?.hideBadge(badgeID: bubbleBadgeID)
+    }
+
+    // 새 마커 말풍선 열기.
+    layer.getPoi(poiID: poiId)?.showBadge(badgeID: bubbleBadgeID)
+    activeBubblePoiId = poiId
+  }
+
+  /// 지도 카메라 이동·드래그 시 말풍선 자동 close — 산업 표준 패턴(구글/카카오맵).
+  /// 사용자가 다른 영역을 탐색하기 시작하면 현재 정보 표시가 부담이 되므로 자동 정리.
+  private func dismissBubbleIfAny() {
+    guard let layer = candidateLayer, let prev = activeBubblePoiId else { return }
+    layer.getPoi(poiID: prev)?.hideBadge(badgeID: bubbleBadgeID)
+    activeBubblePoiId = nil
   }
 
   /// LabelLayer를 1회만 생성하고 캐시한다. 같은 layerID가 이미 등록돼 있으면 그대로 재사용.
@@ -429,17 +581,67 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     candidateStylesRegistered = true
   }
 
-  /// 단색 원 + 흰 테두리로 구성된 작은 마커 이미지를 그린다.
+  /// Material `Icons.location_on` 스타일 핀 마커를 그린다.
+  /// 위쪽 둥근 머리 + 아래쪽 뾰족한 꼬리 + 안쪽 흰 highlight (물방울 형태).
+  /// place_search_screen의 Flutter 위젯 오버레이(Icons.location_on)와 톤 통일.
   private func makeMarkerImage(color: UIColor) -> UIImage? {
-    let size = CGSize(width: 24, height: 24)
+    let size = CGSize(width: 28, height: 36)
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
-      let circle = CGRect(origin: .zero, size: size).insetBy(dx: 3, dy: 3)
-      ctx.cgContext.setFillColor(color.cgColor)
-      ctx.cgContext.fillEllipse(in: circle)
-      ctx.cgContext.setStrokeColor(UIColor.white.cgColor)
-      ctx.cgContext.setLineWidth(2.5)
-      ctx.cgContext.strokeEllipse(in: circle)
+      let cg = ctx.cgContext
+
+      // 머리 + 꼬리를 한 path로 합쳐서 한 번에 fill — 경계 안티앨리어싱 자국 방지.
+      let headCenter = CGPoint(x: size.width / 2, y: 13)
+      let headRadius: CGFloat = 11
+      let tailTipY = size.height - 2
+      // 머리 양옆 접선 각도 (수평선 기준 약 30° 아래) — 꼬리가 자연스럽게 이어지는 폭.
+      let tangentAngle: CGFloat = .pi / 6   // 30°
+      let rightTangent = CGPoint(
+        x: headCenter.x + headRadius * cos(tangentAngle),
+        y: headCenter.y + headRadius * sin(tangentAngle)
+      )
+      let leftTangent = CGPoint(
+        x: headCenter.x - headRadius * cos(tangentAngle),
+        y: headCenter.y + headRadius * sin(tangentAngle)
+      )
+
+      let path = UIBezierPath()
+      // 오른쪽 접점 → 꼬리 끝 → 왼쪽 접점
+      path.move(to: rightTangent)
+      path.addLine(to: CGPoint(x: headCenter.x, y: tailTipY))
+      path.addLine(to: leftTangent)
+      // 왼쪽 접점 → 위쪽 호 → 오른쪽 접점.
+      // UIKit 좌표(y 아래 양수)에서 angle 양수가 시계방향이라 clockwise=true가
+      // 150°→180°→270°→0°→30° 경로로 머리 위쪽을 돌아간다.
+      path.addArc(
+        withCenter: headCenter,
+        radius: headRadius,
+        startAngle: .pi - tangentAngle,    // 왼 접점 각도 (180° - 30° = 150°)
+        endAngle: tangentAngle,            // 오른 접점 각도 (30°)
+        clockwise: true                    // 위쪽으로 호
+      )
+      path.close()
+
+      cg.setFillColor(color.cgColor)
+      cg.addPath(path.cgPath)
+      cg.fillPath()
+
+      // 흰 테두리 (얇게)
+      cg.setStrokeColor(UIColor.white.cgColor)
+      cg.setLineWidth(1.5)
+      cg.addPath(path.cgPath)
+      cg.strokePath()
+
+      // 안쪽 흰 highlight (Material location_on의 작은 원 부분)
+      let innerRadius: CGFloat = 4
+      let innerRect = CGRect(
+        x: headCenter.x - innerRadius,
+        y: headCenter.y - innerRadius,
+        width: innerRadius * 2,
+        height: innerRadius * 2
+      )
+      cg.setFillColor(UIColor.white.cgColor)
+      cg.fillEllipse(in: innerRect)
     }
   }
 
@@ -547,6 +749,9 @@ extension TimingNoteNativeKakaoMapView: MapControllerDelegate {
 
 extension TimingNoteNativeKakaoMapView: KakaoMapEventDelegate {
   func cameraWillMove(kakaoMap: KakaoMap, by: MoveBy) {
+    // 사용자가 지도 드래그·줌하기 시작하면 현재 떠있는 말풍선 자동 close
+    // (산업 표준 — 구글/카카오맵 InfoWindow 동작 패턴).
+    dismissBubbleIfAny()
     channel.invokeMethod("onCameraMoveStarted", arguments: nil)
   }
 

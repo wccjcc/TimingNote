@@ -32,10 +32,12 @@ class TodoStructure {
 class TodoPlace {
   const TodoPlace({
     required this.id,
+    this.externalPlaceId,
     required this.name,
     this.address,
     this.roadAddress,
     this.phone,
+    this.categoryGroupCode,
     this.categoryGroupName,
     this.businessStatus,
     this.placeUrl,
@@ -44,10 +46,14 @@ class TodoPlace {
   });
 
   final int id;
+  /// 카카오 장소 ID — 후보를 SPECIFIC으로 지정할 때 setExternalPlace 호출에 사용.
+  /// 지도 핀(외부 ID 없음)은 null.
+  final String? externalPlaceId;
   final String name;
   final String? address;
   final String? roadAddress;
   final String? phone;
+  final String? categoryGroupCode;
   final String? categoryGroupName;
   final String? businessStatus;   // OPERATIONAL | CLOSED_TEMPORARILY | CLOSED_PERMANENTLY
   final String? placeUrl;
@@ -57,10 +63,12 @@ class TodoPlace {
   factory TodoPlace.fromJson(Map<String, dynamic> json) {
     return TodoPlace(
       id: json['id'] as int,
+      externalPlaceId: json['externalPlaceId'] as String?,
       name: json['name'] as String,
       address: json['address'] as String?,
       roadAddress: json['roadAddress'] as String?,
       phone: json['phone'] as String?,
+      categoryGroupCode: json['categoryGroupCode'] as String?,
       categoryGroupName: json['categoryGroupName'] as String?,
       businessStatus: json['businessStatus'] as String?,
       placeUrl: json['placeUrl'] as String?,
