@@ -7,7 +7,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/geofence/geofence_runtime.dart';
 import '../core/location/location_permission_service.dart';
@@ -36,8 +35,6 @@ class App extends ConsumerStatefulWidget {
 class _AppState extends ConsumerState<App>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static final Logger _logger = Logger();
-  static const String _locationPermissionPromptRequestedKey =
-      'location_permission_prompt_requested';
 
   late final Future<void> _bootstrapFuture;
   final PushActionBridge _pushActionBridge = PushActionBridge();
@@ -138,16 +135,12 @@ class _AppState extends ConsumerState<App>
     }
 
     try {
-      final preferences = await SharedPreferences.getInstance();
-      final alreadyPrompted =
-          preferences.getBool(_locationPermissionPromptRequestedKey) ?? false;
       final locationPermissionService = ref.read(
         locationPermissionServiceProvider,
       );
       final whenInUseStatus = await locationPermissionService.checkWhenInUse();
-      if (!alreadyPrompted && whenInUseStatus.isDenied) {
+      if (whenInUseStatus.isDenied) {
         await locationPermissionService.requestWhenInUse();
-        await preferences.setBool(_locationPermissionPromptRequestedKey, true);
       }
     } catch (e, st) {
       _logger.w(
