@@ -40,4 +40,22 @@ class UserSettingsService {
     );
     return envelope.data!;
   }
+
+  Future<void> registerSettings({
+    bool? locationAlertEnabled,
+    bool? pushAlertEnabled,
+    int? radiusM,
+  }) async {
+    final body = <String, dynamic>{
+      if (locationAlertEnabled != null)
+        'locationAlertEnabled': locationAlertEnabled,
+      if (pushAlertEnabled != null) 'pushAlertEnabled': pushAlertEnabled,
+      if (radiusM != null) 'radiusM': radiusM,
+    };
+
+    await _client.post<dynamic>(
+      ApiEndpoints.userSettings,
+      data: body.isEmpty ? null : body,
+    );
+  }
 }

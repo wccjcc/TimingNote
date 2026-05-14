@@ -6,6 +6,7 @@ import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/core/location/location_permission_service.dart';
 import 'package:timing_note/core/location/location_provider.dart';
 import 'package:timing_note/features/bootstrap/service/app_bootstrap_service.dart';
+import 'package:timing_note/features/mypage/service/user_settings_service.dart';
 
 import 'app/app.dart';
 
@@ -19,7 +20,19 @@ Future<void> main() async {
 
   try {
     // 1) installationUuid / deviceSecret 준비
-    await container.read(appBootstrapServiceProvider).run();
+    final bootstrapResult = await container.read(appBootstrapServiceProvider).run();
+
+    // 1-1) 신규 디바이스 등록 직후 SETTINGS-03 기본 설정을 1회 생성한다.
+    if (bootstrapResult.isNewRegistration) {
+      try {
+        await container.read(userSettingsServiceProvider).registerSettings(
+          locationAlertEnabled: true,
+          pushAlertEnabled: true,
+        );
+      } catch (e, st) {
+        _logger.w('SETTINGS-03 register failed', error: e, stackTrace: st);
+      }
+    }
 
     // 2) 모바일(iOS/Android)에서만 geofence 런타임 사전 시작을 시도합니다.
     // - 웹에서는 브라우저 제약으로 초기 진입 지연이 커질 수 있어 제외합니다.
