@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/location/location_distance.dart';
 import '../../../../core/location/location_provider.dart';
 import '../../../../shared/theme/colors.dart';
+import '../../../../shared/util/navigation_guard.dart';
 import '../../../../shared/widgets/app_error_view.dart';
 import '../../../../shared/widgets/app_loading_view.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
@@ -43,11 +44,16 @@ class TodoListScreen extends ConsumerStatefulWidget {
 }
 
 class _TodoListScreenState extends ConsumerState<TodoListScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, NavigationGuardMixin<TodoListScreen> {
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   late final TabController _tabController;
+
+  /// 빠른 더블 탭으로 같은 상세 화면이 두 번 push되는 것을 방지.
+  void _openDetail(int todoId) {
+    guardedRunSync(() => context.push('/todos/$todoId'));
+  }
 
   @override
   void initState() {
@@ -363,7 +369,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   item: item,
                   currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
-                  onTap: () => context.push('/todos/${item.id}'),
+                  onTap: () => _openDetail(item.id),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
                   onToggleAlert: () => ref.read(todoListProvider.notifier).toggleAlert(item.id),
                 )),
@@ -395,7 +401,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   item: item,
                   currentGps: state.currentGps,
                   showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
-                  onTap: () => context.push('/todos/${item.id}'),
+                  onTap: () => _openDetail(item.id),
                   onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
                   onToggleAlert: () => ref.read(todoListProvider.notifier).toggleAlert(item.id),
                 )),
@@ -718,7 +724,7 @@ extension _TodoListScreenSearch on _TodoListScreenState {
         final item = searchState.items[itemIndex];
         return _SearchResultTile(
           item: item,
-          onTap: () => context.push('/todos/${item.id}'),
+          onTap: () => _openDetail(item.id),
         );
       },
     );

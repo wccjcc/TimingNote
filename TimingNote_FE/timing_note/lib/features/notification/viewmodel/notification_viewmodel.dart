@@ -43,6 +43,10 @@ class NotificationState {
 class NotificationNotifier extends Notifier<NotificationState> {
   late final NotificationService _service;
 
+  /// 진행 중인 항목별 액션 — 같은 알림 더블 탭 시 두 번째 호출 차단.
+  /// open/delete 별도로 관리하면 복잡하니 하나의 Set으로 통합.
+  final Set<int> _inflightItemActions = <int>{};
+
   @override
   NotificationState build() {
     _service = ref.read(notificationServiceProvider);
@@ -73,14 +77,20 @@ class NotificationNotifier extends Notifier<NotificationState> {
   }
 
   Future<void> openNotification(NotificationItem item) async {
-    if (item.isUnread) {
-      await _service.applyAction(
-        notificationId: item.id,
-        actionType: 'OPEN',
-      );
-      await _service.markAsRead(item.id);
+    // 더블 탭 가드 — 같은 알림 카드 빠르게 두 번 탭 시 BE applyAction + markAsRead 중복 호출 방지.
+    if (!_inflightItemActions.add(item.id)) return;
+    try {
+      if (item.isUnread) {
+        await _service.applyAction(
+          notificationId: item.id,
+          actionType: 'OPEN',
+        );
+        await _service.markAsRead(item.id);
+      }
+      await load();
+    } finally {
+      _inflightItemActions.remove(item.id);
     }
-    await load();
   }
 
   Future<void> markAllRead() async {
@@ -93,8 +103,13 @@ class NotificationNotifier extends Notifier<NotificationState> {
   }
 
   Future<void> deleteOne(int notificationId) async {
-    await _service.deleteNotification(notificationId);
-    await load();
+    if (!_inflightItemActions.add(notificationId)) return;
+    try {
+      await _service.deleteNotification(notificationId);
+      await load();
+    } finally {
+      _inflightItemActions.remove(notificationId);
+    }
   }
 
   Future<void> clearAll() async {
