@@ -90,10 +90,15 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     setState(() => _activeIndex = _activeIndex == index ? null : index);
   }
 
-  void _onTapCompleteItem(int index) {
+  Future<void> _onTapCompleteItem(int index) async {
     if (index < 0 || index >= _items.length) return;
     final item = _items[index];
     if (_removingIds.contains(item.id)) return;
+
+    // TODO: 완료 API 연결 지점
+    // - 예시: await _completeRecommendation(item.id);
+    // - 현재는 UI 동작 검증을 위해 즉시 성공으로 처리한다.
+    await _completeRecommendation(item.id);
 
     setState(() {
       _removingIds.add(item.id);
@@ -108,6 +113,13 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
         _removingIds.remove(item.id);
       });
     });
+  }
+
+  Future<void> _completeRecommendation(int todoId) async {
+    // TODO: 백엔드 완료 API 연결
+    // 예시:
+    // await ref.read(recommendRepositoryProvider).complete(todoId);
+    await Future<void>.value();
   }
 
   @override
@@ -267,7 +279,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                   ),
                 ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
                 child: Column(
                   children: List.generate(_items.length, (i) {
                     final item = _items[i];
@@ -276,7 +288,9 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       item: item,
                       isActive: _activeIndex == i,
                       isRemoving: _removingIds.contains(item.id),
-                      onDone: () => _onTapCompleteItem(i),
+                      onDone: () {
+                        _onTapCompleteItem(i);
+                      },
                     );
                   }),
                 ),
@@ -326,8 +340,45 @@ class _CenterPlanet extends StatelessWidget {
     final floatY = math.sin(progress * math.pi * 2) * 5.5;
     return Transform.translate(
       offset: Offset(0, floatY),
-      child: ClipOval(
-        child: Image.asset('assets/images/nyang_star_1.png', width: 86, height: 86),
+      child: SizedBox(
+        width: 86,
+        height: 86,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 86,
+              height: 86,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: SpaceColors.neonPurple.withOpacity(0.16),
+                    blurRadius: 24,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 86,
+              height: 86,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: SpaceColors.neonViolet.withOpacity(0.14),
+                    blurRadius: 14,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+            ),
+            ClipOval(
+              child: Image.asset('assets/images/nyang_star_1.png', width: 86, height: 86),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -629,7 +680,7 @@ class _OrbitRing extends StatelessWidget {
         height: radius * 2,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.14), width: 1),
+          border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.20), width: 1),
         ),
       );
 }
@@ -641,48 +692,54 @@ class _RadarSweep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Transform.rotate(
-      angle: progress * math.pi * 2,
-      child: ClipPath(
-        clipper: _SweepClipper(),
+    final angle = progress * math.pi * 2;
+    return SizedBox(
+      width: radius * 2,
+      height: radius * 2,
+      child: Stack(
+        children: [
+          _buildSweepLine(angle, 1.0, 0),
+          _buildSweepLine(angle, 0.42, -0.09),
+          _buildSweepLine(angle, 0.22, -0.18),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSweepLine(double baseAngle, double opacityFactor, double deltaAngle) {
+    return Positioned(
+      left: radius,
+      top: radius - 1,
+      child: Transform.rotate(
+        angle: baseAngle + deltaAngle,
+        alignment: Alignment.centerLeft,
         child: Container(
-          width: radius * 2,
-          height: radius * 2,
+          width: radius,
+          height: 2,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
+            borderRadius: BorderRadius.circular(999),
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
               colors: [
-                SpaceColors.neonPurple.withOpacity(0.00),
-                SpaceColors.neonPurple.withOpacity(0.10),
-                SpaceColors.neonPurple.withOpacity(0.24),
+                SpaceColors.neonPurple.withOpacity(0.0),
+                SpaceColors.neonPurple.withOpacity(0.09 * opacityFactor),
+                SpaceColors.neonPurple.withOpacity(0.30 * opacityFactor),
               ],
-              stops: const [0.55, 0.80, 1.0],
+              stops: const [0.0, 0.68, 1.0],
             ),
+            boxShadow: [
+              BoxShadow(
+                color: SpaceColors.neonPurple.withOpacity(0.42 * opacityFactor),
+                blurRadius: 12,
+                spreadRadius: 0.5,
+              ),
+            ],
           ),
         ),
       ),
     );
   }
-}
-
-class _SweepClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-    final path = Path()..moveTo(center.dx, center.dy);
-    path.arcTo(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 10,
-      math.pi / 5,
-      false,
-    );
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 
 class _RecommendItem {
