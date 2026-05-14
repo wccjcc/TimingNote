@@ -220,6 +220,9 @@ public class TodoStructurePersister {
         if (resolved.placeType() == AiPlaceType.SPECIFIC) {
             Place top = matchedPlaces.get(0);
             todo.updatePrimaryPlaceId(top.getId());
+            // SPECIFIC 후보 1건 저장 — 수정 흐름(setTodoPlace)과 통일.
+            // GeofenceSlotManager가 후보 테이블에서 조회하므로 SPECIFIC도 후보 등록 필수.
+            saveCandidatePlaces(todo, List.of(top), latitude, longitude);
             log.info("[Place] SPECIFIC 확정 — placeId={} name='{}' (todoId={})",
                     top.getId(), top.getName(), todo.getId());
             return AiPlaceType.SPECIFIC;
