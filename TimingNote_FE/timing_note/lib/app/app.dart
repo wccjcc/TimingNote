@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
@@ -468,6 +469,17 @@ class _AppState extends ConsumerState<App>
           debugShowCheckedModeBanner: false,
           theme: AppTheme.dark,
           routerConfig: router,
+          // 한글 locale 적용 — showDatePicker의 월 이름/버튼(확인/취소) 자동 한글화.
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('ko', 'KR'),
+            Locale('en', 'US'),
+          ],
+          locale: const Locale('ko', 'KR'),
         );
       },
     );

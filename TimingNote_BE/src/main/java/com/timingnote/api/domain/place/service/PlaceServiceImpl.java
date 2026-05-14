@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.timingnote.api.common.util.GeoUtils;
 import com.timingnote.api.domain.place.dto.command.PlaceUpsertCommand;
+import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.PlaceOpeningPeriod;
 import com.timingnote.api.domain.place.event.CandidateBatchEnrichmentEvent;
@@ -51,12 +52,7 @@ public class PlaceServiceImpl implements PlaceService {
     private final PlaceOpeningPeriodRepository openingPeriodRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
-
-    // 3km — 도심 활동 사용자의 가까운 매장을 거리순으로 N개 확보하는 범위.
-    // 더 키워도 의미가 크지 않고(멀리 있는 매장은 알림 가치 약함), "유의미한 이동" 트리거 시
-    // 새 좌표 기준으로 재검색되므로 시외로 나가면 자연 갱신된다.
-    private static final int GENERIC_RADIUS = 3000;
-    private static final int GENERIC_SIZE   = 10;
+    private final PlaceSearchCache placeSearchCache;
 
     private static final int    OPENING_HOURS_TTL_DAYS     = 30;
     private static final double GENERIC_GOOGLE_RADIUS_M    = 500.0;
@@ -70,110 +66,57 @@ public class PlaceServiceImpl implements PlaceService {
     private static final double WEIGHT_DISTANCE = 0.4;
     private static final double WEIGHT_NAME     = 0.6;
 
-    // ── SPECIFIC ─────────────────────────────────────────────────────────────
+    // ── 통합 검색 (Phase C, 2026-05-12 설계) ──────────────────────────────────
 
     @Override
     @Transactional
-    public Optional<Place> resolveSpecificPlace(String placeText, Double latitude, Double longitude) {
-        log.info("[SPECIFIC] 시작: placeText='{}' lat={} lon={}", placeText, latitude, longitude);
-
-        // 외부 API(Kakao/Google)에 invalid 입력이 흘러가지 않도록 진입부에서 차단.
-        // Google Places New API는 textQuery 빈 문자열이면 400 INVALID_ARGUMENT를 던진다.
-        if (placeText == null || placeText.isBlank()) {
-            log.warn("[SPECIFIC] placeText 비어있음 → 스킵");
-            return Optional.empty();
-        }
-        if (!isCoordRangeValid(latitude, longitude)) {
-            log.warn("[SPECIFIC] 좌표 범위 초과 → 스킵: lat={} lon={}", latitude, longitude);
-            return Optional.empty();
-        }
-
-        String x = toLon(longitude);
-        String y = toLat(latitude);
-
-        KakaoDocument kakaoDoc = searchKeyword(placeText, x, y, 5);
-        if (kakaoDoc == null) {
-            log.info("[SPECIFIC] 카카오 결과 없음 — Google 보강 비활성화 상태이므로 매칭 실패 처리: '{}'", placeText);
-            // [enrichment 비활성화] Google TextSearch fallback 일시 중단. 매핑 정확도 vs 복잡도
-            // trade-off 재검토 후 영업시간 데이터가 정말 필요하면 아래 주석 해제 + Google 클라이언트 재활성화.
-            // return resolveViaGoogleTextSearch(placeText, latitude, longitude);
-            return Optional.empty();
-        }
-
-        Optional<Place> existing = placeRepository.findByExternalPlaceId(kakaoDoc.getId());
-        boolean isNew = existing.isEmpty();
-        Place place = existing.orElseGet(() -> saveFromKakao(kakaoDoc));
-        log.info("[SPECIFIC] 장소 {}(externalId={}): '{}'",
-                isNew ? "신규 저장" : "DB 캐시 hit", kakaoDoc.getId(), place.getName());
-
-        // [enrichment 비활성화] Google 영업시간 보강 이벤트 발행 전부 일시 중단.
-        /*
-        if (place.getGooglePlaceId() == null) {
-            log.info("[SPECIFIC] googlePlaceId 없음 → 영업시간 보강 이벤트 발행 (async, AFTER_COMMIT)");
-            eventPublisher.publishEvent(
-                    new PlaceEnrichmentRequestedEvent(place.getId(), EnrichmentType.INITIAL));
-        } else if (isHoursExpired(place)) {
-            log.info("[SPECIFIC] 영업시간 TTL 만료 (hoursFetchedAt={}) → 갱신 이벤트 발행 (async)",
-                    place.getHoursFetchedAt());
-            eventPublisher.publishEvent(
-                    new PlaceEnrichmentRequestedEvent(place.getId(), EnrichmentType.REFRESH));
-        } else {
-            log.info("[SPECIFIC] 영업시간 캐시 유효 (hoursFetchedAt={}) → 보강 스킵",
-                    place.getHoursFetchedAt());
-        }
-        */
-
-        log.info("[SPECIFIC] 완료: placeText='{}' → place.id={}", placeText, place.getId());
-        return Optional.of(place);
-    }
-
-    // ── GENERIC ──────────────────────────────────────────────────────────────
-
-    @Override
-    @Transactional
-    public List<Place> resolveGenericCandidates(String placeText, Double latitude, Double longitude) {
-        log.info("[GENERIC] 시작: placeText='{}' lat={} lon={}", placeText, latitude, longitude);
+    public SearchResult searchAndStoreAll(String placeText, Double latitude, Double longitude) {
+        log.info("[SEARCH_ALL] 시작: placeText='{}' lat={} lon={}", placeText, latitude, longitude);
 
         if (placeText == null || placeText.isBlank()) {
-            log.warn("[GENERIC] placeText 비어있음 → 스킵");
-            return Collections.emptyList();
-        }
-        if (latitude == null || longitude == null) {
-            log.warn("[GENERIC] 좌표 없음 → 장소 연동 스킵: '{}'", placeText);
-            return Collections.emptyList();
+            log.warn("[SEARCH_ALL] placeText 비어있음 → 빈 결과");
+            return SearchResult.empty();
         }
         if (!isCoordRangeValid(latitude, longitude)) {
-            log.warn("[GENERIC] 좌표 범위 초과 → 스킵: lat={} lon={}", latitude, longitude);
-            return Collections.emptyList();
+            log.warn("[SEARCH_ALL] 좌표 범위 초과 → 빈 결과: lat={} lon={}", latitude, longitude);
+            return SearchResult.empty();
         }
 
-        String x = toLon(longitude);
-        String y = toLat(latitude);
+        // radius/sort/size 미지정 — 좌표만 전달. 카카오 sort=accuracy(기본)이 거리 가중치를
+        // 반영해 가까운 매장이 우선 (실측 검증 완료). size는 카카오 기본 15(=max) 사용.
+        //
+        // Redis 캐시(1km grid, 7일 TTL) 경유 — 같은 grid·키워드 호출은 카카오 호출 0.
+        // FE 검색창 캐시(`places:search:*`)와 단일 캐시 공유 — DTO에 categoryName까지 포함시켜
+        // 내부 흐름이 필요한 정보 모두 보존된다.
+        final String x = toLon(longitude);
+        final String y = toLat(latitude);
+        List<PlaceSearchItemResponse> items = placeSearchCache.getOrLoadSearch(
+                placeText, latitude, longitude,
+                () -> {
+                    try {
+                        KakaoLocalSearchResponse res = kakaoLocalClient
+                                .searchByKeyword(placeText, x, y).block();
+                        if (res == null || res.getDocuments() == null) {
+                            return Collections.emptyList();
+                        }
+                        return res.getDocuments().stream()
+                                .map(PlaceSearchItemResponse::from)
+                                .toList();
+                    } catch (Exception e) {
+                        log.error("[SEARCH_ALL] 카카오 호출 실패: '{}' - {}", placeText, e.getMessage());
+                        return Collections.emptyList();
+                    }
+                });
 
-        // placeText 그대로 키워드 검색만 사용 (radius={@link #GENERIC_RADIUS}, sort=distance).
-        // 과거 KakaoPlaceSearchStrategy로 브랜드명까지 카테고리 검색으로 라우팅했으나,
-        // "메가커피"가 주변 카페 전부를 후보로 잡는 부작용이 있어 키워드 검색으로 일원화.
-        KakaoLocalSearchResponse response = searchKeywordNearby(placeText, x, y);
-
-        if (response == null || response.getDocuments() == null || response.getDocuments().isEmpty()) {
-            log.warn("[GENERIC] 카카오 결과 없음: '{}'", placeText);
-            return Collections.emptyList();
+        if (items.isEmpty()) {
+            log.info("[SEARCH_ALL] 카카오 결과 0건: '{}'", placeText);
+            return SearchResult.empty();
         }
-
-        log.info("[GENERIC] 카카오 결과 {}개", response.getDocuments().size());
-
-        List<Place> places = saveCandidates(response.getDocuments());
-        log.info("[GENERIC] 후보 장소 {}개 확보 (신규+기존 합산)", places.size());
-
-        // [enrichment 비활성화] Google 영업시간 보강 이벤트 발행 일시 중단.
-        /*
-        eventPublisher.publishEvent(new CandidateBatchEnrichmentEvent(
-                places.stream().map(Place::getId).toList(),
-                placeText, latitude, longitude));
-        */
-
-        log.info("[GENERIC] 완료: placeText='{}' → 후보 {}개", placeText, places.size());
-        return places;
+        // Place DB 누적 — 사용자 이동 시 활성 후보로 자동 전환되는 자산이 됨
+        List<Place> stored = saveCandidates(items);
+        log.info("[SEARCH_ALL] 완료: placeText='{}' → kakao={}개 stored={}개",
+                placeText, items.size(), stored.size());
+        return new SearchResult(items, stored);
     }
 
     // ── 사용자 선택 장소 저장 ─────────────────────────────────────────────────
@@ -183,9 +126,19 @@ public class PlaceServiceImpl implements PlaceService {
     public Place saveUserSelectedPlace(PlaceUpsertCommand cmd) {
         log.info("[Place/UserSelected] 시작: kakaoPlaceId='{}' name='{}'", cmd.kakaoPlaceId(), cmd.placeName());
 
-        // 지도 마커(핀) - kakaoPlaceId 없음 → 항상 신규 저장 (dedup 없음)
-        // 지도 마커는 카테고리/전화 메타가 없어 Google 매칭 정확도가 떨어지므로 보강 스킵
+        // 지도 마커(핀) - kakaoPlaceId 없음 → roadAddress(도로명) > address(지번) 순 dedup
+        // 도로명+건물번호가 결합된 roadAddress는 동일 좌표·동일 표기일 때 충돌 위험이 매우 낮아
+        // dedup 키로 안전하다. 둘 다 null이면 dedup 불가 — 신규 저장.
+        // 지도 마커는 카테고리/전화 메타가 없어 Google 매칭 정확도가 떨어지므로 보강 스킵.
         if (cmd.kakaoPlaceId() == null) {
+            Optional<Place> existingByAddress = lookupPinByAddress(
+                    cmd.roadAddressName(), cmd.addressName());
+            if (existingByAddress.isPresent()) {
+                Place hit = existingByAddress.get();
+                log.info("[Place/UserSelected] 지도 마커 dedup hit: placeId={} roadAddress='{}' address='{}'",
+                        hit.getId(), cmd.roadAddressName(), cmd.addressName());
+                return hit;
+            }
             Place saved = placeRepository.save(Place.builder()
                     .name(cmd.placeName())
                     .address(cmd.addressName())
@@ -232,82 +185,22 @@ public class PlaceServiceImpl implements PlaceService {
         return place;
     }
 
+    /**
+     * 지도 핀(externalPlaceId == null) dedup — roadAddress(도로명) 우선, address(지번) fallback.
+     * 둘 다 null/blank면 dedup 시도하지 않는다.
+     */
+    private Optional<Place> lookupPinByAddress(String roadAddress, String address) {
+        if (roadAddress != null && !roadAddress.isBlank()) {
+            Optional<Place> byRoad = placeRepository.findFirstByExternalPlaceIdIsNullAndRoadAddress(roadAddress);
+            if (byRoad.isPresent()) return byRoad;
+        }
+        if (address != null && !address.isBlank()) {
+            return placeRepository.findFirstByExternalPlaceIdIsNullAndAddress(address);
+        }
+        return Optional.empty();
+    }
+
     // ── Kakao 검색 헬퍼 ─────────────────────────────────────────────────────
-
-    private KakaoDocument searchKeyword(String query, String x, String y, int size) {
-        log.info("[Kakao/Keyword] 검색: query='{}' x={} y={} size={}", query, x, y, size);
-        try {
-            KakaoLocalSearchResponse res = kakaoLocalClient.searchByKeyword(query, x, y, size).block();
-            if (res == null || res.getDocuments() == null || res.getDocuments().isEmpty()) {
-                log.warn("[Kakao/Keyword] 결과 없음: '{}'", query);
-                return null;
-            }
-
-            List<KakaoDocument> docs = res.getDocuments();
-            log.info("[Kakao/Keyword] 결과 {}개:", docs.size());
-            for (int i = 0; i < docs.size(); i++) {
-                KakaoDocument d = docs.get(i);
-                log.info("  [{}] '{}' category={} distance={}m id={}",
-                        i + 1, d.getPlaceName(), d.getCategoryGroupCode(),
-                        d.getDistance(), d.getId());
-            }
-
-            KakaoDocument best = pickBestMatch(docs, query);
-            log.info("[Kakao/Keyword] 최종 선택: '{}' (categoryCode={})",
-                    best.getPlaceName(), best.getCategoryGroupCode());
-            return best;
-        } catch (Exception e) {
-            log.error("[Kakao/Keyword] 검색 실패: '{}' - {}", query, e.getMessage());
-            return null;
-        }
-    }
-
-    private KakaoDocument pickBestMatch(List<KakaoDocument> docs, String query) {
-        // 카카오 검색 결과(query 기반) 중 이름 매칭으로 best 1개를 고른다.
-        // 과거에는 KakaoPlaceSearchStrategy.decide(query).categoryGroupCode() 로 1차 카테고리
-        // 필터를 적용했으나, 키워드 매핑 자체가 휴리스틱이라 제거하고 이름 매칭만 사용한다.
-        return pickByName(docs, query);
-    }
-
-    private KakaoDocument pickByName(List<KakaoDocument> docs, String query) {
-        String nq = normalize(query);
-        for (KakaoDocument doc : docs) {
-            if (normalize(doc.getPlaceName()).equals(nq)) {
-                log.info("[Kakao/Keyword] 이름 완전일치: '{}'", doc.getPlaceName());
-                return doc;
-            }
-        }
-        for (KakaoDocument doc : docs) {
-            if (nq.contains(normalize(doc.getPlaceName()))) {
-                log.info("[Kakao/Keyword] 쿼리⊇장소명 매칭: '{}'", doc.getPlaceName());
-                return doc;
-            }
-        }
-        log.info("[Kakao/Keyword] 이름 매칭 없음 → 1순위 fallback: '{}'", docs.get(0).getPlaceName());
-        return docs.get(0);
-    }
-
-    private KakaoLocalSearchResponse searchKeywordNearby(String query, String x, String y) {
-        log.info("[Kakao/KeywordNearby] 검색: query='{}' x={} y={} radius={}m size={}",
-                query, x, y, GENERIC_RADIUS, GENERIC_SIZE);
-        try {
-            KakaoLocalSearchResponse res = kakaoLocalClient
-                    .searchByKeywordNearby(query, x, y, GENERIC_RADIUS, GENERIC_SIZE, "distance")
-                    .block();
-            int count = (res != null && res.getDocuments() != null) ? res.getDocuments().size() : 0;
-            log.info("[Kakao/KeywordNearby] 결과 {}개", count);
-            return res;
-        } catch (Exception e) {
-            log.error("[Kakao/KeywordNearby] 실패: '{}' - {}", query, e.getMessage());
-            return null;
-        }
-    }
-
-    private static String normalize(String s) {
-        return s.replaceAll("\\s+", "")
-                .toLowerCase()
-                .replaceAll("(점|지점|branch|店)$", "");
-    }
 
     /**
      * Phone 정규화 — 숫자만 추출하고 길이/대표번호 검증.
@@ -347,28 +240,33 @@ public class PlaceServiceImpl implements PlaceService {
 
     // ── Place 저장 ───────────────────────────────────────────────────────────
 
-    private Place saveFromKakao(KakaoDocument doc) {
-        log.info("[Place] 카카오 장소 신규 저장: '{}' (externalId={})", doc.getPlaceName(), doc.getId());
-        Point location = Place.toPoint(
-                Double.parseDouble(doc.getX()),
-                Double.parseDouble(doc.getY()));
+    /**
+     * 검색 결과 DTO 1건으로 Place를 신규 저장. 좌표/이름/카테고리 메타를 모두 보존한다.
+     */
+    private Place saveFromSearchItem(PlaceSearchItemResponse item) {
+        log.info("[Place] 카카오 장소 신규 저장: '{}' (externalId={})", item.getPlaceName(), item.getId());
+        Point location = Place.toPoint(item.getLongitude(), item.getLatitude());
 
         return placeRepository.save(Place.builder()
-                .externalPlaceId(doc.getId())
-                .name(doc.getPlaceName())
-                .categoryName(doc.getCategoryName())
-                .categoryGroupCode(doc.getCategoryGroupCode())
-                .categoryGroupName(doc.getCategoryGroupName())
-                .address(doc.getAddressName())
-                .roadAddress(doc.getRoadAddressName())
-                .phone(doc.getPhone())
-                .placeUrl(doc.getPlaceUrl())
+                .externalPlaceId(item.getId())
+                .name(item.getPlaceName())
+                .categoryName(item.getCategoryName())
+                .categoryGroupCode(item.getCategoryGroupCode())
+                .categoryGroupName(item.getCategoryGroupName())
+                .address(item.getAddressName())
+                .roadAddress(item.getRoadAddressName())
+                .phone(item.getPhone())
+                .placeUrl(item.getPlaceUrl())
                 .location(location)
                 .build());
     }
 
-    private List<Place> saveCandidates(List<KakaoDocument> docs) {
-        List<String> ids = docs.stream().map(KakaoDocument::getId).toList();
+    /**
+     * 검색 결과 N건을 Place 테이블에 dedup 저장. externalPlaceId 기준 in-clause 1회 SELECT.
+     * 카카오 응답 순서를 보존하지 않고 기존+신규 순으로 반환 — 호출자가 externalId 매핑으로 재정렬.
+     */
+    private List<Place> saveCandidates(List<PlaceSearchItemResponse> items) {
+        List<String> ids = items.stream().map(PlaceSearchItemResponse::getId).toList();
 
         // SELECT 1회: 기존 Place 엔티티를 바로 보존 (ID 추출 후 재조회 없음)
         List<Place> existingPlaces = placeRepository.findAllByExternalPlaceIdIn(ids);
@@ -376,9 +274,9 @@ public class PlaceServiceImpl implements PlaceService {
                 .map(Place::getExternalPlaceId)
                 .collect(Collectors.toSet());
 
-        List<Place> newPlaces = docs.stream()
-                .filter(d -> !existingIds.contains(d.getId()))
-                .map(this::saveFromKakao)
+        List<Place> newPlaces = items.stream()
+                .filter(item -> !existingIds.contains(item.getId()))
+                .map(this::saveFromSearchItem)
                 .toList();
 
         log.info("[Place] 후보 저장: 신규={}개 기존={}개", newPlaces.size(), existingPlaces.size());

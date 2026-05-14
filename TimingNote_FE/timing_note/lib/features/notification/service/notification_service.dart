@@ -100,5 +100,28 @@ class NotificationService {
     );
     return envelope.data!;
   }
-}
 
+  /// 유의미한 위치 변화(특히 iOS significant-change) 시 geofence 슬롯 재계산을 요청합니다.
+  ///
+  /// 서버는 이 요청을 비동기 outbox -> consumer 경로로 처리하므로,
+  /// 클라이언트는 accepted 응답만 받으면 됩니다.
+  Future<void> requestGeofenceRecalculation({
+    required double latitude,
+    required double longitude,
+    required DateTime occurredAt,
+    double? course,
+  }) async {
+    await _client.post<Map<String, dynamic>>(
+      ApiEndpoints.geofenceRecalculate,
+      data: {
+        'latitude': latitude,
+        'longitude': longitude,
+        // 백엔드 DTO의 occurredAt은 필수값입니다.
+        // 네이티브에서 받은 이벤트 시각을 UTC ISO 문자열로 보내 validation 400을 막습니다.
+        'occurredAt': occurredAt.toUtc().toIso8601String(),
+        if (course != null) 'course': course,
+      },
+      dataParser: (json) => json as Map<String, dynamic>,
+    );
+  }
+}

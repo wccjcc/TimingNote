@@ -19,6 +19,13 @@ spring:
   elasticsearch:
     uris: http://localhost:9200
 
+  # Redis도 같은 이유로 강제 오버라이드.
+  # .env의 REDIS_HOST=redis는 docker network DNS 이름이라 호스트 bootRun에서 풀리지 않음.
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
   # Hikari 커넥션 풀: 로컬은 동시 호출 거의 없으므로 풀을 작게.
   # leak-detection-threshold: 트랜잭션이 풀에서 N ms 이상 떼어진 채로 있으면 누수 의심 로그. 개발 중 connection 누수 빠르게 잡기.
   # 로컬 bootRun 좀비가 누적돼 Postgres max_connections(100)을 다 잡아먹는 사고 재발 방지용 사이즈 제한.

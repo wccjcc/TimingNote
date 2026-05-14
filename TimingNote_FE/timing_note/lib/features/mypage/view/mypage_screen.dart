@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/features/mypage/model/user_place.dart';
 import 'package:timing_note/features/mypage/service/user_place_service.dart';
@@ -21,13 +22,24 @@ class MyPageScreen extends ConsumerStatefulWidget {
 }
 
 class _MyPageScreenState extends ConsumerState<MyPageScreen> {
-  double _radiusMeter = 300;
+  // 서버 허용 정책과 1:1로 맞춘 반경 단계값입니다.
+  // UI에서 이 목록 외 값이 선택되지 않게 해서, 저장 실패(VALIDATION_ERROR)를 사전에 방지합니다.
+  static const List<int> _allowedRadiusMeters = <int>[
+    50,
+    100,
+    200,
+    300,
+    400,
+    500,
+  ];
+  int _radiusMeter = 300;
   int _savedRadiusMeter = 300;
   bool _locationAlertEnabled = true;
   bool _pushAlertEnabled = true;
 
   bool _isLoadingSettings = true;
   bool _isSavingRadius = false;
+  String _appVersionLabel = '확인 중';
 
   Future<List<UserPlace>> _placesFuture = Future.value(const []);
 
@@ -36,6 +48,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     super.initState();
     _placesFuture = _loadPlaces();
     _loadSettings();
+    _loadAppVersion();
   }
 
   Future<List<UserPlace>> _loadPlaces() {
@@ -49,6 +62,27 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     await _placesFuture;
   }
 
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+
+      // iOS에서는 pubspec.yaml의 version/build-number가
+      // CFBundleShortVersionString/CFBundleVersion으로 반영됩니다.
+      final hasBuildNumber = info.buildNumber.trim().isNotEmpty;
+      setState(() {
+        _appVersionLabel = hasBuildNumber
+            ? 'V${info.version}+${info.buildNumber}'
+            : 'V${info.version}';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _appVersionLabel = '확인 불가';
+      });
+    }
+  }
+
   Future<void> _loadSettings() async {
     try {
       final settings = await ref
@@ -59,8 +93,11 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       setState(() {
         _locationAlertEnabled = settings.locationAlertEnabled;
         _pushAlertEnabled = settings.pushAlertEnabled;
-        _radiusMeter = settings.radiusM.toDouble();
-        _savedRadiusMeter = settings.radiusM;
+        // 과거 버전 값(예: 150, 700)이 남아 있을 수 있으므로,
+        // 가장 가까운 허용 단계로 스냅해 UI/저장 정책을 일치시킵니다.
+        final normalizedRadius = _normalizeRadius(settings.radiusM);
+        _radiusMeter = normalizedRadius;
+        _savedRadiusMeter = normalizedRadius;
         _isLoadingSettings = false;
       });
     } catch (_) {
@@ -120,8 +157,23 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     }
   }
 
+  int _normalizeRadius(int radiusM) {
+    int closest = _allowedRadiusMeters.first;
+    int minDiff = (radiusM - closest).abs();
+    for (final candidate in _allowedRadiusMeters) {
+      final diff = (radiusM - candidate).abs();
+      if (diff < minDiff) {
+        closest = candidate;
+        minDiff = diff;
+      }
+    }
+    return closest;
+  }
+
   Future<void> _saveRadiusOnChangeEnd(double value) async {
-    final newRadius = value.round();
+    // 슬라이더는 인덱스(0~5)를 움직이고, 실제 저장값은 허용 반경 목록에서 꺼냅니다.
+    final index = value.round().clamp(0, _allowedRadiusMeters.length - 1);
+    final newRadius = _allowedRadiusMeters[index];
     if (newRadius == _savedRadiusMeter || _isSavingRadius) {
       return;
     }
@@ -136,8 +188,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
           .updateSettings(radiusM: newRadius);
       if (!mounted) return;
       setState(() {
-        _radiusMeter = updated.radiusM.toDouble();
-        _savedRadiusMeter = updated.radiusM;
+        final normalizedRadius = _normalizeRadius(updated.radiusM);
+        _radiusMeter = normalizedRadius;
+        _savedRadiusMeter = normalizedRadius;
         _isSavingRadius = false;
       });
       // 서버에 저장된 새 반경을 즉시 iOS/Android geofence 등록값으로 반영한다.
@@ -146,7 +199,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _radiusMeter = _savedRadiusMeter.toDouble();
+        _radiusMeter = _savedRadiusMeter;
         _isSavingRadius = false;
       });
       SpaceToast.show(
@@ -256,9 +309,8 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
   }
 
   Widget _buildRadiusSection() {
-    final radiusText = _radiusMeter >= 1000
-        ? '${(_radiusMeter / 1000).toStringAsFixed(1)}km'
-        : '${_radiusMeter.round()}m';
+    final radiusText = '${_radiusMeter}m';
+    final sliderIndex = _allowedRadiusMeters.indexOf(_radiusMeter).toDouble();
 
     return _SettingGroup(
       title: 'Radar Radius',
@@ -297,11 +349,18 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
                 trackHeight: 8,
               ),
               child: Slider(
-                value: _radiusMeter,
-                min: 100,
-                max: 1000,
-                divisions: 9,
-                onChanged: (value) => setState(() => _radiusMeter = value),
+                value: sliderIndex,
+                min: 0,
+                max: (_allowedRadiusMeters.length - 1).toDouble(),
+                divisions: _allowedRadiusMeters.length - 1,
+                onChanged: (value) {
+                  // 드래그 중에도 허용 단계값으로 즉시 스냅해서 표시값과 저장값 후보를 일치시킵니다.
+                  final index = value.round().clamp(
+                    0,
+                    _allowedRadiusMeters.length - 1,
+                  );
+                  setState(() => _radiusMeter = _allowedRadiusMeters[index]);
+                },
                 onChangeEnd: _saveRadiusOnChangeEnd,
               ),
             ),
@@ -310,9 +369,9 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _RangeCaption('100m (MIN)'),
-                  _RangeCaption('500m'),
-                  _RangeCaption('1.0km (MAX)'),
+                  _RangeCaption('50m (MIN)'),
+                  _RangeCaption('300m'),
+                  _RangeCaption('500m (MAX)'),
                 ],
               ),
             ),
@@ -328,8 +387,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       child: FutureBuilder<List<UserPlace>>(
         future: _placesFuture,
         builder: (context, snapshot) {
-          final isLoading =
-              snapshot.connectionState == ConnectionState.waiting;
+          final isLoading = snapshot.connectionState == ConnectionState.waiting;
           final count = snapshot.data?.length ?? 0;
           return _MyPlacesEntryTile(
             count: count,
@@ -352,10 +410,10 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     return _SettingGroup(
       title: 'System Intel',
       child: Column(
-        children: const [
-          _SimpleActionTile(label: '앱 버전 업데이트 안내'),
-          Divider(height: 1, color: Color(0x22A78BFA)),
-          _VersionTile(label: '현재 앱 버전', value: 'V1.0.0-PROXIMA'),
+        children: [
+          const _SimpleActionTile(label: '앱 버전 업데이트 안내'),
+          const Divider(height: 1, color: Color(0x22A78BFA)),
+          _VersionTile(label: '현재 앱 버전', value: _appVersionLabel),
         ],
       ),
     );

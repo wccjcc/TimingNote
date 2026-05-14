@@ -196,7 +196,9 @@ class GeofenceRuntime {
   Future<void> _handleTransition(
     GeofenceTransitionEvent transitionEvent,
   ) async {
-    if (transitionEvent.transition != GeofenceTransitionType.enter) {
+    if (transitionEvent.transition ==
+        GeofenceTransitionType.significantChange) {
+      await _handleSignificantLocationChange(transitionEvent);
       return;
     }
 
@@ -210,9 +212,15 @@ class GeofenceRuntime {
 
     try {
       final sent = await _notificationService.sendGeofenceNotification(slotId);
-      _logger.i('[GEOFENCE_NOTI_REQUESTED] slotId=$slotId sent=$sent');
+      _logger.i(
+        '[GEOFENCE_NOTI_REQUESTED] '
+        'slotId=$slotId transition=${transitionEvent.transition.name} sent=$sent',
+      );
     } catch (e) {
-      _logger.e('[GEOFENCE_NOTI_FAILED] slotId=$slotId error=$e');
+      _logger.e(
+        '[GEOFENCE_NOTI_FAILED] '
+        'slotId=$slotId transition=${transitionEvent.transition.name} error=$e',
+      );
     }
   }
 
@@ -221,6 +229,30 @@ class GeofenceRuntime {
       return null;
     }
     return int.tryParse(geofenceId.substring(5));
+  }
+
+  /// iOS significant-change 이벤트를 받아 geofence 슬롯 재계산을 요청합니다.
+  ///
+  /// 이 경로는 ENTER/EXIT 알림 발사와 목적이 다르므로,
+  /// slotId 파싱 없이 위치 좌표 기반 재계산 API만 호출합니다.
+  Future<void> _handleSignificantLocationChange(
+    GeofenceTransitionEvent transitionEvent,
+  ) async {
+    try {
+      await _notificationService.requestGeofenceRecalculation(
+        latitude: transitionEvent.latitude,
+        longitude: transitionEvent.longitude,
+        occurredAt: transitionEvent.occurredAt,
+        course: transitionEvent.course,
+      );
+      _logger.i(
+        '[GEOFENCE_RECALCULATE_REQUESTED] '
+        'source=significant_change lat=${transitionEvent.latitude} '
+        'lng=${transitionEvent.longitude}',
+      );
+    } catch (e) {
+      _logger.w('[GEOFENCE_RECALCULATE_FAILED] source=significant_change $e');
+    }
   }
 }
 

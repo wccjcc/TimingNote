@@ -541,6 +541,10 @@ public class TodoServiceImpl implements TodoService {
     /**
      * GENERIC 후보 장소를 Kakao에서 검색해 todo_candidate_places에 저장.
      * 좌표 없으면 스킵.
+     *
+     * <p>2026-05-13 통일: 등록 흐름(AI)과 동일한 {@link PlaceService#searchAndStoreAll}을 사용한다
+     * (좌표만, radius/sort 미지정, Redis 캐시 경유). 과거 {@code resolveGenericCandidates}는
+     * radius=3km/sort=distance를 강제해 등록·재검색 정책이 달랐다.
      */
     private void resolveAndSaveGenericCandidates(Todo todo, String placeText,
                                                   Double latitude, Double longitude) {
@@ -549,7 +553,8 @@ public class TodoServiceImpl implements TodoService {
             return;
         }
 
-        List<Place> candidates = placeService.resolveGenericCandidates(placeText, latitude, longitude);
+        PlaceService.SearchResult searchResult = placeService.searchAndStoreAll(placeText, latitude, longitude);
+        List<Place> candidates = searchResult.storedPlaces();
         if (candidates.isEmpty()) {
             log.info("[Todo/Generic] 후보 없음: todoId={} placeText='{}'", todo.getId(), placeText);
             return;

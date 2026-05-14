@@ -301,17 +301,67 @@ public class NotificationServiceImpl implements NotificationService {
         LocalDate today = now.toLocalDate();
         LocalTime currentTime = now.toLocalTime();
         return switch (type) {
-            case DATE -> condition.getStartDate() == null || !today.isBefore(condition.getStartDate());
-            case DATE_RANGE -> isWithinDateRange(today, condition.getStartDate(), condition.getEndDate());
-            case WEEK -> matchesWeekBitmask(today.getDayOfWeek(), condition.getDaysOfWeek());
+            case DATETIME -> matchesDateAndTime(condition, today, currentTime, false);
+            case DATE -> matchesDateAndTime(condition, today, currentTime, false);
+            case DATE_RANGE -> matchesDateAndTime(condition, today, currentTime, true);
+            case WEEK -> matchesWeekAndTime(condition, today.getDayOfWeek(), currentTime);
             case TIME_RANGE -> isWithinTimeRange(currentTime, condition.getStartTime(), condition.getEndTime());
             default -> true;
         };
     }
 
-    private boolean isWithinDateRange(LocalDate target, LocalDate start, LocalDate end) {
-        if (start != null && target.isBefore(start)) return false;
-        return end == null || !target.isAfter(end);
+    private boolean matchesWeekAndTime(TodoTimeCondition condition, DayOfWeek dayOfWeek, LocalTime currentTime) {
+        if (!matchesWeekBitmask(dayOfWeek, condition.getDaysOfWeek())) {
+            return false;
+        }
+        return matchesTimeWindow(currentTime, condition.getStartTime(), condition.getEndTime());
+    }
+
+    private boolean matchesDateAndTime(
+            TodoTimeCondition condition,
+            LocalDate today,
+            LocalTime currentTime,
+            boolean useDateRange
+    ) {
+        if (!matchesDateWindow(condition, today, useDateRange)) {
+            return false;
+        }
+        return matchesTimeWindow(currentTime, condition.getStartTime(), condition.getEndTime());
+    }
+
+    private boolean matchesDateWindow(TodoTimeCondition condition, LocalDate today, boolean useDateRange) {
+        LocalDate startDate = condition.getStartDate();
+        if (startDate == null) {
+            return true;
+        }
+
+        if (!useDateRange) {
+            return today.isEqual(startDate);
+        }
+
+        LocalDate endDate = condition.getEndDate();
+        if (today.isBefore(startDate)) {
+            return false;
+        }
+        return endDate == null || !today.isAfter(endDate);
+    }
+
+    private boolean matchesTimeWindow(LocalTime target, LocalTime start, LocalTime end) {
+        // 시간이 비어 있으면 하루종일 허용.
+        if (start == null && end == null) {
+            return true;
+        }
+        if (start != null && end != null) {
+            if (end.isBefore(start)) {
+                // 자정 넘김 구간 허용 (예: 22:00~02:00).
+                return !target.isBefore(start) || !target.isAfter(end);
+            }
+            return !target.isBefore(start) && !target.isAfter(end);
+        }
+        if (start != null) {
+            return !target.isBefore(start);
+        }
+        return !target.isAfter(end);
     }
 
     private boolean matchesWeekBitmask(DayOfWeek dayOfWeek, Short mask) {
