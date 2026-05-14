@@ -23,18 +23,22 @@ class CandidateMarker {
     required this.latitude,
     required this.longitude,
     required this.active,
+    this.name,
   });
 
   final String id;
   final double latitude;
   final double longitude;
   final bool active;
+  /// 마커 클릭 시 마커 위에 띄울 장소명. null이면 라벨 미표시.
+  final String? name;
 
   Map<String, Object> toMap() => {
         'id': id,
         'latitude': latitude,
         'longitude': longitude,
         'active': active,
+        if (name != null) 'name': name!,
       };
 }
 
