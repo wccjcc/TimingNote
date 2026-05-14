@@ -25,8 +25,8 @@ class MyPageScreen extends ConsumerStatefulWidget {
 
 class _MyPageScreenState extends ConsumerState<MyPageScreen>
     with WidgetsBindingObserver {
-  // 서버 허용 정책과 1:1로 맞춘 반경 단계값입니다.
-  // UI에서 이 목록 외 값이 선택되지 않게 해서, 저장 실패(VALIDATION_ERROR)를 사전에 방지합니다.
+  // 반경은 서버 정책과 1:1로 맞춘 고정 선택값만 사용한다.
+  // UI는 슬라이더를 쓰되 저장 시 허용 목록 값만 서버로 보낸다.
   static const List<int> _allowedRadiusMeters = <int>[
     50,
     100,
@@ -87,8 +87,8 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen>
       setState(() {
         _locationAlertEnabled = true;
         _pushAlertEnabled = true;
-        // 과거 버전 값(예: 150, 700)이 남아 있을 수 있으므로,
-        // 가장 가까운 허용 단계로 스냅해 UI/저장 정책을 일치시킵니다.
+        // 서버에 기존 값(예: 150, 700)이 있더라도 가장 가까운 허용 반경으로 보정한다.
+        // 이렇게 하면 UI/서버 반경 정책을 항상 같은 집합으로 유지할 수 있다.
         final normalizedRadius = _normalizeRadius(settings.radiusM);
         _radiusMeter = normalizedRadius;
         _savedRadiusMeter = normalizedRadius;
@@ -205,7 +205,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen>
   }
 
   Future<void> _saveRadiusOnChangeEnd(double value) async {
-    // 슬라이더는 인덱스(0~5)를 움직이고, 실제 저장값은 허용 반경 목록에서 꺼냅니다.
+    // 슬라이더 인덱스(0~5)를 허용 반경 목록으로 매핑한다.
     final index = value.round().clamp(0, _allowedRadiusMeters.length - 1);
     final newRadius = _allowedRadiusMeters[index];
     if (newRadius == _savedRadiusMeter || _isSavingRadius) {
@@ -227,8 +227,8 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen>
         _savedRadiusMeter = normalizedRadius;
         _isSavingRadius = false;
       });
-      // 서버에 저장된 새 반경을 즉시 iOS/Android geofence 등록값으로 반영한다.
-      // syncSlots()는 최신 slot.radiusM을 다시 받아 네이티브 감시 영역을 재등록한다.
+      // 반경이 바뀌면 등록된 iOS/Android geofence를 즉시 재동기화한다.
+      // syncSlots()가 각 slot.radiusM 값을 반영해 재등록한다.
       await ref.read(geofenceRuntimeProvider).syncSlots();
     } catch (_) {
       if (!mounted) return;
