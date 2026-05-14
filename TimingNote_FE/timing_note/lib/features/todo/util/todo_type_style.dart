@@ -9,11 +9,15 @@ import 'package:flutter/material.dart';
 import '../../../shared/theme/colors.dart';
 import '../model/todo.dart';
 
+/// 장소 타입별 표시 색.
+/// - SPECIFIC: 보라 (메인 브랜드)
+/// - ALIAS: 노랑 (사용자 등록 "내 장소", 친근 톤. 기존 초록은 success/완료와 의미 충돌이라 변경)
+/// - GENERIC: cyan (시간성/카테고리 추상)
 Color todoTypeColor(String? type) {
   return switch (type) {
     TodoType.specific => SpaceColors.neonPurple,
-    TodoType.generic => Colors.cyanAccent,
-    TodoType.alias => SpaceColors.success,
+    TodoType.generic => SpaceColors.neonCyan,
+    TodoType.alias => SpaceColors.neonYellow,
     _ => SpaceColors.white50,
   };
 }
