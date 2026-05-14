@@ -49,6 +49,11 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   late int _todoId;
   Timer? _pollTimer;
 
+  /// 메서드 더블 탭 가드 — 진행 중인 액션이 있으면 두 번째 호출 무시.
+  /// state.isLoading은 일부 메서드만 set하고 UI 표시도 일부에만 노출되어 일관성 없음.
+  /// 별도 로컬 플래그로 모든 mutating 액션을 일괄 보호.
+  bool _inflight = false;
+
   @override
   TodoDetailState build(int arg) {
     _todoId = arg;
@@ -109,8 +114,13 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
 
   /// 알림 토글 (낙관적 업데이트) — 후보 재계산 트리거이므로 GPS 4종 동봉
   Future<void> toggleAlert() async {
+    if (_inflight) return;
+    _inflight = true;
     final current = state.detail;
-    if (current == null) return;
+    if (current == null) {
+      _inflight = false;
+      return;
+    }
 
     final toggled = current.copyWith(alertEnabled: !current.alertEnabled);
     state = state.copyWith(detail: toggled);
@@ -129,13 +139,20 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (_) {
       state = state.copyWith(detail: current);
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 완료 상태 토글 (낙관적 업데이트) — monitoring 쿼리 필터 변경으로 슬롯 재계산
   Future<void> toggleStatus() async {
+    if (_inflight) return;
+    _inflight = true;
     final current = state.detail;
-    if (current == null) return;
+    if (current == null) {
+      _inflight = false;
+      return;
+    }
 
     final newStatus = current.isDone ? TodoStatus.active : TodoStatus.done;
     final toggled = current.copyWith(
@@ -158,11 +175,15 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (_) {
       state = state.copyWith(detail: current);
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 소프트 삭제 — 슬롯 비활성화 트리거이므로 GPS 4종 동봉
   Future<bool> deleteTodo() async {
+    if (_inflight) return false;
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       // 삭제 → 슬롯 정리 재계산. forceFresh.
@@ -180,11 +201,15 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
       return false;
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 장소 지정 — ALIAS (내 장소) 선택. GPS 4종은 호출 시점에 가져옴.
   Future<void> setAliasPlace({required int userPlaceId}) async {
+    if (_inflight) return;
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       // 장소 지정 → BE 후보 재검색 + 슬롯 재계산. forceFresh.
@@ -201,11 +226,15 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 장소 지정 — SPECIFIC (외부 장소). GPS 4종은 호출 시점에 가져옴.
   Future<void> setExternalPlace({required SelectedExternalPlace place}) async {
+    if (_inflight) return;
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       // SPECIFIC 장소 설정 → BE 후보 재검색 + 슬롯 재계산. forceFresh.
@@ -222,12 +251,15 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
+    } finally {
+      _inflight = false;
     }
   }
 
   // ── 시간 조건 CRUD ─────────────────────────────────────────────
   // BE PATCH /api/v1/todos/{id}는 timeConditions 배열을 받으면 deleteAll + saveAll
   // (전체 교체) 한다. 클라에서도 새 배열을 만들어 통째 전송하는 게 깔끔.
+  // 가드는 _updateTimeConditions에 모음 — 시간 추가/수정/삭제가 모두 그쪽으로 수렴.
 
   Future<void> addTimeCondition(TimeConditionRequest tc) async {
     final current = state.detail;
@@ -262,6 +294,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
   }
 
   Future<void> _updateTimeConditions(List<TimeConditionRequest> conditions) async {
+    if (_inflight) return;
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final updated = await _service.update(
@@ -272,17 +306,21 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 할 일 본문 인라인 편집 — 상세 페이지의 연필 버튼에서 호출.
   /// content만 변경하므로 슬롯 재계산이 필요 없어 GPS 없이 전송.
   Future<void> updateContent({required String content}) async {
+    if (_inflight) return;
     final current = state.detail;
     if (current == null) return;
     final trimmed = content.trim();
     if (trimmed.isEmpty || trimmed == current.content) return;
 
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final updated = await _service.update(_todoId, content: trimmed);
@@ -292,12 +330,16 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 키워드로 포괄 장소 등록 — `place_search_screen`의 "포괄 장소로 등록" 버튼에서 호출.
   /// BE PATCH /api/v1/todos/{id}에 placeText만 보내면 BE가 카카오 재검색 + 후보 풀 재구성 + GENERIC 전환.
   Future<void> setGenericKeyword({required String keyword}) async {
+    if (_inflight) return;
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
@@ -313,11 +355,15 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
+    } finally {
+      _inflight = false;
     }
   }
 
   /// 장소 연결 해제
   Future<void> removePlace() async {
+    if (_inflight) return;
+    _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final updated = await _service.removePlace(_todoId);
@@ -325,6 +371,8 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
+    } finally {
+      _inflight = false;
     }
   }
 }

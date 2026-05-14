@@ -76,6 +76,10 @@ class TodoListNotifier extends Notifier<TodoListState> {
   late TodoService _service;
   Timer? _pendingPollTimer;
 
+  /// 진행 중인 항목 단위 액션(토글/삭제) — 같은 todoId 더블 탭 시 두 번째 호출을 차단.
+  /// state로 두면 매 변경마다 rebuild라 부담 → 로컬 Set으로 가벼운 가드.
+  final Set<int> _inflightItemActions = <int>{};
+
   @override
   TodoListState build() {
     _service = ref.read(todoServiceProvider);
@@ -213,8 +217,14 @@ class TodoListNotifier extends Notifier<TodoListState> {
 
   /// 알림 토글 (낙관적 업데이트) — 후보 재계산 트리거이므로 GPS 좌표 동봉
   Future<void> toggleAlert(int todoId) async {
+    // 더블 탭 가드 — 같은 todo가 진행 중이면 두 번째 호출 무시.
+    // BE updateAlert 중복 호출 시 슬롯 재계산이 race 가능.
+    if (!_inflightItemActions.add(todoId)) return;
     final index = state.items.indexWhere((e) => e.id == todoId);
-    if (index == -1) return;
+    if (index == -1) {
+      _inflightItemActions.remove(todoId);
+      return;
+    }
 
     final original = state.items[index];
     final toggled = original.copyWith(alertEnabled: !original.alertEnabled);
@@ -233,13 +243,19 @@ class TodoListNotifier extends Notifier<TodoListState> {
       );
     } catch (_) {
       _updateItem(index, original);
+    } finally {
+      _inflightItemActions.remove(todoId);
     }
   }
 
   /// 완료 상태 토글 (낙관적 업데이트) — monitoring 쿼리 필터 변경으로 슬롯 재계산 트리거
   Future<void> toggleStatus(int todoId) async {
+    if (!_inflightItemActions.add(todoId)) return;
     final index = state.items.indexWhere((e) => e.id == todoId);
-    if (index == -1) return;
+    if (index == -1) {
+      _inflightItemActions.remove(todoId);
+      return;
+    }
 
     final original = state.items[index];
     final newStatus = original.isDone ? TodoStatus.active : TodoStatus.done;
@@ -262,13 +278,19 @@ class TodoListNotifier extends Notifier<TodoListState> {
       );
     } catch (_) {
       _updateItem(index, original);
+    } finally {
+      _inflightItemActions.remove(todoId);
     }
   }
 
   /// 소프트 삭제 — 슬롯 비활성화를 위한 재계산 트리거이므로 GPS 4종 동봉
   Future<void> deleteTodo(int todoId) async {
+    if (!_inflightItemActions.add(todoId)) return;
     final index = state.items.indexWhere((e) => e.id == todoId);
-    if (index == -1) return;
+    if (index == -1) {
+      _inflightItemActions.remove(todoId);
+      return;
+    }
 
     final removed = state.items[index];
     final updated = [...state.items]..removeAt(index);
@@ -288,6 +310,8 @@ class TodoListNotifier extends Notifier<TodoListState> {
       // 실패 시 원래 위치에 복원
       final restored = [...state.items]..insert(index, removed);
       state = state.copyWith(items: restored);
+    } finally {
+      _inflightItemActions.remove(todoId);
     }
   }
 
