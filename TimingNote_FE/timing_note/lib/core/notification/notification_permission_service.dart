@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// 알림 권한 확인/요청 서비스
@@ -30,3 +31,8 @@ class NotificationPermissionService {
     return openAppSettings();
   }
 }
+
+final notificationPermissionServiceProvider =
+    Provider<NotificationPermissionService>((ref) {
+      return NotificationPermissionService();
+    });

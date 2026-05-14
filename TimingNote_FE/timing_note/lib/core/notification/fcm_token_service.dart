@@ -14,11 +14,6 @@ import 'notification_permission_service.dart';
 
 const String _lastSyncedFcmTokenKey = 'last_synced_fcm_token';
 
-final notificationPermissionServiceProvider =
-    Provider<NotificationPermissionService>((ref) {
-  return NotificationPermissionService();
-});
-
 final fcmTokenServiceProvider = Provider<FcmTokenService>((ref) {
   return FcmTokenService(
     apiClient: ref.read(apiClientProvider),
