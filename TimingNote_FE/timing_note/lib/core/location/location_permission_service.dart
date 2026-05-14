@@ -42,4 +42,9 @@ class LocationPermissionService {
     final status = await checkAlways();
     return status.isGranted;
   }
+
+  /// 앱 설정 화면으로 이동합니다.
+  Future<bool> openSettings() async {
+    return openAppSettings();
+  }
 }

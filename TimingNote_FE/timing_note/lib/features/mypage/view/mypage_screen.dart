@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
+import 'package:timing_note/core/location/location_permission_service.dart';
+import 'package:timing_note/core/notification/notification_permission_service.dart';
 import 'package:timing_note/features/mypage/model/user_place.dart';
 import 'package:timing_note/features/mypage/service/user_place_service.dart';
 import 'package:timing_note/features/mypage/service/user_settings_service.dart';
@@ -20,7 +23,8 @@ class MyPageScreen extends ConsumerStatefulWidget {
   ConsumerState<MyPageScreen> createState() => _MyPageScreenState();
 }
 
-class _MyPageScreenState extends ConsumerState<MyPageScreen> {
+class _MyPageScreenState extends ConsumerState<MyPageScreen>
+    with WidgetsBindingObserver {
   // 서버 허용 정책과 1:1로 맞춘 반경 단계값입니다.
   // UI에서 이 목록 외 값이 선택되지 않게 해서, 저장 실패(VALIDATION_ERROR)를 사전에 방지합니다.
   static const List<int> _allowedRadiusMeters = <int>[
@@ -44,8 +48,22 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _placesFuture = _loadPlaces();
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshPermissionToggleState();
+    }
   }
 
   Future<List<UserPlace>> _loadPlaces() {
@@ -67,8 +85,8 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       if (!mounted) return;
 
       setState(() {
-        _locationAlertEnabled = settings.locationAlertEnabled;
-        _pushAlertEnabled = settings.pushAlertEnabled;
+        _locationAlertEnabled = true;
+        _pushAlertEnabled = true;
         // 과거 버전 값(예: 150, 700)이 남아 있을 수 있으므로,
         // 가장 가까운 허용 단계로 스냅해 UI/저장 정책을 일치시킵니다.
         final normalizedRadius = _normalizeRadius(settings.radiusM);
@@ -76,6 +94,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
         _savedRadiusMeter = normalizedRadius;
         _isLoadingSettings = false;
       });
+      await _refreshPermissionToggleState();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -91,45 +110,84 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   Future<void> _toggleLocationAlert() async {
     final nextValue = !_locationAlertEnabled;
-    setState(() => _locationAlertEnabled = nextValue);
-    try {
-      final updated = await ref
-          .read(userSettingsServiceProvider)
-          .updateSettings(locationAlertEnabled: nextValue);
+    if (!nextValue) {
       if (!mounted) return;
-      setState(() {
-        _locationAlertEnabled = updated.locationAlertEnabled;
-      });
-    } catch (_) {
+      setState(() => _locationAlertEnabled = false);
+      return;
+    }
+    if (kIsWeb) {
       if (!mounted) return;
-      setState(() => _locationAlertEnabled = !nextValue);
       SpaceToast.show(
         context,
-        message: '위치 알림 설정 저장에 실패했어요',
-        kind: ToastKind.error,
+        message: 'Web cannot open app settings.',
+        kind: ToastKind.info,
       );
+      return;
     }
+    final permissionService = ref.read(locationPermissionServiceProvider);
+    final isAlwaysGranted = await permissionService.isAlwaysGranted();
+    if (!isAlwaysGranted) {
+      await permissionService.openSettings();
+      if (!mounted) return;
+      SpaceToast.show(
+        context,
+        message: 'Please enable Always location permission in iOS Settings.',
+        kind: ToastKind.info,
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _locationAlertEnabled = true);
   }
 
   Future<void> _togglePushAlert() async {
     final nextValue = !_pushAlertEnabled;
-    setState(() => _pushAlertEnabled = nextValue);
-    try {
-      final updated = await ref
-          .read(userSettingsServiceProvider)
-          .updateSettings(pushAlertEnabled: nextValue);
+    if (!nextValue) {
       if (!mounted) return;
-      setState(() {
-        _pushAlertEnabled = updated.pushAlertEnabled;
-      });
-    } catch (_) {
+      setState(() => _pushAlertEnabled = false);
+      return;
+    }
+    if (kIsWeb) {
       if (!mounted) return;
-      setState(() => _pushAlertEnabled = !nextValue);
       SpaceToast.show(
         context,
-        message: '푸시 알림 설정 저장에 실패했어요',
-        kind: ToastKind.error,
+        message: 'Web cannot open app settings.',
+        kind: ToastKind.info,
       );
+      return;
+    }
+    final permissionService = ref.read(notificationPermissionServiceProvider);
+    final isGranted = await permissionService.isGranted();
+    if (!isGranted) {
+      await permissionService.openSettings();
+      if (!mounted) return;
+      SpaceToast.show(
+        context,
+        message: 'Please enable Notification permission in iOS Settings.',
+        kind: ToastKind.info,
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _pushAlertEnabled = true);
+  }
+
+  Future<void> _refreshPermissionToggleState() async {
+    if (!mounted || _isLoadingSettings || kIsWeb) return;
+    try {
+      final locationPermission = ref.read(locationPermissionServiceProvider);
+      final notificationPermission = ref.read(
+        notificationPermissionServiceProvider,
+      );
+      final canUseLocationAlert = await locationPermission.isAlwaysGranted();
+      final canUsePushAlert = await notificationPermission.isGranted();
+      if (!mounted) return;
+      setState(() {
+        _locationAlertEnabled = canUseLocationAlert;
+        _pushAlertEnabled = canUsePushAlert;
+      });
+    } catch (_) {
+      // best effort
     }
   }
 
@@ -262,7 +320,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
             iconBackground: const Color(0x22A78BFA),
             title: '위치 알림 상태',
             subtitle: '지오펜스 동작을 위한 위치 권한',
-            badgeText: _locationAlertEnabled ? 'ONLINE' : 'OFFLINE',
+            badgeText: _locationAlertEnabled ? 'ON' : 'OFF',
             badgeColor: _locationAlertEnabled
                 ? SpaceColors.neonPurple
                 : Colors.grey,
@@ -275,7 +333,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
             iconBackground: const Color(0x22F472B6),
             title: '푸시 알림 상태',
             subtitle: '시스템 알림 수신 권한',
-            badgeText: _pushAlertEnabled ? 'ONLINE' : 'OFFLINE',
+            badgeText: _pushAlertEnabled ? 'ON' : 'OFF',
             badgeColor: _pushAlertEnabled ? SpaceColors.neonPink : Colors.grey,
             onTap: _isLoadingSettings ? null : _togglePushAlert,
           ),
