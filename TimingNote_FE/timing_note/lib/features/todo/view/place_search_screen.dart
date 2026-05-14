@@ -508,12 +508,27 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _SearchSheet(
+      builder: (sheetContext) => _SearchSheet(
         initialKeyword:
             widget.initialKeyword ?? _selectedFromSearch?.placeName ?? '',
         currentLat: _center.latitude,
         currentLng: _center.longitude,
         placeSearchService: ref.read(placeSearchServiceProvider),
+        // alias 모드: 별칭 등록만 의미가 있으므로 GENERIC 버튼은 숨김.
+        // todo 모드: 검색 시트를 닫고 PlaceSearchScreen 자체를 SelectedGenericKeyword로 pop.
+        onPickGenericKeyword: widget.mode == PlaceSearchMode.todo
+            ? (keyword) {
+                Navigator.of(sheetContext).pop();
+                if (!mounted) return;
+                context.pop(
+                  SelectedGenericKeyword(
+                    keyword: keyword,
+                    userLatitude: _userLatitude,
+                    userLongitude: _userLongitude,
+                  ),
+                );
+              }
+            : null,
       ),
     ).then((item) {
       if (item != null) _onSearchResultSelected(item);
@@ -749,12 +764,16 @@ class _SearchSheet extends StatefulWidget {
     required this.currentLat,
     required this.currentLng,
     required this.placeSearchService,
+    this.onPickGenericKeyword,
   });
 
   final String initialKeyword;
   final double currentLat;
   final double currentLng;
   final PlaceSearchService placeSearchService;
+  /// 검색 결과 상단의 "포괄 장소로 등록" 버튼 콜백.
+  /// null이면 버튼 미노출 (ALIAS 등록 모드 등 SPECIFIC/GENERIC이 무의미한 경로에서 숨김).
+  final ValueChanged<String>? onPickGenericKeyword;
 
   @override
   State<_SearchSheet> createState() => _SearchSheetState();
@@ -1062,6 +1081,11 @@ class _SearchSheetState extends State<_SearchSheet> {
   }
 
   Widget _buildResults() {
+    final query = _controller.text.trim();
+    final showGenericButton =
+        widget.onPickGenericKeyword != null && query.isNotEmpty;
+    final showCountHeader = query.isNotEmpty && !_isSearching;
+
     return Column(
       children: [
         // 로딩
@@ -1072,6 +1096,37 @@ class _SearchSheetState extends State<_SearchSheet> {
               backgroundColor: Colors.white10,
               color: _kPurpleAccent,
               minHeight: 2,
+            ),
+          ),
+
+        // 검색 결과 개수 헤더 — 사용자에게 매칭 규모를 알려 SPECIFIC/GENERIC 선택 판단을 돕는다.
+        // (예: 12개 매칭이면 "다이소 강남점 하나" vs "다이소 어디든" 의사결정에 신호)
+        if (showCountHeader)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _results.isEmpty
+                    ? '"$query" 검색 결과 없음'
+                    : '"$query" 검색 결과 ${_results.length}개',
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+
+        // 검색어 자체를 GENERIC 키워드로 등록하는 액션 — 결과 카드(SPECIFIC)와 시각 분리.
+        // 의미: "결과 중 하나를 선택"(SPECIFIC) vs "이 검색어 자체를 포괄로 등록"(GENERIC).
+        if (showGenericButton)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: _GenericRegisterButton(
+              keyword: query,
+              onTap: () => widget.onPickGenericKeyword!(query),
             ),
           ),
 
@@ -1088,6 +1143,52 @@ class _SearchSheetState extends State<_SearchSheet> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 검색어 자체를 포괄 장소로 등록하는 버튼.
+/// 결과 카드 위에 명시적 영역으로 배치 — "결과 선택(SPECIFIC) vs 검색어 등록(GENERIC)" 의도 분리.
+class _GenericRegisterButton extends StatelessWidget {
+  const _GenericRegisterButton({required this.keyword, required this.onTap});
+
+  final String keyword;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: _kPurpleAccent.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _kPurpleAccent.withOpacity(0.4)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.public, color: _kPurpleAccent, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '"$keyword" 검색어로 포괄 장소 등록',
+                  style: const TextStyle(
+                    color: _kPurpleAccent,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: _kPurpleAccent, size: 16),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

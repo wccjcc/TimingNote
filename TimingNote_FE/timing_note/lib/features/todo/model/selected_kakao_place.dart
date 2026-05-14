@@ -1,8 +1,9 @@
 /// PlaceSearchScreen → pop(SelectedPlace) 형태로 결과 반환.
 ///
-/// 두 가지 케이스:
+/// 세 가지 케이스:
 /// - SelectedAliasPlace: 사용자가 등록한 "내 장소"에서 선택 (BE userPlaceId)
-/// - SelectedExternalPlace: 카카오 검색/지도 핀 선택 (BE externalPlace)
+/// - SelectedExternalPlace: 카카오 검색/지도 핀 선택 (BE externalPlace, SPECIFIC)
+/// - SelectedGenericKeyword: 검색 결과 화면에서 키워드 자체를 포괄 장소로 등록 (BE placeText, GENERIC)
 sealed class SelectedPlace {
   const SelectedPlace({
     required this.userLatitude,
@@ -60,6 +61,19 @@ class SelectedExternalPlace extends SelectedPlace {
   final String? categoryGroupCode;
   final String? categoryGroupName;
   final String? placeUrl;
+}
+
+/// 검색 결과 화면에서 "이 검색어로 포괄 장소 등록" 버튼으로 선택된 결과.
+/// BE는 placeText만 받아 카카오 재검색 → 후보 풀 자동 구성 → GENERIC 전환한다.
+class SelectedGenericKeyword extends SelectedPlace {
+  const SelectedGenericKeyword({
+    required this.keyword,
+    super.userLatitude,
+    super.userLongitude,
+  });
+
+  /// 사용자가 검색한 키워드 (예: "다이소", "스타벅스"). BE placeText로 전달.
+  final String keyword;
 }
 
 /// Kakao Local API 키워드 검색 결과 단건 모델.
