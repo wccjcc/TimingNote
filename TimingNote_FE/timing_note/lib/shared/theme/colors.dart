@@ -14,6 +14,8 @@ class SpaceColors {
   static const Color neonMagic = Color(0xFFD8B4FE);
   static const Color neonPink = Color(0xFFF472B6);
   static const Color neonYellow = Color(0xFFFDE68A);
+  // 시간성/실시간 강조 — 시간 조건, GENERIC 후보 마커, 감지중 시그널에 사용
+  static const Color neonCyan = Color(0xFF22D3EE);
 
   // Status & Utility
   static const Color success = Color(0xFF10B981);
