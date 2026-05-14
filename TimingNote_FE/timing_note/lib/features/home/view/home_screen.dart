@@ -180,14 +180,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     slivers: [
                       SliverToBoxAdapter(child: _HomeHeader(unreadCount: unreadCount)),
                       const SliverToBoxAdapter(
-                        child: HomeRecommendSection(),
+                        child: HomeRecommendSection(
+                          currentLocationLabel: 'Current location',
+                        ),
                       ),
                       if (todoListState.isLoading && todoListState.items.isEmpty)
                         const SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple)))
-                      else if (todoListState.items.isEmpty)
-                        const SliverFillRemaining(
-                          child: Center(child: Text('아직 등록된 할 일이 없어요.\n아래에서 첫 번째 기록을 남겨보세요!', textAlign: TextAlign.center, style: TextStyle(color: SpaceColors.white50, height: 1.5))),
-                        )
                       else
                         SliverPadding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
@@ -383,10 +381,8 @@ class _HomeHeader extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [const Icon(Icons.location_on, color: SpaceColors.neonPurple, size: 14), const SizedBox(width: 4), Text('현재 위치: 광주 상무지구', style: TextStyle(color: SpaceColors.neonPurple.withOpacity(0.8), fontSize: 11))]),
-            const SizedBox(height: 8),
             const Text('> 지금 할 수 있어요!', style: TextStyle(color: Colors.white, fontSize: 24, fontFamily: 'Galmuri11', fontWeight: FontWeight.bold, shadows: [Shadow(color: Color(0x7FA78BFA), blurRadius: 10, offset: Offset(0, 4))])),
-          ],
+          ], 
         ),
         _NotificationBadge(
           count: unreadCount,
