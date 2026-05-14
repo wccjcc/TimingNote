@@ -13,7 +13,12 @@ String _formatDistance(double meters) {
 }
 
 class HomeRecommendSection extends StatefulWidget {
-  const HomeRecommendSection({super.key});
+  const HomeRecommendSection({
+    super.key,
+    required this.currentLocationLabel,
+  });
+
+  final String currentLocationLabel;
 
   @override
   State<HomeRecommendSection> createState() => _HomeRecommendSectionState();
@@ -138,6 +143,26 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on,
+                      color: SpaceColors.neonPurple,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.currentLocationLabel,
+                      style: TextStyle(
+                        color: SpaceColors.neonPurple.withOpacity(0.8),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 8),
               SizedBox(
                 height: 320,
