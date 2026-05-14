@@ -69,6 +69,7 @@ class TodoItem {
     required this.status,
     required this.structureStatus,
     required this.alertEnabled,
+    required this.activeSlot,
     required this.createdAt,
     this.category,
     this.resolvedPlaceLabel,
@@ -90,6 +91,9 @@ class TodoItem {
   final double? placeLatitude;
   final double? placeLongitude;
   final bool alertEnabled;
+  /// 현재 geofence_slots에 활성 등록되어 있는지 (= 알림 트리거 후보).
+  /// GENERIC todo의 "감지중만 표시" 필터에 사용.
+  final bool activeSlot;
   final DateTime? completedAt;
   final DateTime createdAt;
   final String? thumbnailUrl;
@@ -111,6 +115,8 @@ class TodoItem {
       placeLatitude: (json['placeLatitude'] as num?)?.toDouble(),
       placeLongitude: (json['placeLongitude'] as num?)?.toDouble(),
       alertEnabled: json['alertEnabled'] as bool,
+      // BE 응답에 없을 때(구버전 호환) false로 fallback. 신 BE는 항상 채움.
+      activeSlot: json['activeSlot'] as bool? ?? false,
       completedAt: json['completedAt'] == null
           ? null
           : DateTime.parse(json['completedAt'] as String),
@@ -138,6 +144,7 @@ class TodoItem {
       placeLatitude: placeLatitude,
       placeLongitude: placeLongitude,
       alertEnabled: alertEnabled ?? this.alertEnabled,
+      activeSlot: activeSlot,
       completedAt: completedAt ?? this.completedAt,
       createdAt: createdAt,
       thumbnailUrl: clearThumbnailUrl ? null : (thumbnailUrl ?? this.thumbnailUrl),

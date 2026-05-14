@@ -14,9 +14,11 @@ class LatLng {
   final double longitude;
 }
 
-/// 디버깅용 후보 장소 마커 데이터.
+/// 후보 장소/지도 탭 화면의 todo 마커 데이터.
 ///
-/// 활성 슬롯(`active: true`)은 강조 색으로, 비활성은 디머된 색으로 표시된다.
+/// 활성(`active: true`)은 강조 색으로, 비활성은 디머된 색으로 표시된다.
+/// `placeType`을 지정하면 Swift 측이 타입별 색(SPECIFIC 보라/ALIAS 노랑/GENERIC cyan)으로
+/// 핀을 그린다. null이면 기존 default 색(초록/회색) 그대로.
 class CandidateMarker {
   const CandidateMarker({
     required this.id,
@@ -24,6 +26,7 @@ class CandidateMarker {
     required this.longitude,
     required this.active,
     this.name,
+    this.placeType,
   });
 
   final String id;
@@ -33,12 +36,17 @@ class CandidateMarker {
   /// 마커 클릭 시 마커 위에 띄울 장소명. null이면 라벨 미표시.
   final String? name;
 
+  /// 'SPECIFIC' | 'ALIAS' | 'GENERIC' (TodoType 상수와 동일).
+  /// null이면 Swift 측 default 색 적용 (상세 페이지 후보 마커 등 호환).
+  final String? placeType;
+
   Map<String, Object> toMap() => {
         'id': id,
         'latitude': latitude,
         'longitude': longitude,
         'active': active,
         if (name != null) 'name': name!,
+        if (placeType != null) 'placeType': placeType!,
       };
 }
 
@@ -64,6 +72,15 @@ class NativeKakaoMapController {
   Future<void> setMarkers(List<CandidateMarker> markers) {
     return _channel.invokeMethod<void>('setMarkers', {
       'markers': markers.map((m) => m.toMap()).toList(),
+    });
+  }
+
+  /// 사용자 GPS 위치 마커(흰 코어 + 보라 ring)를 표시. 좌표 변경 시 같은 PoiID로 갱신됨.
+  /// todo 마커와 형태(원 vs 핀) + 색 구분으로 시각적으로 즉시 분리됨.
+  Future<void> setUserLocation(LatLng position) {
+    return _channel.invokeMethod<void>('setUserLocation', {
+      'latitude': position.latitude,
+      'longitude': position.longitude,
     });
   }
 }
