@@ -11,6 +11,7 @@ import '../core/geofence/geofence_runtime.dart';
 import '../core/location/location_permission_service.dart';
 import '../core/location/location_service.dart';
 import '../core/notification/fcm_token_service.dart';
+import '../core/notification/notification_permission_service.dart';
 import '../core/notification/push_action_bridge.dart';
 import '../features/notification/service/notification_service.dart';
 import '../features/notification/widgets/foreground_notification_toast_card.dart';
@@ -108,6 +109,7 @@ class _AppState extends ConsumerState<App>
 
     switch (state) {
       case AppLifecycleState.resumed:
+        await _requestUndeterminedPermissionsOnResume();
         // foreground 복귀 시:
         // 1) 런타임이 꺼져있다면 다시 시작
         // 2) 슬롯 강제 동기화 1회로 background 동안의 상태 차이를 복구
@@ -123,6 +125,49 @@ class _AppState extends ConsumerState<App>
         // SSE 실시간 동기화만 중지합니다.
         await runtime.pauseRealtimeSync();
         break;
+    }
+  }
+
+  Future<void> _requestUndeterminedPermissionsOnResume() async {
+    if (kIsWeb) {
+      return;
+    }
+
+    try {
+      final locationPermissionService = ref.read(
+        locationPermissionServiceProvider,
+      );
+      final whenInUseStatus = await locationPermissionService.checkWhenInUse();
+      if (whenInUseStatus.isDenied) {
+        await locationPermissionService.requestWhenInUse();
+      }
+    } catch (e, st) {
+      _logger.w(
+        '[PERMISSION_RESUME] location prompt skipped',
+        error: e,
+        stackTrace: st,
+      );
+    }
+
+    try {
+      final notificationSettings =
+          await FirebaseMessaging.instance.getNotificationSettings();
+      if (notificationSettings.authorizationStatus ==
+          AuthorizationStatus.notDetermined) {
+        await ref.read(notificationPermissionServiceProvider).request();
+        await FirebaseMessaging.instance.requestPermission(
+          alert: true,
+          badge: true,
+          sound: true,
+          provisional: false,
+        );
+      }
+    } catch (e, st) {
+      _logger.w(
+        '[PERMISSION_RESUME] notification prompt skipped',
+        error: e,
+        stackTrace: st,
+      );
     }
   }
 

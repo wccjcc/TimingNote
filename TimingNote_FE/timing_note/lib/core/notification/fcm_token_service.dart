@@ -96,6 +96,11 @@ class FcmTokenService {
       throw StateError('Firebase Messaging이 초기화되지 않았습니다.');
     }
 
+    final currentSettings = await messaging.getNotificationSettings();
+    if (currentSettings.authorizationStatus != AuthorizationStatus.notDetermined) {
+      return;
+    }
+
     await _permissionService.request();
 
     await messaging.requestPermission(
