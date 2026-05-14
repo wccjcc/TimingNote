@@ -138,24 +138,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 6, 20, 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.radar_rounded, size: 14, color: SpaceColors.neonYellow),
-                    SizedBox(width: 6),
-                    Text(
-                      'SIGNAL DETECTED',
-                      style: TextStyle(
-                        color: SpaceColors.neonPurple,
-                        fontSize: 11,
-                        letterSpacing: 1.1,
-                        fontFamily: 'Galmuri11',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              const SizedBox(height: 8),
               SizedBox(
                 height: 320,
                 child: Center(

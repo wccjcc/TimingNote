@@ -9,7 +9,7 @@ import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
 import '../../../../shared/widgets/neon_button.dart';
-import 'recommend_screen.dart';
+import '../widgets/home_recommend_section.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../../notification/viewmodel/notification_viewmodel.dart';
@@ -179,20 +179,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: CustomScrollView(
                     slivers: [
                       SliverToBoxAdapter(child: _HomeHeader(unreadCount: unreadCount)),
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          child: NeonButton(
-                            label: 'Recommend Screen Test',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const RecommendScreen(),
-                              ),
-                            ),
-                            height: 48,
-                            isPrimary: true,
-                          ),
-                        ),
+                      const SliverToBoxAdapter(
+                        child: HomeRecommendSection(),
                       ),
                       if (todoListState.isLoading && todoListState.items.isEmpty)
                         const SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple)))
