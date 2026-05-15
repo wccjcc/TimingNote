@@ -42,10 +42,12 @@ public class CandidatePlaceResponse {
         Place p = c.getPlace();
         TodoDetailResponse.PlaceResponse placeDto = TodoDetailResponse.PlaceResponse.builder()
                 .id(p.getId())
+                .externalPlaceId(p.getExternalPlaceId())
                 .name(p.getName())
                 .address(p.getAddress())
                 .roadAddress(p.getRoadAddress())
                 .phone(p.getPhone())
+                .categoryGroupCode(p.getCategoryGroupCode())
                 .categoryGroupName(p.getCategoryGroupName())
                 .businessStatus(p.getBusinessStatus())
                 .placeUrl(p.getPlaceUrl())

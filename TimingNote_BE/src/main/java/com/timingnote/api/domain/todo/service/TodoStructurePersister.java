@@ -1,10 +1,12 @@
 package com.timingnote.api.domain.todo.service;
 
 import com.timingnote.api.common.util.GeoUtils;
+import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import com.timingnote.api.domain.place.entity.Place;
 import com.timingnote.api.domain.place.entity.TodoCandidatePlace;
 import com.timingnote.api.domain.place.repository.TodoCandidatePlaceRepository;
 import com.timingnote.api.domain.place.service.PlaceService;
+import com.timingnote.api.domain.place.service.PlaceTypeResolver;
 import com.timingnote.api.domain.todo.entity.Todo;
 import com.timingnote.api.domain.todo.entity.TodoStructure;
 import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
@@ -59,6 +61,7 @@ public class TodoStructurePersister {
     private final TodoTimeConditionRepository todoTimeConditionRepository;
     private final TodoCandidatePlaceRepository todoCandidatePlaceRepository;
     private final PlaceService placeService;
+    private final PlaceTypeResolver placeTypeResolver;
     private final UserPlaceRepository userPlaceRepository;
     private final TodoIndexer todoIndexer;
 
@@ -80,26 +83,17 @@ public class TodoStructurePersister {
         Todo todo = todoRepository.findById(todoId)
                 .orElseThrow(() -> new IllegalStateException("Todo not found: " + todoId));
 
-        AiPlaceType placeType;
-        String placeText;
-        if (userPlaceId != null) {
-            placeType = AiPlaceType.ALIAS;
-            placeText = null; // linkPlace에서 ID 우선 분기 사용 — placeText 검색 안 함
-        } else {
-            placeType = parseEnum(AiPlaceType.class, response.getPlaceType(), AiPlaceType.GENERAL);
-            placeText = response.getPlaceText();
-        }
-
-        saveStructureRecord(todo, response, placeType);
+        // 2026-05-12 설계: placeType은 BE가 검색 결과·user_places 매칭으로 자체 결정.
+        // AI 응답의 placeType은 호환성 위해 받지만 사용하지 않음 (Phase D에서 응답 필드 제거 예정).
         saveTimeConditions(todo, response.getTimeConditions());
-        linkPlace(todo, placeType, placeText, latitude, longitude, userPlaceId);
-        updateTodoState(todo, placeType, response);
+        AiPlaceType resolvedType = linkPlace(todo, response.getPlaceText(), latitude, longitude, userPlaceId);
+        saveStructureRecord(todo, response, resolvedType);
+        updateTodoState(todo, resolvedType, response);
 
-        log.info("[AI] 구조화 저장 완료 (todoId={}, placeType={}, userPlaceId={})",
-                todoId, placeType, userPlaceId);
+        log.info("[AI] 구조화 저장 완료 (todoId={}, resolvedPlaceType={}, userPlaceId={})",
+                todoId, resolvedType, userPlaceId);
 
         // PENDING→READY 전이 시점 — todoType / category / resolvedPlaceLabel / primaryPlaceId 모두 보강된 상태.
-        // 이 시점이 가장 풍부한 색인 시점이므로 afterCommit 훅 등록.
         todoIndexer.scheduleAfterCommit(todoId);
     }
 
@@ -116,11 +110,16 @@ public class TodoStructurePersister {
 
     // ── 단계별 저장 ─────────────────────────────────────────────────────────
 
-    /** AI 응답을 todo_structures 테이블에 저장 */
+    /**
+     * AI 응답을 todo_structures 테이블에 저장.
+     *
+     * <p>todoText는 AI가 해석/재구성하지 못하도록 응답에서 제거됨(2026-05-13). 사용자 원문(todo.content)을
+     * 그대로 복사한다. 입력 필드 자체가 100자 제한이라 별도 truncate 불필요.
+     */
     private void saveStructureRecord(Todo todo, AiStructureResponse response, AiPlaceType placeType) {
         todoStructureRepository.save(TodoStructure.builder()
                 .todo(todo)
-                .todoText(response.getTodoText())
+                .todoText(todo.getContent())
                 .category(response.getCategory())
                 .placeType(placeType)
                 .placeText(response.getPlaceText())
@@ -151,43 +150,102 @@ public class TodoStructurePersister {
     }
 
     /**
-     * placeType에 따라 장소를 연동한다.
-     * - SPECIFIC: Kakao 키워드 검색 → primaryPlaceId 설정
-     * - GENERIC + 좌표 있음: 반경 검색 → 후보지 N개 저장
-     * - GENERIC + 좌표 없음: 위치 권한 없음 → 스킵 (로그만)
-     * - ALIAS:
-     *   - userPlaceId 있음 (FE 명시 선택) → ID 직접 lookup, 검색 쿼리 X
-     *   - userPlaceId 없음 (텍스트 입력) → AI가 인식한 placeText로 user_places 동치 매칭
-     * - GENERAL: 장소 연동 없음
+     * placeType을 BE가 자체 결정하면서 장소를 연동한다. 결정된 placeType을 반환.
      *
-     * <p>주의: PlaceService 호출이 포함되므로 트랜잭션 내 HTTP 호출이 발생한다.
-     * 현재 규모에서는 허용 가능하며, 향후 HTTP/DB 분리 리팩토링 대상.
+     * <p>2026-05-12 설계 (문서 4-2 단계):
+     * <ol>
+     *   <li>{@code userPlaceId} 명시 선택 → ALIAS 확정</li>
+     *   <li>{@code placeText} 없음 → GENERAL</li>
+     *   <li>{@code placeText}가 user_places.aliasName과 정확 일치 → ALIAS</li>
+     *   <li>좌표 없음 → GENERAL (카카오 호출 좌표 필수)</li>
+     *   <li>{@code PlaceService.searchAndStoreAll}로 검색 + Place DB 누적</li>
+     *   <li>{@code PlaceTypeResolver}로 카테고리 분포·결과 수 기반 분류
+     *       (SPECIFIC: 필터 후 1건 → primary, GENERIC: 다수 → 후보 풀)</li>
+     * </ol>
+     *
+     * <p>AI 응답의 placeType은 신뢰하지 않음 — 검증 가능한 데이터(검색 결과·사전·user_places)로 결정.
+     *
+     * <p>주의: PlaceService 호출에 카카오 HTTP 호출이 포함됨. 트랜잭션 길어짐 — 향후 분리 검토.
      */
-    private void linkPlace(Todo todo, AiPlaceType placeType,
-                           String placeText, Double latitude, Double longitude,
-                           Long userPlaceId) {
-        // AI placeType을 그대로 신뢰한다. 과거 AiPlaceTypeValidator로 화이트리스트 키워드 +
-        // 한정자 부재 조건으로 SPECIFIC→GENERIC 다운그레이드를 수행했으나, 정확도 책임은
-        // AI에 두고 BE는 분기/저장만 담당하도록 단순화한다 (AI 고도화 전제).
-        if (placeType == AiPlaceType.SPECIFIC && StringUtils.hasText(placeText)) {
-            placeService.resolveSpecificPlace(placeText, latitude, longitude)
-                    .ifPresent(place -> todo.updatePrimaryPlaceId(place.getId()));
-
-        } else if (placeType == AiPlaceType.GENERIC
-                && StringUtils.hasText(placeText)
-                && latitude != null && longitude != null) {
-            List<Place> candidates = placeService.resolveGenericCandidates(placeText, latitude, longitude);
-            if (!candidates.isEmpty()) {
-                saveCandidatePlaces(todo, candidates, latitude, longitude);
-            }
-
-        } else if (placeType == AiPlaceType.GENERIC && (latitude == null || longitude == null)) {
-            log.info("[Place] GENERIC — 위치 권한 없음, 장소 연동 스킵 (todoId={}, placeText={})",
-                    todo.getId(), placeText);
-
-        } else if (placeType == AiPlaceType.ALIAS) {
-            linkAliasPlace(todo, placeText, userPlaceId);
+    private AiPlaceType linkPlace(Todo todo, String placeText, Double latitude, Double longitude,
+                                  Long userPlaceId) {
+        // 1. 사용자가 FE에서 명시 선택한 ALIAS
+        if (userPlaceId != null) {
+            linkAliasPlace(todo, null, userPlaceId);
+            return AiPlaceType.ALIAS;
         }
+
+        // 2. placeText 없음 → 장소 연동 없음
+        if (!StringUtils.hasText(placeText)) {
+            log.info("[Place] placeText 없음 → GENERAL (todoId={})", todo.getId());
+            return AiPlaceType.GENERAL;
+        }
+
+        // 3. user_places.aliasName 정확 일치 → ALIAS
+        Optional<UserPlace> aliasMatch = userPlaceRepository
+                .findWithPlaceByUserIdAndAliasName(todo.getUserId(), placeText.trim());
+        if (aliasMatch.isPresent()) {
+            linkAliasPlace(todo, placeText, null);
+            return AiPlaceType.ALIAS;
+        }
+
+        // 4. 좌표 없음 → 카카오 호출 불가
+        if (latitude == null || longitude == null) {
+            log.info("[Place] 좌표 없음 → GENERAL (todoId={}, placeText='{}')", todo.getId(), placeText);
+            return AiPlaceType.GENERAL;
+        }
+
+        // 5. 카카오 검색 + Place DB 누적 (radius/sort/size 미지정 — 좌표만 전달)
+        PlaceService.SearchResult searchResult = placeService.searchAndStoreAll(placeText, latitude, longitude);
+        if (searchResult.isEmpty()) {
+            log.info("[Place] 카카오 결과 0건 → GENERAL (todoId={}, placeText='{}')", todo.getId(), placeText);
+            return AiPlaceType.GENERAL;
+        }
+
+        // 6. PlaceTypeResolver 분류 — 일반명사 사전 + 결과 수
+        PlaceTypeResolver.Result resolved = placeTypeResolver.resolve(placeText, searchResult.searchItems());
+        if (resolved.placeType() == null) {
+            log.info("[Place] resolver MEMO → GENERAL (todoId={}, placeText='{}')",
+                    todo.getId(), placeText);
+            return AiPlaceType.GENERAL;
+        }
+
+        // 7. 분기 저장 — resolver가 돌려준 items를 storedPlaces에서 lookup
+        List<Place> matchedPlaces = matchStoredPlaces(searchResult, resolved.items());
+        if (matchedPlaces.isEmpty()) {
+            log.warn("[Place] items가 storedPlaces에 없음 — 저장 실패? (todoId={})", todo.getId());
+            return AiPlaceType.GENERAL;
+        }
+
+        if (resolved.placeType() == AiPlaceType.SPECIFIC) {
+            Place top = matchedPlaces.get(0);
+            todo.updatePrimaryPlaceId(top.getId());
+            // SPECIFIC 후보 1건 저장 — 수정 흐름(setTodoPlace)과 통일.
+            // GeofenceSlotManager가 후보 테이블에서 조회하므로 SPECIFIC도 후보 등록 필수.
+            saveCandidatePlaces(todo, List.of(top), latitude, longitude);
+            log.info("[Place] SPECIFIC 확정 — placeId={} name='{}' (todoId={})",
+                    top.getId(), top.getName(), todo.getId());
+            return AiPlaceType.SPECIFIC;
+        }
+
+        // GENERIC — 모든 후보를 후보 풀에 저장
+        saveCandidatePlaces(todo, matchedPlaces, latitude, longitude);
+        return AiPlaceType.GENERIC;
+    }
+
+    /**
+     * resolver가 돌려준 검색 결과 DTO들을 SearchResult의 storedPlaces에서 externalPlaceId 매칭으로 찾는다.
+     * 순서 유지 — 카카오 응답 순서(정확도·거리 가중치)를 그대로 따른다.
+     */
+    private List<Place> matchStoredPlaces(PlaceService.SearchResult sr, List<PlaceSearchItemResponse> items) {
+        Map<String, Place> byExternalId = sr.storedPlaces().stream()
+                .filter(p -> p.getExternalPlaceId() != null)
+                .collect(java.util.stream.Collectors.toMap(
+                        Place::getExternalPlaceId, p -> p, (a, b) -> a));
+        return items.stream()
+                .map(item -> byExternalId.get(item.getId()))
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     /**

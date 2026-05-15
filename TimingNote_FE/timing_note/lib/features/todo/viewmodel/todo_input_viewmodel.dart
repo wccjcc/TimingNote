@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/location/location_provider.dart';
@@ -100,8 +101,17 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
     state = state.copyWith(phase: InputSubmitPhase.submitting, clearError: true);
 
     try {
-      // AI가 GENERIC 후보 검색 시 사용자 위치 기준이 필요하므로 등록 직전 GPS 호출 — forceFresh.
-      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      // [TIMING] 임시 측정 — 등록 응답 지연 원인 진단용. 결과 확인 후 제거 또는 영구화 결정.
+      final tSubmit = DateTime.now();
+      // 등록 직전 GPS — forceFresh=false (2026-05-13).
+      // 캐시·디바이스 lastKnownPosition 우선 사용 → 응답 즉시화. 차량 이동 케이스도 OS가
+      // 백그라운드로 좌표 유지하므로 stale 거의 없음. 등록 직후 유의미한 이동 신호 발생 시
+      // GenericCandidateRefreshService가 후보 풀 재계산해 stale 잔류분도 자동 보정.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: false);
+      final tGps = DateTime.now();
+      debugPrint('[TIMING] GPS step: ${tGps.difference(tSubmit).inMilliseconds}ms '
+          '(forceFresh=false, gps=${gps != null ? "ok" : "null"})');
+
       final mergedContent = _mergeAliasIntoContent(
         state.content.trim(),
         state.selectedUserPlace?.aliasName,
@@ -115,6 +125,9 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
         occurredAt: gps?.occurredAt,
         userPlaceId: state.selectedUserPlace?.id,
       );
+      final tBe = DateTime.now();
+      debugPrint('[TIMING] BE create: ${tBe.difference(tGps).inMilliseconds}ms');
+      debugPrint('[TIMING] TOTAL:     ${tBe.difference(tSubmit).inMilliseconds}ms');
 
       // PENDING 여부와 무관하게 즉시 done 처리.
       // AI 구조화 대기 스피너는 할 일 목록 카드에서 표시한다.

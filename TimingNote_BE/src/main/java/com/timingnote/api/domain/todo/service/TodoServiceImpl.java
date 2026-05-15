@@ -154,6 +154,14 @@ public class TodoServiceImpl implements TodoService {
         // 활성 슬롯을 조회·거리 비교하는 fallback은 비용 대비 가치가 낮다고 판단(상세 페이지에서
         // 후보별 거리 확인이 가능). primary 좌표만 사용하고 GENERIC은 거리 미표시.
 
+        // 사용자별 활성 슬롯(geofence_slots.is_active=true)을 todoId 기준 Set으로 → 항목별 activeSlot 매핑.
+        // 사용자당 최대 18개 슬롯이라 추가 쿼리 비용 미미. 지도 탭에서 GENERIC 감지중 필터에 사용.
+        Set<Long> activeTodoIds = geofenceSlotRepository
+                .findByUserIdAndActiveTrue(userId)
+                .stream()
+                .map(GeofenceSlot::getTodoId)
+                .collect(Collectors.toSet());
+
         List<TodoListItemResponse> items = page.stream()
                 .map(t -> {
                     Place place = t.getPrimaryPlaceId() != null
@@ -161,7 +169,8 @@ public class TodoServiceImpl implements TodoService {
                             : null;
                     Double lat = place != null ? place.getLatitude() : null;
                     Double lng = place != null ? place.getLongitude() : null;
-                    return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng);
+                    boolean activeSlot = activeTodoIds.contains(t.getId());
+                    return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng, activeSlot);
                 })
                 .toList();
 
@@ -541,6 +550,10 @@ public class TodoServiceImpl implements TodoService {
     /**
      * GENERIC 후보 장소를 Kakao에서 검색해 todo_candidate_places에 저장.
      * 좌표 없으면 스킵.
+     *
+     * <p>2026-05-13 통일: 등록 흐름(AI)과 동일한 {@link PlaceService#searchAndStoreAll}을 사용한다
+     * (좌표만, radius/sort 미지정, Redis 캐시 경유). 과거 {@code resolveGenericCandidates}는
+     * radius=3km/sort=distance를 강제해 등록·재검색 정책이 달랐다.
      */
     private void resolveAndSaveGenericCandidates(Todo todo, String placeText,
                                                   Double latitude, Double longitude) {
@@ -549,7 +562,8 @@ public class TodoServiceImpl implements TodoService {
             return;
         }
 
-        List<Place> candidates = placeService.resolveGenericCandidates(placeText, latitude, longitude);
+        PlaceService.SearchResult searchResult = placeService.searchAndStoreAll(placeText, latitude, longitude);
+        List<Place> candidates = searchResult.storedPlaces();
         if (candidates.isEmpty()) {
             log.info("[Todo/Generic] 후보 없음: todoId={} placeText='{}'", todo.getId(), placeText);
             return;
