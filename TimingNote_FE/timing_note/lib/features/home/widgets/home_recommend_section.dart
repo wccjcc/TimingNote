@@ -138,6 +138,8 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
         final nodeItems = _nodeItems;
         final nodeLayouts = _nodeLayouts;
         final isInitialLoading = widget.isLoading && _items.isEmpty;
+        final hasError =
+            widget.errorMessage != null && widget.errorMessage!.trim().isNotEmpty;
         return SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
@@ -181,18 +183,6 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                 ),
               ),
               const SizedBox(height: 8),
-              if (widget.errorMessage != null &&
-                  widget.errorMessage!.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(
-                    widget.errorMessage!,
-                    style: const TextStyle(
-                      color: SpaceColors.error,
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
               SizedBox(
                 height: 320,
                 child: Center(
@@ -224,7 +214,11 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       Positioned(
                         left: 117,
                         top: 117,
-                        child: _CenterPlanet(progress: progress),
+                        child: _CenterPlanet(
+                          progress: progress,
+                          isError: hasError,
+                          isLoading: isInitialLoading,
+                        ),
                       ),
                       Positioned.fill(
                         child: IgnorePointer(
@@ -292,6 +286,11 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       if (_items.isEmpty && !isInitialLoading) const _EmptyHint(),
                       if (isInitialLoading)
                         const _LoadingHint(text: '추천 할일 생각중이다냥..'),
+                      if (hasError)
+                        const _LoadingHint(
+                          text: '추천에 실패했다냥..',
+                          borderColor: SpaceColors.error,
+                        ),
                       ],
                     ),
                   ),
@@ -437,8 +436,14 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
 }
 
 class _CenterPlanet extends StatelessWidget {
-  const _CenterPlanet({required this.progress});
+  const _CenterPlanet({
+    required this.progress,
+    this.isError = false,
+    this.isLoading = false,
+  });
   final double progress;
+  final bool isError;
+  final bool isLoading;
   @override
   Widget build(BuildContext context) {
     final floatY = math.sin(progress * math.pi * 2) * 5.5;
@@ -479,7 +484,15 @@ class _CenterPlanet extends StatelessWidget {
               ),
             ),
             ClipOval(
-              child: Image.asset('assets/images/nyang_star_1.png', width: 86, height: 86),
+              child: Image.asset(
+                isError
+                    ? 'assets/images/nyang_star_error.png'
+                    : (isLoading
+                        ? 'assets/images/nyang_star_loading.png'
+                        : 'assets/images/nyang_star_1.png'),
+                width: 86,
+                height: 86,
+              ),
             ),
           ],
         ),
@@ -941,8 +954,12 @@ class _CategoryPalette {
 }
 
 class _LoadingHint extends StatelessWidget {
-  const _LoadingHint({required this.text});
+  const _LoadingHint({
+    required this.text,
+    this.borderColor = const Color(0xFFA78BFA),
+  });
   final String text;
+  final Color borderColor;
   @override
   Widget build(BuildContext context) {
     return Positioned(
@@ -954,7 +971,7 @@ class _LoadingHint extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: const Color(0xE61A1A2E),
-            border: Border.all(color: SpaceColors.neonPink, width: 2),
+            border: Border.all(color: borderColor, width: 2),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
