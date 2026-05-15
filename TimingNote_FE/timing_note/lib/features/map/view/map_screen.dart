@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
+import '../../../shared/util/navigation_guard.dart';
+import '../../../shared/widgets/tap_bounce.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/util/todo_type_style.dart';
 import '../../todo/widgets/native_kakao_map.dart';
@@ -29,11 +31,17 @@ class MapScreen extends ConsumerStatefulWidget {
   ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends ConsumerState<MapScreen> {
+class _MapScreenState extends ConsumerState<MapScreen>
+    with NavigationGuardMixin<MapScreen> {
   NativeKakaoMapController? _mapController;
   // 시트에 표시한 카드의 현재 인덱스 (가로 스크롤). 마커 바꿀 때 첫 페이지로 리셋용.
   final PageController _pageController = PageController(viewportFraction: 0.92);
   String? _lastSelectedMarkerId;
+
+  /// 미니 카드 더블 탭으로 같은 상세 화면이 두 번 push되는 것을 방지.
+  void _openDetail(int todoId) {
+    guardedRunSync(() => context.push('/todos/$todoId'));
+  }
 
   @override
   void dispose() {
@@ -127,7 +135,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 currentGps: state.currentGps,
                 onDismiss: () =>
                     ref.read(mapProvider.notifier).dismissSelection(),
-                onCardTap: (todoId) => context.push('/todos/$todoId'),
+                onCardTap: _openDetail,
               ),
             ),
 
@@ -614,12 +622,9 @@ class _TodoMiniCard extends StatelessWidget {
     final category = todo.category;
     final categoryLabel = category != null ? TodoCategory.labels[category] : null;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
+    return TapBounce(
+      onTap: onTap,
+      child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             color: SpaceColors.space800,
@@ -724,7 +729,6 @@ class _TodoMiniCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
   }
 }

@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../../../shared/util/show_spring_dialog.dart';
+import '../../../shared/widgets/animated_list_entry.dart';
 import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
@@ -386,7 +388,7 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
       if (isRange) {
         // Material의 showDateRangePicker는 fullscreen Scaffold라 다이얼로그 톤이 깨진다.
         // table_calendar 기반 자체 모달을 띄워 단일 날짜 picker와 일관된 모달 UX 유지.
-        final range = await showDialog<DateTimeRange>(
+        final range = await showSpringDialog<DateTimeRange>(
           context: context,
           builder: (_) => _RangeCalendarDialog(
             initial: _selectedDateRange,
@@ -398,7 +400,7 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
       } else {
         // 단일 날짜도 자체 캘린더 모달로 통일 — Material showDatePicker는 다이얼로그긴 하지만
         // 디자인 일관성과 한글/보라 톤 완전 통제를 위해 직접 그린다.
-        final date = await showDialog<DateTime>(
+        final date = await showSpringDialog<DateTime>(
           context: context,
           builder: (_) => _SingleCalendarDialog(
             initial: _selectedDate,
@@ -850,14 +852,14 @@ class _CategoryDropdown extends StatelessWidget {
       builder: (context, constraints) {
         final menuWidth = constraints.maxWidth;
         return MenuAnchor(
-          // 메뉴를 트리거 바로 아래 + 4px 떨어뜨려 빈 라운드 박스로 보이게.
+          // 메뉴를 트리거 바로 아래 + 6px 떨어뜨려 빈 라운드 박스로 보이게.
           alignmentOffset: const Offset(0, 6),
           style: MenuStyle(
             backgroundColor: const WidgetStatePropertyAll(_kSurfaceDark),
             elevation: const WidgetStatePropertyAll(8),
-            padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(vertical: 4),
-            ),
+            // padding zero — vertical:4가 첫/마지막 항목의 선택 배경 위쪽을
+            // 잘리게 만들었음. zero로 두면 선택 bg가 메뉴 외곽 라운드까지 채움.
+            padding: const WidgetStatePropertyAll(EdgeInsets.zero),
             shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -865,9 +867,23 @@ class _CategoryDropdown extends StatelessWidget {
               ),
             ),
           ),
-          menuChildren: TodoCategory.labels.entries.map((e) {
+          menuChildren: TodoCategory.labels.entries
+              .toList()
+              .asMap()
+              .entries
+              .map((entry) {
+            final i = entry.key;
+            final e = entry.value;
             final selected = e.key == value;
-            return SizedBox(
+            // 메뉴 열릴 때마다 항목들이 위에서 차례로 펴짐 (45ms 간격, 4개라 빠르게).
+            // MenuAnchor가 메뉴 표시 때 새 OverlayPortal을 띄우므로 각 항목 State가
+            // 재생성되며 initState에서 stagger 발동.
+            return AnimatedListEntry(
+              index: i,
+              delayPerItem: const Duration(milliseconds: 45),
+              duration: const Duration(milliseconds: 220),
+              offsetY: 10,
+              child: SizedBox(
               width: menuWidth,
               child: MenuItemButton(
                 onPressed: () => onChanged(e.key),
@@ -877,8 +893,8 @@ class _CategoryDropdown extends StatelessWidget {
                       ? _kPurpleAccent.withOpacity(0.10)
                       : null,
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
+                    horizontal: 20,
+                    vertical: 14,
                   ),
                 ),
                 trailingIcon: selected
@@ -891,6 +907,7 @@ class _CategoryDropdown extends StatelessWidget {
                     style: const TextStyle(fontSize: 15),
                   ),
                 ),
+              ),
               ),
             );
           }).toList(),

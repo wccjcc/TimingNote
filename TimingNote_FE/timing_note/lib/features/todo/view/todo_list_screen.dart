@@ -7,10 +7,13 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/location/location_distance.dart';
 import '../../../../core/location/location_provider.dart';
 import '../../../../shared/theme/colors.dart';
+import '../../../../shared/util/navigation_guard.dart';
+import '../../../../shared/widgets/animated_list_entry.dart';
 import '../../../../shared/widgets/app_error_view.dart';
 import '../../../../shared/widgets/app_loading_view.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/status_badge.dart';
+import '../../../../shared/widgets/tap_bounce.dart';
 import '../../search/model/todo_search_item.dart';
 import '../../search/viewmodel/search_viewmodel.dart';
 import '../model/todo.dart';
@@ -43,11 +46,16 @@ class TodoListScreen extends ConsumerStatefulWidget {
 }
 
 class _TodoListScreenState extends ConsumerState<TodoListScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, NavigationGuardMixin<TodoListScreen> {
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   late final TabController _tabController;
+
+  /// 빠른 더블 탭으로 같은 상세 화면이 두 번 push되는 것을 방지.
+  void _openDetail(int todoId) {
+    guardedRunSync(() => context.push('/todos/$todoId'));
+  }
 
   @override
   void initState() {
@@ -109,7 +117,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(state.items.length),
+              _buildHeader(state.items.length, state.placeTypeFilter),
               _buildSearchBar(searchState),
               _buildMissionChips(),
               Expanded(child: _buildBody(state, searchState)),
@@ -203,7 +211,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     );
   }
 
-  Widget _buildHeader(int totalCount) {
+  Widget _buildHeader(int totalCount, String? activePlaceType) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
       child: Row(
@@ -235,37 +243,23 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
               ),
             ],
           ),
-          _ListIconButton(
-            icon: Icons.filter_list,
-            onTap: () => _showPlaceFilterMenu(context),
+          _PlaceTypeFilterMenu(
+            activePlaceType: activePlaceType,
+            onChanged: (value) {
+              ref.read(todoListProvider.notifier).setFilters(
+                    placeType: value,
+                    clearPlaceType: value == null,
+                  );
+              // 검색 모드면 새 placeType 컨텍스트로 자동 재검색
+              ref.read(searchProvider.notifier).setContext(
+                    category: ref.read(searchProvider).category,
+                    placeType: value,
+                  );
+            },
           ),
         ],
       ),
     );
-  }
-
-  void _showPlaceFilterMenu(BuildContext context) {
-    showMenu<String?>(
-      context: context,
-      position: const RelativeRect.fromLTRB(100, 100, 24, 0),
-      color: SpaceColors.space900,
-      items: const [
-        PopupMenuItem(value: null, child: Text('모든 할 일', style: TextStyle(color: Colors.white))),
-        PopupMenuItem(value: TodoType.specific, child: Text('특정 장소', style: TextStyle(color: Colors.white))),
-        PopupMenuItem(value: TodoType.generic, child: Text('포괄적 장소', style: TextStyle(color: Colors.white))),
-        PopupMenuItem(value: TodoType.general, child: Text('장소 없음', style: TextStyle(color: Colors.white))),
-      ],
-    ).then((value) {
-      ref.read(todoListProvider.notifier).setFilters(
-            placeType: value,
-            clearPlaceType: value == null,
-          );
-      // 검색 모드면 새 placeType 컨텍스트로 자동 재검색
-      ref.read(searchProvider.notifier).setContext(
-            category: ref.read(searchProvider).category,
-            placeType: value,
-          );
-    });
   }
 
   Widget _buildMissionChips() {
@@ -283,7 +277,12 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
             padding: const EdgeInsets.only(right: 8),
             child: GestureDetector(
               onTap: () {
-                _tabController.animateTo(index);
+                // 같은 탭 재탭 시 animateTo는 0-duration animation을 발사하면서도
+                // listener를 1회 호출 → setFilters → BE 재호출(스타일상 "새로고침")이
+                // 발생함. 같은 index면 noop으로 차단.
+                if (_tabController.index != index) {
+                  _tabController.animateTo(index);
+                }
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
@@ -359,14 +358,24 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
         children: [
           // ── 진행 중 섹션 ──
           if (activeItems.isNotEmpty) ...[
-            ...activeItems.map((item) => _TodoSpaceTile(
-                  item: item,
+            // 카드 stagger entrance — 첫 등장 시 아래에서 fade up.
+            // 스크롤로 가려져있다 다시 보이는 경우엔 재발동 X (initState 1회만).
+            for (var i = 0; i < activeItems.length; i++)
+              AnimatedListEntry(
+                index: i,
+                child: _TodoSpaceTile(
+                  item: activeItems[i],
                   currentGps: state.currentGps,
-                  showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
-                  onTap: () => context.push('/todos/${item.id}'),
-                  onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
-                  onToggleAlert: () => ref.read(todoListProvider.notifier).toggleAlert(item.id),
-                )),
+                  showCategory: _tabController.index == 0,
+                  onTap: () => _openDetail(activeItems[i].id),
+                  onToggleStatus: () => ref
+                      .read(todoListProvider.notifier)
+                      .toggleStatus(activeItems[i].id),
+                  onToggleAlert: () => ref
+                      .read(todoListProvider.notifier)
+                      .toggleAlert(activeItems[i].id),
+                ),
+              ),
           ],
 
           // ── 완료된 항목 섹션 ──
@@ -391,14 +400,24 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                 ],
               ),
             ),
-            ...doneItems.map((item) => _TodoSpaceTile(
-                  item: item,
+            // 완료 섹션도 동일 stagger entrance — 진행 중 항목 등장 후 이어서.
+            // index를 active 길이만큼 offset해 일관된 차례로 등장.
+            for (var i = 0; i < doneItems.length; i++)
+              AnimatedListEntry(
+                index: activeItems.length + i,
+                child: _TodoSpaceTile(
+                  item: doneItems[i],
                   currentGps: state.currentGps,
-                  showCategory: _tabController.index == 0, // '전체' 탭일 때만 카테고리 표시
-                  onTap: () => context.push('/todos/${item.id}'),
-                  onToggleStatus: () => ref.read(todoListProvider.notifier).toggleStatus(item.id),
-                  onToggleAlert: () => ref.read(todoListProvider.notifier).toggleAlert(item.id),
-                )),
+                  showCategory: _tabController.index == 0,
+                  onTap: () => _openDetail(doneItems[i].id),
+                  onToggleStatus: () => ref
+                      .read(todoListProvider.notifier)
+                      .toggleStatus(doneItems[i].id),
+                  onToggleAlert: () => ref
+                      .read(todoListProvider.notifier)
+                      .toggleAlert(doneItems[i].id),
+                ),
+              ),
           ],
 
           if (state.isLoadingMore)
@@ -437,7 +456,11 @@ class _TodoSpaceTile extends StatelessWidget {
     final categoryKey = item.category ?? TodoCategory.etc;
     final badgeColor = _getCategoryColor(categoryKey);
 
-    return Container(
+    // 카드 최외곽을 TapBounce로 감싸 누를 때 살짝 줄어들고 spring으로 복귀.
+    // 다크 톤이라 Material ripple은 잘 안 보임 → InkWell 대신 scale로 통일.
+    return TapBounce(
+      onTap: onTap,
+      child: Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: isDone ? Colors.transparent : const Color(0x991A1A2E),
@@ -454,9 +477,7 @@ class _TodoSpaceTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
           filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: InkWell(
-            onTap: onTap,
-            child: Opacity(
+          child: Opacity(
               opacity: isDone ? 0.6 : 1.0,
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -643,6 +664,166 @@ class _ListIconButton extends StatelessWidget {
   }
 }
 
+// ── 장소 타입 필터 드롭다운 ──────────────────────────────────────────
+/// 헤더 우측 필터 버튼 → 카테고리 드롭다운(`_CategoryDropdown` in todo_edit)과 동일 톤.
+/// - 활성 필터 시 트리거 색이 보라 글로우 + 작은 점 노출 → "필터 적용 중" 시그널
+/// - 메뉴는 `MenuAnchor` 기반으로 트리거 아래로 라운드 박스 펼침
+/// - 선택 항목은 보라 10% 배경 + check 아이콘 + neonPurple 글자
+class _PlaceTypeFilterMenu extends StatelessWidget {
+  const _PlaceTypeFilterMenu({
+    required this.activePlaceType,
+    required this.onChanged,
+  });
+
+  /// null이면 전체(필터 없음), 그 외 TodoType 상수.
+  final String? activePlaceType;
+  final ValueChanged<String?> onChanged;
+
+  static const List<({String? value, String label})> _items = [
+    (value: null, label: '모든 할 일'),
+    (value: TodoType.specific, label: '특정 장소'),
+    (value: TodoType.generic, label: '포괄적 장소'),
+    (value: TodoType.general, label: '장소 없음'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final hasActiveFilter = activePlaceType != null;
+
+    return MenuAnchor(
+      // 트리거 우측 끝에서 아래로 살짝 떨어뜨려 펼침
+      alignmentOffset: const Offset(0, 6),
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Color(0xE50F0F1A)),
+        elevation: const WidgetStatePropertyAll(8),
+        // padding을 EdgeInsets.zero로 두어 첫/마지막 항목의 선택 배경이 메뉴
+        // 외곽 라운드 경계까지 닿게 한다. 기존 vertical:4가 빈 공간을 만들었음.
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: SpaceColors.neonPurple.withValues(alpha: 0.3),
+            ),
+          ),
+        ),
+      ),
+      menuChildren: _items.asMap().entries.map((entry) {
+        final i = entry.key;
+        final it = entry.value;
+        final selected = it.value == activePlaceType;
+        // 카테고리 드롭다운과 동일한 stagger entrance.
+        // MenuAnchor가 메뉴 표시마다 OverlayPortal에 새 위젯을 띄우니
+        // 매번 initState 발동 → stagger가 매번 보임.
+        return AnimatedListEntry(
+          index: i,
+          delayPerItem: const Duration(milliseconds: 45),
+          duration: const Duration(milliseconds: 220),
+          offsetY: 10,
+          child: MenuItemButton(
+            onPressed: () => onChanged(it.value),
+            style: MenuItemButton.styleFrom(
+              foregroundColor: selected ? SpaceColors.neonPurple : Colors.white,
+              backgroundColor: selected
+                  ? SpaceColors.neonPurple.withValues(alpha: 0.10)
+                  : null,
+              // 텍스트가 메뉴 외곽에 답답하게 붙지 않도록 padding 확장
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 14,
+              ),
+              minimumSize: const Size(180, 0),
+            ),
+            trailingIcon: selected
+                ? const Icon(
+                    Icons.check,
+                    size: 16,
+                    color: SpaceColors.neonPurple,
+                  )
+                : null,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                it.label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+      builder: (context, controller, _) {
+        return GestureDetector(
+          onTap: () =>
+              controller.isOpen ? controller.close() : controller.open(),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              // 활성 필터 시 보라 배경/border 진해짐 — "필터 적용 중" 시그널
+              color: hasActiveFilter
+                  ? SpaceColors.neonPurple.withValues(alpha: 0.18)
+                  : const Color(0xFF2A2A4A),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasActiveFilter
+                    ? SpaceColors.neonPurple.withValues(alpha: 0.6)
+                    : const Color(0x4CA78BFA),
+                width: hasActiveFilter ? 1.5 : 1.0,
+              ),
+              boxShadow: hasActiveFilter
+                  ? [
+                      BoxShadow(
+                        color: SpaceColors.neonPurple.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.filter_list,
+                  color: hasActiveFilter
+                      ? SpaceColors.neonPurple
+                      : Colors.white70,
+                  size: 20,
+                ),
+                // 활성 필터 시 우상단 작은 보라 점 — 추가 시각 신호
+                if (hasActiveFilter)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: SpaceColors.neonPurple,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: SpaceColors.neonPurple,
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 // ── 검색 결과 본문 ────────────────────────────────────────────────
 extension _TodoListScreenSearch on _TodoListScreenState {
   Widget _buildSearchBody(SearchState searchState) {
@@ -718,7 +899,7 @@ extension _TodoListScreenSearch on _TodoListScreenState {
         final item = searchState.items[itemIndex];
         return _SearchResultTile(
           item: item,
-          onTap: () => context.push('/todos/${item.id}'),
+          onTap: () => _openDetail(item.id),
         );
       },
     );
