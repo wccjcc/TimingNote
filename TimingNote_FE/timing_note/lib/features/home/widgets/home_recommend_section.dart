@@ -20,6 +20,7 @@ class HomeRecommendSection extends StatefulWidget {
     required this.items,
     required this.isLoading,
     required this.onCompleteTodo,
+    required this.onRefresh,
     this.currentLatitude,
     this.currentLongitude,
     this.errorMessage,
@@ -32,6 +33,7 @@ class HomeRecommendSection extends StatefulWidget {
   final double? currentLatitude;
   final double? currentLongitude;
   final Future<void> Function(int todoId) onCompleteTodo;
+  final Future<void> Function() onRefresh;
 
   @override
   State<HomeRecommendSection> createState() => _HomeRecommendSectionState();
@@ -135,6 +137,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
         _ensureNodeLayouts();
         final nodeItems = _nodeItems;
         final nodeLayouts = _nodeLayouts;
+        final isInitialLoading = widget.isLoading && _items.isEmpty;
         return SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
@@ -149,29 +152,35 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       size: 14,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      widget.currentLocationLabel,
-                      style: TextStyle(
-                        color: SpaceColors.neonPurple.withOpacity(0.8),
-                        fontSize: 11,
+                    if (isInitialLoading)
+                      _LocationSkeleton(progress: progress)
+                    else
+                      Text(
+                        widget.currentLocationLabel,
+                        style: TextStyle(
+                          color: SpaceColors.neonPurple.withOpacity(0.8),
+                          fontSize: 11,
+                        ),
+                      ),
+                    const Spacer(),
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        splashRadius: 16,
+                        onPressed: widget.isLoading ? null : widget.onRefresh,
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          color: SpaceColors.neonPurple,
+                          size: 16,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 8),
-              if (widget.isLoading && _items.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 10),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: SpaceColors.neonPurple,
-                    ),
-                  ),
-                ),
               if (widget.errorMessage != null &&
                   widget.errorMessage!.trim().isNotEmpty)
                 Padding(
@@ -226,7 +235,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                           ),
                         ),
                       ),
-                        ...[
+                        if (!isInitialLoading) ...[
                           ...List.generate(nodeItems.length, (i) {
                             final item = nodeItems[i];
                             if (_activeGroupId == item.groupId) {
@@ -280,13 +289,16 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                               );
                             })(),
                         ],
-                      if (_items.isEmpty) const _EmptyHint(),
+                      if (_items.isEmpty && !isInitialLoading) const _EmptyHint(),
+                      if (isInitialLoading)
+                        const _LoadingHint(text: '추천 할일 생각중이다냥..'),
                       ],
                     ),
                   ),
                 ),
               ),
-              if (_activeGroupId != null &&
+              if (!isInitialLoading &&
+                  _activeGroupId != null &&
                   _items.any((e) => e.groupId == _activeGroupId))
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
@@ -300,7 +312,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                     ),
                   ),
                 ),
-              Padding(
+              if (!isInitialLoading) Padding(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
                 child: Column(
                   children: List.generate(_items.length, (i) {
@@ -928,6 +940,67 @@ class _CategoryPalette {
   }
 }
 
+class _LoadingHint extends StatelessWidget {
+  const _LoadingHint({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 196,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xE61A1A2E),
+            border: Border.all(color: SpaceColors.neonPink, width: 2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontFamily: 'Galmuri11',
+              fontSize: 11,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationSkeleton extends StatelessWidget {
+  const _LocationSkeleton({required this.progress});
+  final double progress;
+  @override
+  Widget build(BuildContext context) {
+    final shimmerCenter = (progress * 1.4) % 1.0;
+    final start = (shimmerCenter - 0.25).clamp(0.0, 1.0);
+    final end = (shimmerCenter + 0.25).clamp(0.0, 1.0);
+    return Container(
+      width: 104,
+      height: 14,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          stops: [0.0, start, shimmerCenter, end, 1.0],
+          colors: [
+            SpaceColors.neonPurple.withOpacity(0.36),
+            SpaceColors.neonPurple.withOpacity(0.56),
+            SpaceColors.neonPurple.withOpacity(0.86),
+            SpaceColors.neonPurple.withOpacity(0.56),
+            SpaceColors.neonPurple.withOpacity(0.36),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(3),
+      ),
+    );
+  }
+}
+
 class _NodeLayoutData {
   const _NodeLayoutData({
     required this.angle,
@@ -936,4 +1009,51 @@ class _NodeLayoutData {
 
   final double angle;
   final double radius;
+}
+
+class _RecommendLoadingSkeleton extends StatelessWidget {
+  const _RecommendLoadingSkeleton({required this.progress});
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+      child: Column(
+        children: [
+          _SkeletonCard(height: 90, progress: progress, progressOffset: 0.0),
+          const SizedBox(height: 12),
+          _SkeletonCard(height: 90, progress: progress, progressOffset: 0.2),
+          const SizedBox(height: 12),
+          _SkeletonCard(height: 90, progress: progress, progressOffset: 0.4),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard({
+    required this.height,
+    required this.progress,
+    required this.progressOffset,
+  });
+  final double height;
+  final double progress;
+  final double progressOffset;
+
+  @override
+  Widget build(BuildContext context) {
+    final wave = (math.sin((progress + progressOffset) * math.pi * 2) + 1) / 2;
+    final opacity = 0.26 + (0.28 * wave);
+    return Container(
+      width: double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: SpaceColors.space800.withOpacity(opacity),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.28 + (0.22 * wave))),
+      ),
+    );
+  }
 }

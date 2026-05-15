@@ -188,6 +188,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           onCompleteTodo: (todoId) => ref
                               .read(homeRecommendationProvider.notifier)
                               .completeTodo(todoId),
+                          onRefresh: () => ref
+                              .read(homeRecommendationProvider.notifier)
+                              .load(),
                         ),
                       ),
                       const SliverToBoxAdapter(child: SizedBox(height: 140)),
