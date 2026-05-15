@@ -9,6 +9,7 @@ import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
 import '../widgets/home_recommend_section.dart';
+import '../viewmodel/home_recommendation_viewmodel.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../../notification/viewmodel/notification_viewmodel.dart';
@@ -157,6 +158,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       data: (count) => count,
       orElse: () => 0,
     );
+    final recommendationState = ref.watch(homeRecommendationProvider);
     // 내 장소: 등록/삭제 시 invalidate되어 자동 갱신됨. 로딩/에러 시 빈 목록 fallback
     final userPlaces = ref.watch(userPlacesProvider).maybeWhen(
       data: (list) => list,
@@ -175,9 +177,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: CustomScrollView(
                     slivers: [
                       SliverToBoxAdapter(child: _HomeHeader(unreadCount: unreadCount)),
-                      const SliverToBoxAdapter(
+                      SliverToBoxAdapter(
                         child: HomeRecommendSection(
-                          currentLocationLabel: 'Current location',
+                          currentLocationLabel: recommendationState.currentLocationLabel,
+                          items: recommendationState.items,
+                          isLoading: recommendationState.isLoading,
+                          errorMessage: recommendationState.error,
+                          currentLatitude: recommendationState.currentLatitude,
+                          currentLongitude: recommendationState.currentLongitude,
+                          onCompleteTodo: (todoId) => ref
+                              .read(homeRecommendationProvider.notifier)
+                              .completeTodo(todoId),
                         ),
                       ),
                       const SliverToBoxAdapter(child: SizedBox(height: 140)),
