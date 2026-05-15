@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/location/location_provider.dart';
 import '../model/selected_kakao_place.dart';
+import '../model/time_condition.dart';
 import '../model/todo.dart';
 import '../model/todo_detail.dart';
 import '../service/todo_service.dart';
@@ -125,6 +126,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         course: gps?.course,
         occurredAt: gps?.occurredAt,
       );
+      ref.invalidate(todoListProvider);
     } catch (_) {
       state = state.copyWith(detail: current);
     }
@@ -153,6 +155,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         course: gps?.course,
         occurredAt: gps?.occurredAt,
       );
+      ref.invalidate(todoListProvider);
     } catch (_) {
       state = state.copyWith(detail: current);
     }
@@ -195,6 +198,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         occurredAt: gps?.occurredAt,
       );
       state = state.copyWith(detail: updated, isLoading: false);
+      ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
@@ -215,6 +219,98 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         occurredAt: gps?.occurredAt,
       );
       state = state.copyWith(detail: updated, isLoading: false);
+      ref.invalidate(todoListProvider);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  // ── 시간 조건 CRUD ─────────────────────────────────────────────
+  // BE PATCH /api/v1/todos/{id}는 timeConditions 배열을 받으면 deleteAll + saveAll
+  // (전체 교체) 한다. 클라에서도 새 배열을 만들어 통째 전송하는 게 깔끔.
+
+  Future<void> addTimeCondition(TimeConditionRequest tc) async {
+    final current = state.detail;
+    if (current == null) return;
+    final list = [
+      ...current.timeConditions.map(TimeConditionRequest.fromCondition),
+      tc,
+    ];
+    await _updateTimeConditions(list);
+  }
+
+  Future<void> updateTimeCondition(int index, TimeConditionRequest tc) async {
+    final current = state.detail;
+    if (current == null) return;
+    final list = current.timeConditions
+        .map(TimeConditionRequest.fromCondition)
+        .toList();
+    if (index < 0 || index >= list.length) return;
+    list[index] = tc;
+    await _updateTimeConditions(list);
+  }
+
+  Future<void> removeTimeCondition(int index) async {
+    final current = state.detail;
+    if (current == null) return;
+    final list = current.timeConditions
+        .map(TimeConditionRequest.fromCondition)
+        .toList();
+    if (index < 0 || index >= list.length) return;
+    list.removeAt(index);
+    await _updateTimeConditions(list);
+  }
+
+  Future<void> _updateTimeConditions(List<TimeConditionRequest> conditions) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final updated = await _service.update(
+        _todoId,
+        timeConditions: conditions,
+      );
+      state = state.copyWith(detail: updated, isLoading: false);
+      ref.invalidate(todoListProvider);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  /// 할 일 본문 인라인 편집 — 상세 페이지의 연필 버튼에서 호출.
+  /// content만 변경하므로 슬롯 재계산이 필요 없어 GPS 없이 전송.
+  Future<void> updateContent({required String content}) async {
+    final current = state.detail;
+    if (current == null) return;
+    final trimmed = content.trim();
+    if (trimmed.isEmpty || trimmed == current.content) return;
+
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final updated = await _service.update(_todoId, content: trimmed);
+      state = state.copyWith(detail: updated, isLoading: false);
+      // 목록 화면이 stale content를 보여주지 않도록 invalidate.
+      // 뒤로가기 직후 같은 카테고리에 머물러도 새 fetch로 갱신됨.
+      ref.invalidate(todoListProvider);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  /// 키워드로 포괄 장소 등록 — `place_search_screen`의 "포괄 장소로 등록" 버튼에서 호출.
+  /// BE PATCH /api/v1/todos/{id}에 placeText만 보내면 BE가 카카오 재검색 + 후보 풀 재구성 + GENERIC 전환.
+  Future<void> setGenericKeyword({required String keyword}) async {
+    state = state.copyWith(isLoading: true, clearError: true);
+    try {
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      final updated = await _service.update(
+        _todoId,
+        placeText: keyword,
+        latitude: gps?.latitude,
+        longitude: gps?.longitude,
+        course: gps?.course,
+        occurredAt: gps?.occurredAt,
+      );
+      state = state.copyWith(detail: updated, isLoading: false);
+      ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
@@ -226,6 +322,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     try {
       final updated = await _service.removePlace(_todoId);
       state = state.copyWith(detail: updated, isLoading: false);
+      ref.invalidate(todoListProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }

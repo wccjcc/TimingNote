@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:geolocator/geolocator.dart';
 
 import '../network/api_exception.dart';
@@ -58,17 +58,34 @@ class LocationService {
       final last = await Geolocator.getLastKnownPosition();
       if (last != null) {
         final age = DateTime.now().difference(last.timestamp);
-        if (age < _kDeviceCacheFreshness) return last;
+        if (age < _kDeviceCacheFreshness) {
+          debugPrint('[GPS] device-lastKnown HIT | age=${age.inSeconds}s '
+              '(freshness=${_kDeviceCacheFreshness.inMinutes}m) | '
+              'lat=${last.latitude.toStringAsFixed(6)} '
+              'lng=${last.longitude.toStringAsFixed(6)} | '
+              'measuredAt=${last.timestamp.toIso8601String()}');
+          return last;
+        }
+        debugPrint('[GPS] device-lastKnown STALE | age=${age.inSeconds}s '
+            '> freshness=${_kDeviceCacheFreshness.inMinutes}m → fresh measure');
+      } else {
+        debugPrint('[GPS] device-lastKnown NULL  | → fresh measure');
       }
       // 캐시 없음 또는 stale → medium 정확도로 정상 측정
     }
 
-    return Geolocator.getCurrentPosition(
+    debugPrint('[GPS] fresh measure start  | accuracy=medium, timeLimit=${_kFixTimeout.inSeconds}s');
+    final pos = await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.medium,
         timeLimit: _kFixTimeout,
       ),
     );
+    debugPrint('[GPS] fresh measure done   | '
+        'lat=${pos.latitude.toStringAsFixed(6)} '
+        'lng=${pos.longitude.toStringAsFixed(6)} | '
+        'measuredAt=${pos.timestamp.toIso8601String()}');
+    return pos;
   }
 
   /// 디바이스 캐시(getLastKnownPosition)의 신선도 한계.

@@ -45,6 +45,9 @@ public class TodoListItemResponse {
     @Schema(description = "알림 활성화 여부")
     private boolean alertEnabled;
 
+    @Schema(description = "현재 활성 슬롯에 등록되어 있는지 (geofence_slots.is_active=true)")
+    private boolean activeSlot;
+
     @Schema(description = "완료 시각")
     private OffsetDateTime completedAt;
 
@@ -55,7 +58,8 @@ public class TodoListItemResponse {
     private String thumbnailUrl;
 
     public static TodoListItemResponse from(Todo todo, String thumbnailUrl,
-                                            Double placeLatitude, Double placeLongitude) {
+                                            Double placeLatitude, Double placeLongitude,
+                                            boolean activeSlot) {
         return TodoListItemResponse.builder()
                 .id(todo.getId())
                 .inputType(todo.getInputType())
@@ -68,6 +72,7 @@ public class TodoListItemResponse {
                 .placeLatitude(placeLatitude)
                 .placeLongitude(placeLongitude)
                 .alertEnabled(todo.isAlertEnabled())
+                .activeSlot(activeSlot)
                 .completedAt(todo.getCompletedAt())
                 .createdAt(todo.getCreatedAt())
                 .thumbnailUrl(thumbnailUrl)

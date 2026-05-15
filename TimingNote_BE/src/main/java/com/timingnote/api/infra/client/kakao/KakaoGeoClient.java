@@ -1,6 +1,7 @@
 package com.timingnote.api.infra.client.kakao;
 
 import com.timingnote.api.infra.client.kakao.dto.KakaoReverseGeocodeResponse;
+import com.timingnote.api.infra.client.kakao.dto.KakaoRegionCodeResponse;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
@@ -21,6 +22,17 @@ public interface KakaoGeoClient {
      */
     @GetExchange("/coord2address.json")
     Mono<KakaoReverseGeocodeResponse> reverseGeocode(
+            @RequestParam("x") String x,
+            @RequestParam("y") String y
+    );
+
+    /**
+     * 좌표 기준 행정구역 코드/이름 조회.
+     * @param x 경도 (longitude)
+     * @param y 위도 (latitude)
+     */
+    @GetExchange("/coord2regioncode.json")
+    Mono<KakaoRegionCodeResponse> coordToRegionCode(
             @RequestParam("x") String x,
             @RequestParam("y") String y
     );
