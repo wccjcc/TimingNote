@@ -8,13 +8,13 @@ import 'package:go_router/go_router.dart';
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
-import '../../../../shared/widgets/neon_button.dart';
+import '../widgets/home_recommend_section.dart';
+import '../viewmodel/home_recommendation_viewmodel.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../../notification/viewmodel/notification_viewmodel.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/viewmodel/todo_input_viewmodel.dart';
-import '../../todo/viewmodel/todo_list_viewmodel.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -140,7 +140,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _isInputMode = false;
       });
       ref.read(todoInputProvider.notifier).reset();
-      ref.invalidate(todoListProvider);
     }
     if (next.phase == InputSubmitPhase.error) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -154,12 +153,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     ref.listen<TodoInputState>(todoInputProvider, _onStateChanged);
     final inputState = ref.watch(todoInputProvider);
-    final todoListState = ref.watch(todoListProvider);
     final unreadCountAsync = ref.watch(unreadNotificationCountProvider);
     final unreadCount = unreadCountAsync.maybeWhen(
       data: (count) => count,
       orElse: () => 0,
     );
+    final recommendationState = ref.watch(homeRecommendationProvider);
     // 내 장소: 등록/삭제 시 invalidate되어 자동 갱신됨. 로딩/에러 시 빈 목록 fallback
     final userPlaces = ref.watch(userPlacesProvider).maybeWhen(
       data: (list) => list,
@@ -178,32 +177,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: CustomScrollView(
                     slivers: [
                       SliverToBoxAdapter(child: _HomeHeader(unreadCount: unreadCount)),
-                      if (todoListState.isLoading && todoListState.items.isEmpty)
-                        const SliverFillRemaining(child: Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple)))
-                      else if (todoListState.items.isEmpty)
-                        const SliverFillRemaining(
-                          child: Center(child: Text('아직 등록된 할 일이 없어요.\n아래에서 첫 번째 기록을 남겨보세요!', textAlign: TextAlign.center, style: TextStyle(color: SpaceColors.white50, height: 1.5))),
-                        )
-                      else
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final todo = todoListState.items[index];
-                                return _TimelineCard(
-                                  isLeft: index % 2 == 0,
-                                  distance: todo.resolvedPlaceLabel ?? '어디서든 가능',
-                                  title: todo.content,
-                                  memo: todo.category != null ? TodoCategory.labels[todo.category] ?? '일반' : '나중에 확인',
-                                  planetAsset: 'assets/images/냥냥이별1.png',
-                                  onComplete: () => ref.read(todoListProvider.notifier).toggleStatus(todo.id),
-                                );
-                              },
-                              childCount: todoListState.items.length,
-                            ),
-                          ),
+                      SliverToBoxAdapter(
+                        child: HomeRecommendSection(
+                          currentLocationLabel: recommendationState.currentLocationLabel,
+                          items: recommendationState.items,
+                          isLoading: recommendationState.isLoading,
+                          errorMessage: recommendationState.error,
+                          currentLatitude: recommendationState.currentLatitude,
+                          currentLongitude: recommendationState.currentLongitude,
+                          onCompleteTodo: (todoId) => ref
+                              .read(homeRecommendationProvider.notifier)
+                              .completeTodo(todoId),
+                          onRefresh: () => ref
+                              .read(homeRecommendationProvider.notifier)
+                              .load(),
                         ),
+                      ),
                       const SliverToBoxAdapter(child: SizedBox(height: 140)),
                     ],
                   ),
@@ -225,7 +214,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     builder: (context, value, child) {
                       return BackdropFilter(
                         filter: ui.ImageFilter.blur(sigmaX: 10 * value, sigmaY: 10 * value),
-                        child: Container(color: Colors.black.withOpacity(0.5 * value)),
+                        child: Container(color: Colors.black.withValues(alpha: 0.5 * value)),
                       );
                     },
                   ),
@@ -379,10 +368,8 @@ class _HomeHeader extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [const Icon(Icons.location_on, color: SpaceColors.neonPurple, size: 14), const SizedBox(width: 4), Text('현재 위치: 광주 상무지구', style: TextStyle(color: SpaceColors.neonPurple.withOpacity(0.8), fontSize: 11))]),
-            const SizedBox(height: 8),
             const Text('> 지금 할 수 있어요!', style: TextStyle(color: Colors.white, fontSize: 24, fontFamily: 'Galmuri11', fontWeight: FontWeight.bold, shadows: [Shadow(color: Color(0x7FA78BFA), blurRadius: 10, offset: Offset(0, 4))])),
-          ],
+          ], 
         ),
         _NotificationBadge(
           count: unreadCount,
@@ -402,33 +389,9 @@ class _NotificationBadge extends StatelessWidget {
     onTap: onTap,
     child: Stack(clipBehavior: Clip.none, children: [
       Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xCC2A2A4A), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0x4CA78BFA)), boxShadow: const [BoxShadow(color: Colors.black45, offset: Offset(0, 4))]), child: const Icon(Icons.notifications_none, color: Colors.white, size: 24)),
-      Positioned(right: -4, top: -4, child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: SpaceColors.neonPink, shape: BoxShape.circle, border: Border.all(color: SpaceColors.space950, width: 2), boxShadow: [BoxShadow(color: SpaceColors.neonPink.withOpacity(0.8), blurRadius: 8)]), constraints: const BoxConstraints(minWidth: 20, minHeight: 20), child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center))),
+      Positioned(right: -4, top: -4, child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: SpaceColors.neonPink, shape: BoxShape.circle, border: Border.all(color: SpaceColors.space950, width: 2), boxShadow: [BoxShadow(color: SpaceColors.neonPink.withValues(alpha: 0.8), blurRadius: 8)]), constraints: const BoxConstraints(minWidth: 20, minHeight: 20), child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center))),
     ]),
   );
-}
-
-class _TimelineCard extends StatelessWidget {
-  const _TimelineCard({required this.isLeft, required this.distance, required this.title, required this.memo, required this.planetAsset, required this.onComplete, this.opacity = 1.0});
-  final bool isLeft;
-  final String distance, title, memo, planetAsset;
-  final VoidCallback onComplete;
-  final double opacity;
-  @override
-  Widget build(BuildContext context) => Opacity(opacity: opacity, child: IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-    Expanded(child: isLeft ? _buildContent(context) : _buildPlanet()),
-    SizedBox(width: 40, child: Stack(alignment: Alignment.center, children: [Container(width: 2, color: Colors.white.withOpacity(0.2)), Container(width: 10, height: 10, decoration: const BoxDecoration(color: SpaceColors.neonLavender, shape: BoxShape.circle))])),
-    Expanded(child: isLeft ? _buildPlanet() : _buildContent(context)),
-  ])));
-  Widget _buildContent(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(vertical: 20), child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: isLeft ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
-    Text(distance, style: const TextStyle(color: SpaceColors.neonPurple, fontSize: 10, letterSpacing: 0.5), maxLines: 1, overflow: TextOverflow.ellipsis),
-    const SizedBox(height: 4),
-    Text(title, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold), textAlign: isLeft ? TextAlign.right : TextAlign.left),
-    const SizedBox(height: 4),
-    Text(memo, style: const TextStyle(color: Color(0x99E9D5FF), fontSize: 11), textAlign: isLeft ? TextAlign.right : TextAlign.left),
-    const SizedBox(height: 10),
-    NeonButton(label: '완료', onTap: onComplete, height: 32, isPrimary: true),
-  ]));
-  Widget _buildPlanet() => Center(child: Container(width: 70, height: 70, decoration: BoxDecoration(image: DecorationImage(image: AssetImage(planetAsset), fit: BoxFit.contain))));
 }
 
 class _BottomInputBar extends StatelessWidget {
@@ -489,9 +452,9 @@ class _BottomInputBar extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: SpaceColors.space900.withOpacity(0.9),
+                color: SpaceColors.space900.withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+                border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.2), width: 2),
               ),
               child: Row(children: [
                 _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
@@ -520,8 +483,8 @@ class _BottomInputBar extends StatelessWidget {
                                       style: const TextStyle(color: Colors.white, fontSize: 13),
                                     ),
                                   ),
-                                  backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
-                                  side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
+                                  backgroundColor: SpaceColors.neonPurple.withValues(alpha: 0.3),
+                                  side: BorderSide(color: SpaceColors.neonPurple.withValues(alpha: 0.6)),
                                   deleteIconColor: Colors.white70,
                                   onDeleted: onClearPlace,
                                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -615,9 +578,9 @@ class _ActionMenu extends StatelessWidget {
         child: Container(
           width: 170,
           decoration: BoxDecoration(
-            color: SpaceColors.space900.withOpacity(0.9),
+            color: SpaceColors.space900.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3)),
+            border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.3)),
           ),
           padding: const EdgeInsets.all(8),
           child: Column(
