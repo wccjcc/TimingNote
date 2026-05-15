@@ -20,12 +20,10 @@ class HomeRecommendationItem {
 
 class HomeRecommendationResult {
   const HomeRecommendationResult({
-    required this.logId,
     required this.currentLocationLabel,
     required this.items,
   });
 
-  final int? logId;
   final String currentLocationLabel;
   final List<HomeRecommendationItem> items;
 }

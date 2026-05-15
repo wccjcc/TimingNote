@@ -51,7 +51,6 @@ class HomeRecommendationService {
         .toList();
 
     return HomeRecommendationResult(
-      logId: json['logId'] as int?,
       currentLocationLabel: label,
       items: items,
     );
