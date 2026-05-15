@@ -214,7 +214,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     builder: (context, value, child) {
                       return BackdropFilter(
                         filter: ui.ImageFilter.blur(sigmaX: 10 * value, sigmaY: 10 * value),
-                        child: Container(color: Colors.black.withOpacity(0.5 * value)),
+                        child: Container(color: Colors.black.withValues(alpha: 0.5 * value)),
                       );
                     },
                   ),
@@ -389,7 +389,7 @@ class _NotificationBadge extends StatelessWidget {
     onTap: onTap,
     child: Stack(clipBehavior: Clip.none, children: [
       Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xCC2A2A4A), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0x4CA78BFA)), boxShadow: const [BoxShadow(color: Colors.black45, offset: Offset(0, 4))]), child: const Icon(Icons.notifications_none, color: Colors.white, size: 24)),
-      Positioned(right: -4, top: -4, child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: SpaceColors.neonPink, shape: BoxShape.circle, border: Border.all(color: SpaceColors.space950, width: 2), boxShadow: [BoxShadow(color: SpaceColors.neonPink.withOpacity(0.8), blurRadius: 8)]), constraints: const BoxConstraints(minWidth: 20, minHeight: 20), child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center))),
+      Positioned(right: -4, top: -4, child: Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: SpaceColors.neonPink, shape: BoxShape.circle, border: Border.all(color: SpaceColors.space950, width: 2), boxShadow: [BoxShadow(color: SpaceColors.neonPink.withValues(alpha: 0.8), blurRadius: 8)]), constraints: const BoxConstraints(minWidth: 20, minHeight: 20), child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold), textAlign: TextAlign.center))),
     ]),
   );
 }
@@ -452,9 +452,9 @@ class _BottomInputBar extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: SpaceColors.space900.withOpacity(0.9),
+                color: SpaceColors.space900.withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.2), width: 2),
+                border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.2), width: 2),
               ),
               child: Row(children: [
                 _IconButton(icon: showActionMenu ? Icons.close : Icons.add, onTap: onToggleMenu),
@@ -483,8 +483,8 @@ class _BottomInputBar extends StatelessWidget {
                                       style: const TextStyle(color: Colors.white, fontSize: 13),
                                     ),
                                   ),
-                                  backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
-                                  side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.6)),
+                                  backgroundColor: SpaceColors.neonPurple.withValues(alpha: 0.3),
+                                  side: BorderSide(color: SpaceColors.neonPurple.withValues(alpha: 0.6)),
                                   deleteIconColor: Colors.white70,
                                   onDeleted: onClearPlace,
                                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -578,9 +578,9 @@ class _ActionMenu extends StatelessWidget {
         child: Container(
           width: 170,
           decoration: BoxDecoration(
-            color: SpaceColors.space900.withOpacity(0.9),
+            color: SpaceColors.space900.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.3)),
+            border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.3)),
           ),
           padding: const EdgeInsets.all(8),
           child: Column(

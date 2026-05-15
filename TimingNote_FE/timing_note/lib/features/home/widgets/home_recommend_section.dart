@@ -158,7 +158,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       Text(
                         widget.currentLocationLabel,
                         style: TextStyle(
-                          color: SpaceColors.neonPurple.withOpacity(0.8),
+                          color: SpaceColors.neonPurple.withValues(alpha: 0.8),
                           fontSize: 11,
                         ),
                       ),
@@ -457,7 +457,7 @@ class _CenterPlanet extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: SpaceColors.neonPurple.withOpacity(0.16),
+                    color: SpaceColors.neonPurple.withValues(alpha: 0.16),
                     blurRadius: 24,
                     spreadRadius: 2,
                   ),
@@ -471,7 +471,7 @@ class _CenterPlanet extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: SpaceColors.neonViolet.withOpacity(0.14),
+                    color: SpaceColors.neonViolet.withValues(alpha: 0.14),
                     blurRadius: 14,
                     spreadRadius: 0,
                   ),
@@ -558,7 +558,7 @@ class _NodeStubState extends State<_NodeStub> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: widget.color.withOpacity(widget.isActive ? 0.52 : 0.34),
+                        color: widget.color.withValues(alpha: widget.isActive ? 0.52 : 0.34),
                         blurRadius: widget.isActive ? 18 : 12,
                         spreadRadius: widget.isActive ? 2 : 1,
                       ),
@@ -575,7 +575,7 @@ class _NodeStubState extends State<_NodeStub> {
                         color: SpaceColors.neonPink,
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.86),
+                          color: Colors.white.withValues(alpha: 0.86),
                           width: 1,
                         ),
                       ),
@@ -595,9 +595,9 @@ class _NodeStubState extends State<_NodeStub> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: SpaceColors.space900.withOpacity(0.95),
+                      color: SpaceColors.space900.withValues(alpha: 0.95),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: widget.color.withOpacity(0.7)),
+                      border: Border.all(color: widget.color.withValues(alpha: 0.7)),
                     ),
                     child: Text(
                       widget.placeLabel,
@@ -646,18 +646,18 @@ class _CardStub extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
           decoration: BoxDecoration(
             color: isActive
-                ? categoryColor.withOpacity(0.20)
-                : SpaceColors.space800.withOpacity(0.64),
+                ? categoryColor.withValues(alpha: 0.20)
+                : SpaceColors.space800.withValues(alpha: 0.64),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isActive
-                  ? categoryColor.withOpacity(0.9)
-                  : categoryColor.withOpacity(0.35),
+                  ? categoryColor.withValues(alpha: 0.9)
+                  : categoryColor.withValues(alpha: 0.35),
               width: isActive ? 1.5 : 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: categoryColor.withOpacity(isActive ? 0.30 : 0.20),
+                color: categoryColor.withValues(alpha: isActive ? 0.30 : 0.20),
                 blurRadius: isActive ? 22 : 18,
                 spreadRadius: isActive ? 2 : 1,
               ),
@@ -672,9 +672,9 @@ class _CardStub extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: categoryColor.withOpacity(0.18),
+                        color: categoryColor.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(9),
-                        border: Border.all(color: categoryColor.withOpacity(0.55)),
+                        border: Border.all(color: categoryColor.withValues(alpha: 0.55)),
                       ),
                       child: Text(
                         _CategoryPalette.labelForCategory(item.category),
@@ -726,10 +726,10 @@ class _CardStub extends StatelessWidget {
                       minimumSize: const Size(76, 40),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       foregroundColor: Colors.white,
-                      backgroundColor: SpaceColors.neonPurple.withOpacity(0.3),
+                      backgroundColor: SpaceColors.neonPurple.withValues(alpha: 0.3),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(color: SpaceColors.neonPurple.withOpacity(0.78)),
+                        side: BorderSide(color: SpaceColors.neonPurple.withValues(alpha: 0.78)),
                       ),
                       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                     ),
@@ -787,9 +787,9 @@ class _ActivePlaceInfo extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: SpaceColors.space900.withOpacity(0.94),
+        color: SpaceColors.space900.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.7)),
+        border: Border.all(color: color.withValues(alpha: 0.7)),
       ),
       child: Text(
         '$place ($distance)',
@@ -814,7 +814,7 @@ class _OrbitRing extends StatelessWidget {
         height: radius * 2,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.20), width: 1),
+          border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.20), width: 1),
         ),
       );
 }
@@ -856,15 +856,15 @@ class _RadarSweep extends StatelessWidget {
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
               colors: [
-                SpaceColors.neonPurple.withOpacity(0.0),
-                SpaceColors.neonPurple.withOpacity(0.09 * opacityFactor),
-                SpaceColors.neonPurple.withOpacity(0.30 * opacityFactor),
+                SpaceColors.neonPurple.withValues(alpha: 0.0),
+                SpaceColors.neonPurple.withValues(alpha: 0.09 * opacityFactor),
+                SpaceColors.neonPurple.withValues(alpha: 0.30 * opacityFactor),
               ],
               stops: const [0.0, 0.68, 1.0],
             ),
             boxShadow: [
               BoxShadow(
-                color: SpaceColors.neonPurple.withOpacity(0.42 * opacityFactor),
+                color: SpaceColors.neonPurple.withValues(alpha: 0.42 * opacityFactor),
                 blurRadius: 12,
                 spreadRadius: 0.5,
               ),
@@ -988,11 +988,11 @@ class _LocationSkeleton extends StatelessWidget {
           end: Alignment.centerRight,
           stops: [0.0, start, shimmerCenter, end, 1.0],
           colors: [
-            SpaceColors.neonPurple.withOpacity(0.36),
-            SpaceColors.neonPurple.withOpacity(0.56),
-            SpaceColors.neonPurple.withOpacity(0.86),
-            SpaceColors.neonPurple.withOpacity(0.56),
-            SpaceColors.neonPurple.withOpacity(0.36),
+            SpaceColors.neonPurple.withValues(alpha: 0.36),
+            SpaceColors.neonPurple.withValues(alpha: 0.56),
+            SpaceColors.neonPurple.withValues(alpha: 0.86),
+            SpaceColors.neonPurple.withValues(alpha: 0.56),
+            SpaceColors.neonPurple.withValues(alpha: 0.36),
           ],
         ),
         borderRadius: BorderRadius.circular(3),
@@ -1050,9 +1050,9 @@ class _SkeletonCard extends StatelessWidget {
       width: double.infinity,
       height: height,
       decoration: BoxDecoration(
-        color: SpaceColors.space800.withOpacity(opacity),
+        color: SpaceColors.space800.withValues(alpha: opacity),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: SpaceColors.neonPurple.withOpacity(0.28 + (0.22 * wave))),
+        border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.28 + (0.22 * wave))),
       ),
     );
   }
