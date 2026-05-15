@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/api_error_message.dart';
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
+import '../../../shared/util/show_spring_dialog.dart';
 import '../../../shared/widgets/app_error_view.dart';
 import '../../../shared/widgets/app_loading_view.dart';
 import '../../../shared/widgets/cosmic_background.dart';
@@ -178,7 +179,7 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
   }
 
   Future<bool> _showDeleteConfirm(UserPlace place) async {
-    final result = await showDialog<bool>(
+    final result = await showSpringDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
@@ -224,56 +225,8 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
     return result ?? false;
   }
 
-  // ── ⋯ menu ──────────────────────────────────────────────────────────────
-  Future<void> _onMoreTapped(UserPlace place, List<UserPlace> all) async {
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: SpaceColors.space900,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.edit,
-                  color: SpaceColors.neonLavender,
-                ),
-                title: const Text(
-                  '별칭 변경',
-                  style: TextStyle(color: SpaceColors.white),
-                ),
-                onTap: () => Navigator.of(sheetContext).pop('edit'),
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: SpaceColors.error,
-                ),
-                title: const Text(
-                  '삭제',
-                  style: TextStyle(color: SpaceColors.error),
-                ),
-                onTap: () => Navigator.of(sheetContext).pop('delete'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (!mounted) return;
-    switch (result) {
-      case 'edit':
-        await _renameAlias(place, all);
-        break;
-      case 'delete':
-        await _deleteByMenu(place);
-        break;
-    }
-  }
+  // ⋯ 메뉴 패턴 제거 (2026-05-14) — 시간 조건 카드와 동일하게 카드 탭 + 우측 ✏️ ️/🗑️ 아이콘으로
+  // 2뎁스(⋯ → 시트 → 옵션) → 1뎁스(카드/아이콘 탭 → 즉시 액션)로 단축. 액션 3개 이상으로 늘면 ⋯ 복귀 검토.
 
   // ── Helpers ─────────────────────────────────────────────────────────────
   Color _countBadgeColor(int count) {
@@ -398,152 +351,233 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
             );
           }
           final place = places[index];
-          return Dismissible(
-            key: ValueKey('user-place-${place.id}'),
-            direction: DismissDirection.endToStart,
-            confirmDismiss: (_) => _showDeleteConfirm(place),
-            onDismissed: (_) => _onSwipeDismissed(place),
-            background: _DismissBackground(),
-            child: _PlaceCard(
-              place: place,
-              indexHint: index,
-              onMoreTap: () => _onMoreTapped(place, places),
-            ),
+          // Dismissible(swipe-to-delete) 제거 (2026-05-14) — 우측 🗑️ IconButton으로 삭제 의도가
+          // 명시적이라 swipe는 중복 + 가끔 의도치 않은 swipe로 오삭제 위험.
+          return _PlaceCard(
+            place: place,
+            indexHint: index,
+            onEditTap: () => _renameAlias(place, places),
+            onDeleteTap: () => _deleteByMenu(place),
           );
         },
       ),
     );
   }
 
-  // Swipe로 dismiss된 직후 호출 — 카드는 이미 화면에서 사라진 상태
-  void _onSwipeDismissed(UserPlace place) {
-    final list = _places;
-    if (list == null) return;
-    final originalIndex = list.indexWhere((p) => p.id == place.id);
-    if (originalIndex < 0) return;
-    setState(() {
-      _places = [...list]..removeAt(originalIndex);
-    });
-    _deleteOnServer(place, originalIndex);
-  }
 }
 
-class _PlaceCard extends StatelessWidget {
+/// 내 장소 카드 — 카드 탭/우측 ✏️ 모두 별칭 변경, 우측 🗑️는 삭제.
+/// 카드를 누르는 순간 "수정 모드 진입" 시그널을 강하게 주기 위해 복합 시각 효과:
+/// - 카드 외곽 보라 글로우 boost (boxShadow)
+/// - SpaceCard border 색 white12 → neonPurple 진해짐
+/// - ✏️ 아이콘 색 white54 → neonPurple + scale 1.0 → 1.15
+/// - 전체 카드 scale 0.97 (TapBounce 효과 통합)
+/// 모두 동시에 발동해 "이 카드를 누르면 편집이 시작된다"를 명확히 전달.
+class _PlaceCard extends StatefulWidget {
   const _PlaceCard({
     required this.place,
     required this.indexHint,
-    required this.onMoreTap,
+    required this.onEditTap,
+    required this.onDeleteTap,
   });
 
   final UserPlace place;
   final int indexHint;
-  final VoidCallback onMoreTap;
-
-  IconData get _icon =>
-      indexHint == 0 ? Icons.home_outlined : Icons.place_outlined;
-  Color get _iconColor =>
-      indexHint == 0 ? SpaceColors.neonLavender : SpaceColors.neonViolet;
+  final VoidCallback onEditTap;
+  final VoidCallback onDeleteTap;
 
   @override
-  Widget build(BuildContext context) {
-    return SpaceCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: SpaceColors.space800,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _iconColor.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Icon(_icon, size: 20, color: _iconColor),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    place.aliasName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: SpaceTypography.pixelFontFamily,
-                      color: SpaceColors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    place.placeName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: SpaceColors.white,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    place.displayAddress,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: SpaceColors.neonLavender.withValues(alpha: 0.45),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: onMoreTap,
-              icon: Icon(
-                Icons.more_horiz,
-                size: 20,
-                // P8: alpha 0.5 → 0.75 — 묻혀 보이는 문제 해소
-                color: SpaceColors.neonLavender.withValues(alpha: 0.75),
-              ),
-              tooltip: '메뉴',
-            ),
-          ],
-        ),
-      );
-  }
+  State<_PlaceCard> createState() => _PlaceCardState();
 }
 
-class _DismissBackground extends StatelessWidget {
+class _PlaceCardState extends State<_PlaceCard>
+    with SingleTickerProviderStateMixin {
+  // 누름 효과를 AnimationController로 — 빠른 탭에서도 최소 forward 완료까지 강조 보장.
+  // boolean setState 기반은 down→up이 50ms 안에 끝나는 빠른 탭에서 transition이
+  // 시작도 안 한 채 reset돼 효과가 거의 안 보이는 문제 발생.
+  late final AnimationController _press;
+  Future<void>? _forwardFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _press = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),  // 강해지는 시간
+      reverseDuration: const Duration(milliseconds: 260), // 사그라드는 시간 (조금 더 길게)
+    );
+  }
+
+  @override
+  void dispose() {
+    _press.dispose();
+    super.dispose();
+  }
+
+  IconData get _icon =>
+      widget.indexHint == 0 ? Icons.home_outlined : Icons.place_outlined;
+  Color get _iconColor =>
+      widget.indexHint == 0 ? SpaceColors.neonLavender : SpaceColors.neonViolet;
+
+  void _onTapDown(_) {
+    _forwardFuture = _press.forward();
+  }
+
+  Future<void> _onTapUp(_) async {
+    // 빠른 탭: forward가 끝나기 전 onTapUp이 와도 forward 완료까지 기다린 후 reverse.
+    // → 짧은 탭에서도 효과가 최소 440ms 동안 보임 (forward 180 + reverse 260).
+    await _forwardFuture;
+    if (mounted) _press.reverse();
+  }
+
+  Future<void> _onTapCancel() async {
+    await _forwardFuture;
+    if (mounted) _press.reverse();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.centerRight,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: BoxDecoration(
-        color: SpaceColors.error.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: SpaceColors.error.withValues(alpha: 0.5),
-        ),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.delete_outline, color: SpaceColors.error, size: 22),
-          SizedBox(width: 6),
-          Text(
-            '삭제',
-            style: TextStyle(
-              color: SpaceColors.error,
-              fontWeight: FontWeight.bold,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.onEditTap,
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      onTapCancel: _onTapCancel,
+      child: AnimatedBuilder(
+        animation: _press,
+        builder: (context, child) {
+          // easeOut으로 곡선 — peak가 빠르게 도달.
+          final t = Curves.easeOut.transform(_press.value);
+          final cardScale = 1.0 - 0.03 * t;          // 1.0 → 0.97
+          final iconScale = 1.0 + 0.18 * t;          // 1.0 → 1.18
+          final iconColor = Color.lerp(
+                Colors.white54,
+                SpaceColors.neonPurple,
+                t,
+              ) ??
+              Colors.white54;
+          final borderColor = Color.lerp(
+                SpaceColors.white.withValues(alpha: 0.12),
+                SpaceColors.neonPurple.withValues(alpha: 0.7),
+                t,
+              );
+
+          return Transform.scale(
+            scale: cardScale,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                // 누름 강도에 비례한 글로우 — peak에서 보라 빛이 외곽으로 퍼짐.
+                boxShadow: t > 0.01
+                    ? [
+                        BoxShadow(
+                          color: SpaceColors.neonPurple
+                              .withValues(alpha: 0.45 * t),
+                          blurRadius: 18 * t,
+                          spreadRadius: 1 * t,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: SpaceCard(
+                padding: const EdgeInsets.all(14),
+                borderColor: borderColor,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: SpaceColors.space800,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _iconColor.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Icon(_icon, size: 20, color: _iconColor),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            widget.place.aliasName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: SpaceTypography.pixelFontFamily,
+                              color: SpaceColors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.place.placeName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: SpaceColors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.place.displayAddress,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: SpaceColors.neonLavender
+                                  .withValues(alpha: 0.45),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // ✏️ — 누름 진행도 t에 따라 색 + scale 동시 강조.
+                    IconButton(
+                      onPressed: widget.onEditTap,
+                      tooltip: '수정',
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      icon: Transform.scale(
+                        scale: iconScale,
+                        child: Icon(
+                          Icons.edit_outlined,
+                          color: iconColor,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    IconButton(
+                      onPressed: widget.onDeleteTap,
+                      tooltip: '삭제',
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      icon: const Icon(
+                        Icons.remove_circle_outline,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
