@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
 import '../../../shared/util/navigation_guard.dart';
+import '../../../shared/widgets/tap_bounce.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/util/todo_type_style.dart';
 import '../../todo/widgets/native_kakao_map.dart';
@@ -621,12 +622,9 @@ class _TodoMiniCard extends StatelessWidget {
     final category = todo.category;
     final categoryLabel = category != null ? TodoCategory.labels[category] : null;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
+    return TapBounce(
+      onTap: onTap,
+      child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             color: SpaceColors.space800,
@@ -731,7 +729,6 @@ class _TodoMiniCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
   }
 }

@@ -88,7 +88,9 @@ class TodoListNotifier extends Notifier<TodoListState> {
     return const TodoListState();
   }
 
-  /// 필터 변경 + 전체 재로드
+  /// 필터 변경 + 전체 재로드.
+  /// 동일 필터로 호출 시 noop — 칩 재탭/검색 컨텍스트 갱신 등에서 불필요한 BE 호출 차단.
+  /// 호출자(UI)에서 막아도 animation 끝 시점 listener 등 우회 경로가 있어 viewmodel 측이 최종 가드.
   Future<void> setFilters({
     String? status,
     bool clearStatus = false,
@@ -97,6 +99,18 @@ class TodoListNotifier extends Notifier<TodoListState> {
     String? placeType,
     bool clearPlaceType = false,
   }) async {
+    // 호출자가 보낸 의도 = clearXxx면 null, 아니면 xxx 그대로
+    final intendedStatus = clearStatus ? null : status;
+    final intendedTab = clearTab ? null : tab;
+    final intendedPlaceType = clearPlaceType ? null : placeType;
+
+    // 현재 state와 정확히 동일하면 reload 불필요
+    if (intendedStatus == state.statusFilter &&
+        intendedTab == state.tabFilter &&
+        intendedPlaceType == state.placeTypeFilter) {
+      return;
+    }
+
     state = state.copyWith(
       statusFilter: status,
       clearStatusFilter: clearStatus,

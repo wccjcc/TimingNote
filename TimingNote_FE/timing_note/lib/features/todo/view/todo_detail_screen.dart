@@ -10,6 +10,7 @@ import '../../../core/location/location_provider.dart';
 
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
+import '../../../shared/util/show_spring_dialog.dart';
 import '../../../shared/widgets/cosmic_background.dart';
 import '../../../shared/widgets/neon_button.dart';
 import '../../../shared/widgets/space_card.dart';
@@ -277,7 +278,7 @@ class TodoDetailScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSpringDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: SpaceColors.space900,
@@ -637,7 +638,7 @@ class TodoDetailScreen extends ConsumerWidget {
     int index,
     TimeCondition tc,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSpringDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A2E),
@@ -1136,7 +1137,7 @@ class _CandidateSectionState extends ConsumerState<_CandidateSection> {
   /// "특정 장소 지정" — 후보 1개를 골라 SPECIFIC 전환. BE setTodoPlace로 위임.
   /// 다른 후보들은 BE에서 delete 처리되어 후보 풀이 단일 매장으로 정리된다.
   Future<void> _confirmPickSpecific(TodoCandidate candidate) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showSpringDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A2E),
