@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/location/location_provider.dart';
 import '../../todo/model/todo.dart';
@@ -72,7 +73,11 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
       final result = await _recommendationService.getRecommendations(
         latitude: gps.latitude,
         longitude: gps.longitude,
+        radiusM: 2000,
         course: gps.course,
+      );
+      debugPrint(
+        '[RECO] load success: label=${result.currentLocationLabel}, items=${result.items.length}',
       );
 
       state = state.copyWith(
@@ -83,6 +88,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
         currentLongitude: gps.longitude,
       );
     } catch (e) {
+      debugPrint('[RECO] load error: $e');
       state = state.copyWith(
         isLoading: false,
         error: '추천 정보를 불러오지 못했어요.',
@@ -100,9 +106,28 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
       course: gps?.course,
       occurredAt: gps?.occurredAt,
     );
-    state = state.copyWith(
-      items: state.items.where((e) => e.todoId != todoId).toList(),
-    );
+    final remaining = state.items.where((e) => e.todoId != todoId).toList();
+    final groupCounts = <int, int>{};
+    for (final item in remaining) {
+      groupCounts[item.groupId] = (groupCounts[item.groupId] ?? 0) + 1;
+    }
+    final normalized = remaining
+        .map(
+          (e) => HomeRecommendationItem(
+            groupId: e.groupId,
+            todoId: e.todoId,
+            rank: e.rank,
+            todoCount: groupCounts[e.groupId] ?? 0,
+            category: e.category,
+            title: e.title,
+            place: e.place,
+            distanceMeters: e.distanceMeters,
+            placeLat: e.placeLat,
+            placeLng: e.placeLng,
+          ),
+        )
+        .toList();
+    state = state.copyWith(items: normalized);
   }
 }
 
