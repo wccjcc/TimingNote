@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../shared/theme/colors.dart';
+import '../model/home_recommendation.dart';
 import '../../todo/model/todo.dart';
 
 String _formatDistance(double meters) {
@@ -16,9 +17,21 @@ class HomeRecommendSection extends StatefulWidget {
   const HomeRecommendSection({
     super.key,
     required this.currentLocationLabel,
+    required this.items,
+    required this.isLoading,
+    required this.onCompleteTodo,
+    this.currentLatitude,
+    this.currentLongitude,
+    this.errorMessage,
   });
 
   final String currentLocationLabel;
+  final List<HomeRecommendationItem> items;
+  final bool isLoading;
+  final String? errorMessage;
+  final double? currentLatitude;
+  final double? currentLongitude;
+  final Future<void> Function(int todoId) onCompleteTodo;
 
   @override
   State<HomeRecommendSection> createState() => _HomeRecommendSectionState();
@@ -31,58 +44,27 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
   final Set<int> _removingIds = <int>{};
   static const double _currentLat = 35.1530;
   static const double _currentLng = 126.8526;
-
-  static const List<_RecommendItem> _seedItems = <_RecommendItem>[
-    _RecommendItem(
-      id: 1,
-      category: TodoCategory.acquire,
-      place: 'Nearby Cafe',
-      title: 'Buy cat snacks',
-      distanceMeters: 120,
-      placeLat: 35.1542,
-      placeLng: 126.8566,
-      accent: _CategoryPalette.acquireColor,
-    ),
-    _RecommendItem(
-      id: 2,
-      category: TodoCategory.social,
-      place: 'Town Hall',
-      title: 'Call teammate',
-      distanceMeters: 280,
-      placeLat: 35.1504,
-      placeLng: 126.8495,
-      accent: _CategoryPalette.socialColor,
-    ),
-    _RecommendItem(
-      id: 3,
-      category: TodoCategory.health,
-      place: 'Park',
-      title: 'Take a short walk',
-      distanceMeters: 60,
-      placeLat: 35.1524,
-      placeLng: 126.8548,
-      accent: _CategoryPalette.healthColor,
-    ),
-    _RecommendItem(
-      id: 4,
-      category: TodoCategory.maintenance,
-      place: 'Convenience Store',
-      title: 'Buy tissue',
-      distanceMeters: 320,
-      placeLat: 35.1499,
-      placeLng: 126.8532,
-      accent: _CategoryPalette.maintenanceColor,
-    ),
-  ];
-
-  List<_RecommendItem> _items = List<_RecommendItem>.from(_seedItems);
+  List<HomeRecommendationItem> _items = <HomeRecommendationItem>[];
 
   @override
   void initState() {
     super.initState();
+    _items = List<HomeRecommendationItem>.from(widget.items);
     _controller =
         AnimationController(vsync: this, duration: const Duration(seconds: 14))
           ..repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeRecommendSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items) {
+      _items = List<HomeRecommendationItem>.from(widget.items);
+      _removingIds.clear();
+      if (_activeIndex != null && _activeIndex! >= _items.length) {
+        _activeIndex = null;
+      }
+    }
   }
 
   @override
@@ -98,33 +80,30 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
   Future<void> _onTapCompleteItem(int index) async {
     if (index < 0 || index >= _items.length) return;
     final item = _items[index];
-    if (_removingIds.contains(item.id)) return;
+    if (_removingIds.contains(item.todoId)) return;
 
     // TODO: 완료 API 연결 지점
     // - 예시: await _completeRecommendation(item.id);
     // - 현재는 UI 동작 검증을 위해 즉시 성공으로 처리한다.
-    await _completeRecommendation(item.id);
+    try {
+      await widget.onCompleteTodo(item.todoId);
+    } catch (_) {
+      return;
+    }
 
     setState(() {
-      _removingIds.add(item.id);
+      _removingIds.add(item.todoId);
       if (_activeIndex == index) _activeIndex = null;
     });
 
     Future<void>.delayed(const Duration(milliseconds: 360), () {
       if (!mounted) return;
       setState(() {
-        final removeIndex = _items.indexWhere((e) => e.id == item.id);
+        final removeIndex = _items.indexWhere((e) => e.todoId == item.todoId);
         if (removeIndex >= 0) _items.removeAt(removeIndex);
-        _removingIds.remove(item.id);
+        _removingIds.remove(item.todoId);
       });
     });
-  }
-
-  Future<void> _completeRecommendation(int todoId) async {
-    // TODO: 백엔드 완료 API 연결
-    // 예시:
-    // await ref.read(recommendRepositoryProvider).complete(todoId);
-    await Future<void>.value();
   }
 
   @override
@@ -164,6 +143,30 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                 ),
               ),
               const SizedBox(height: 8),
+              if (widget.isLoading && _items.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: SpaceColors.neonPurple,
+                    ),
+                  ),
+                ),
+              if (widget.errorMessage != null &&
+                  widget.errorMessage!.trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    widget.errorMessage!,
+                    style: const TextStyle(
+                      color: SpaceColors.error,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
               SizedBox(
                 height: 320,
                 child: Center(
@@ -211,14 +214,14 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                             if (_activeIndex == i) return const SizedBox.shrink();
                             final item = _items[i];
                             final bearingDeg = _calculateBearingDegrees(
-                              fromLat: _currentLat,
-                              fromLng: _currentLng,
+                              fromLat: widget.currentLatitude ?? _currentLat,
+                              fromLng: widget.currentLongitude ?? _currentLng,
                               toLat: item.placeLat,
                               toLng: item.placeLng,
                             );
                             return _NodeStub(
-                              key: ValueKey(item.id),
-                              isRemoving: _removingIds.contains(item.id),
+                              key: ValueKey(item.todoId),
+                              isRemoving: _removingIds.contains(item.todoId),
                               isActive: false,
                               angle: (bearingDeg * math.pi / 180) - (math.pi / 2),
                               radius: (() {
@@ -242,14 +245,14 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                               final i = _activeIndex!;
                               final item = _items[i];
                               final bearingDeg = _calculateBearingDegrees(
-                                fromLat: _currentLat,
-                                fromLng: _currentLng,
+                                fromLat: widget.currentLatitude ?? _currentLat,
+                                fromLng: widget.currentLongitude ?? _currentLng,
                                 toLat: item.placeLat,
                                 toLng: item.placeLng,
                               );
                               return _NodeStub(
-                                key: ValueKey(item.id),
-                                isRemoving: _removingIds.contains(item.id),
+                                key: ValueKey(item.todoId),
+                                isRemoving: _removingIds.contains(item.todoId),
                                 isActive: true,
                                 angle: (bearingDeg * math.pi / 180) - (math.pi / 2),
                                 radius: (() {
@@ -292,10 +295,10 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                   children: List.generate(_items.length, (i) {
                     final item = _items[i];
                     return _CardStub(
-                      key: ValueKey(item.id),
+                      key: ValueKey(item.todoId),
                       item: item,
                       isActive: _activeIndex == i,
-                      isRemoving: _removingIds.contains(item.id),
+                      isRemoving: _removingIds.contains(item.todoId),
                       onDone: () {
                         _onTapCompleteItem(i);
                       },
@@ -505,7 +508,7 @@ class _CardStub extends StatelessWidget {
     required this.isRemoving,
     required this.onDone,
   });
-  final _RecommendItem item;
+  final HomeRecommendationItem item;
   final bool isActive;
   final bool isRemoving;
   final VoidCallback onDone;
@@ -546,26 +549,30 @@ class _CardStub extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: categoryColor.withOpacity(0.18),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: categoryColor.withOpacity(0.55)),
-                    ),
-                    child: Text(
-                      _CategoryPalette.labelForCategory(item.category),
-                      style: TextStyle(
-                        color: categoryColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        fontFamily: 'Galmuri11',
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: categoryColor.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: categoryColor.withOpacity(0.55)),
+                      ),
+                      child: Text(
+                        _CategoryPalette.labelForCategory(item.category),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: categoryColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Galmuri11',
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 5),
               Text(
                 item.title,
                 style: const TextStyle(
@@ -574,7 +581,7 @@ class _CardStub extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -748,27 +755,6 @@ class _RadarSweep extends StatelessWidget {
       ),
     );
   }
-}
-
-class _RecommendItem {
-  const _RecommendItem({
-    required this.id,
-    required this.category,
-    required this.place,
-    required this.title,
-    required this.distanceMeters,
-    required this.placeLat,
-    required this.placeLng,
-    required this.accent,
-  });
-  final int id;
-  final String category;
-  final String place;
-  final String title;
-  final double distanceMeters;
-  final double placeLat;
-  final double placeLng;
-  final Color accent;
 }
 
 class _CategoryPalette {
