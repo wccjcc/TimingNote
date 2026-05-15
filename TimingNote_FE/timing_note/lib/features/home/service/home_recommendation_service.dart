@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -21,7 +22,7 @@ class HomeRecommendationService {
     required double latitude,
     required double longitude,
     double? course,
-    int radiusM = 300,
+    int radiusM = 500,
     String triggerType = 'HOME_ENTER',
   }) async {
     final envelope = await _client.get<HomeRecommendationResult>(
@@ -46,9 +47,14 @@ class HomeRecommendationService {
         : '현재 위치';
 
     final items = rawItems
-        .map((e) => _parseItem(e as Map<String, dynamic>))
-        .whereType<HomeRecommendationItem>()
+        .expand((e) => _parseGroupItems(e as Map<String, dynamic>))
         .toList();
+
+    debugPrint('[RECO] raw groups: ${rawItems.length}');
+    debugPrint('[RECO] parsed items: ${items.length}');
+    if (rawItems.isNotEmpty) {
+      debugPrint('[RECO] first group keys: ${(rawItems.first as Map<String, dynamic>).keys.toList()}');
+    }
 
     return HomeRecommendationResult(
       currentLocationLabel: label,
@@ -56,35 +62,56 @@ class HomeRecommendationService {
     );
   }
 
-  HomeRecommendationItem? _parseItem(Map<String, dynamic> json) {
-    final todoId = json['todoId'] as int?;
-    if (todoId == null) return null;
-
-    final category = (json['category'] as String?) ?? TodoCategory.etc;
-    final title =
-        ((json['summaryText'] as String?) ?? '').trim().isNotEmpty
-        ? (json['summaryText'] as String).trim()
-        : '추천 할일';
-
-    final resolvedPlace = (json['resolvedPlaceLabel'] as String?)?.trim();
-    final placeName = (json['placeName'] as String?)?.trim();
-    final place = (resolvedPlace?.isNotEmpty == true
-            ? resolvedPlace
-            : (placeName?.isNotEmpty == true ? placeName : null)) ??
-        '주변 장소';
-
+  List<HomeRecommendationItem> _parseGroupItems(Map<String, dynamic> json) {
+    final groupId = (json['groupId'] as num?)?.toInt();
+    final rank = (json['rank'] as num?)?.toInt() ?? 0;
+    final todoCount = (json['todoCount'] as num?)?.toInt() ?? 0;
     final lat = (json['latitude'] as num?)?.toDouble();
     final lng = (json['longitude'] as num?)?.toDouble();
-    if (lat == null || lng == null) return null;
+    if (groupId == null || lat == null || lng == null) {
+      debugPrint('[RECO] skip group: invalid group fields '
+          'groupId=$groupId lat=$lat lng=$lng raw=$json');
+      return const <HomeRecommendationItem>[];
+    }
 
-    return HomeRecommendationItem(
-      todoId: todoId,
-      category: category,
-      title: title,
-      place: place,
-      distanceMeters: (json['distanceM'] as num?)?.toDouble() ?? 0,
-      placeLat: lat,
-      placeLng: lng,
-    );
+    final placeName = (json['placeName'] as String?)?.trim();
+    final distanceMeters = (json['distanceM'] as num?)?.toDouble() ?? 0;
+    final rawTodos = (json['todos'] as List<dynamic>? ?? const []);
+
+    final parsed = rawTodos.map((todoRaw) {
+      final todoJson = todoRaw as Map<String, dynamic>;
+      final todoId = (todoJson['todoId'] as num?)?.toInt();
+      if (todoId == null) {
+        debugPrint('[RECO] skip todo: invalid todoId raw=$todoJson');
+        return null;
+      }
+
+      final category = (todoJson['category'] as String?) ?? TodoCategory.etc;
+      final title =
+          ((todoJson['summaryText'] as String?) ?? '').trim().isNotEmpty
+          ? (todoJson['summaryText'] as String).trim()
+          : '추천 할일';
+
+      final resolvedPlace = (todoJson['resolvedPlaceLabel'] as String?)?.trim();
+      final place = (resolvedPlace?.isNotEmpty == true
+              ? resolvedPlace
+              : (placeName?.isNotEmpty == true ? placeName : null)) ??
+          '주변 장소';
+
+      return HomeRecommendationItem(
+        groupId: groupId,
+        todoId: todoId,
+        rank: rank,
+        todoCount: todoCount,
+        category: category,
+        title: title,
+        place: place,
+        distanceMeters: distanceMeters,
+        placeLat: lat,
+        placeLng: lng,
+      );
+    }).whereType<HomeRecommendationItem>().toList();
+    debugPrint('[RECO] group=$groupId todos(raw=${rawTodos.length}, parsed=${parsed.length})');
+    return parsed;
   }
 }

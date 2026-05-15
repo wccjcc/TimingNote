@@ -40,16 +40,20 @@ class HomeRecommendSection extends StatefulWidget {
 class _HomeRecommendSectionState extends State<HomeRecommendSection>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  int? _activeIndex;
+  int? _activeGroupId;
   final Set<int> _removingIds = <int>{};
   static const double _currentLat = 35.1530;
   static const double _currentLng = 126.8526;
   List<HomeRecommendationItem> _items = <HomeRecommendationItem>[];
+  List<HomeRecommendationItem> _nodeItems = <HomeRecommendationItem>[];
+  Map<int, _NodeLayoutData> _nodeLayouts = <int, _NodeLayoutData>{};
+  String _layoutSignature = '';
 
   @override
   void initState() {
     super.initState();
     _items = List<HomeRecommendationItem>.from(widget.items);
+    _ensureNodeLayouts();
     _controller =
         AnimationController(vsync: this, duration: const Duration(seconds: 14))
           ..repeat();
@@ -58,12 +62,19 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
   @override
   void didUpdateWidget(covariant HomeRecommendSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final locationChanged =
+        oldWidget.currentLatitude != widget.currentLatitude ||
+        oldWidget.currentLongitude != widget.currentLongitude;
     if (oldWidget.items != widget.items) {
+      if (_removingIds.isNotEmpty) return;
       _items = List<HomeRecommendationItem>.from(widget.items);
-      _removingIds.clear();
-      if (_activeIndex != null && _activeIndex! >= _items.length) {
-        _activeIndex = null;
+      _ensureNodeLayouts(force: true);
+      if (_activeGroupId != null &&
+          !_items.any((e) => e.groupId == _activeGroupId)) {
+        _activeGroupId = null;
       }
+    } else if (locationChanged) {
+      _ensureNodeLayouts(force: true);
     }
   }
 
@@ -73,8 +84,10 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     super.dispose();
   }
 
-  void _onTapNode(int index) {
-    setState(() => _activeIndex = _activeIndex == index ? null : index);
+  void _onTapNode(int groupId) {
+    setState(
+      () => _activeGroupId = _activeGroupId == groupId ? null : groupId,
+    );
   }
 
   Future<void> _onTapCompleteItem(int index) async {
@@ -85,16 +98,22 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     // TODO: 완료 API 연결 지점
     // - 예시: await _completeRecommendation(item.id);
     // - 현재는 UI 동작 검증을 위해 즉시 성공으로 처리한다.
+    setState(() {
+      _removingIds.add(item.todoId);
+      if (!_items.any((e) => e.groupId == item.groupId && e.todoId != item.todoId)) {
+        _activeGroupId = null;
+      }
+    });
+
     try {
       await widget.onCompleteTodo(item.todoId);
     } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _removingIds.remove(item.todoId);
+      });
       return;
     }
-
-    setState(() {
-      _removingIds.add(item.todoId);
-      if (_activeIndex == index) _activeIndex = null;
-    });
 
     Future<void>.delayed(const Duration(milliseconds: 360), () {
       if (!mounted) return;
@@ -102,6 +121,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
         final removeIndex = _items.indexWhere((e) => e.todoId == item.todoId);
         if (removeIndex >= 0) _items.removeAt(removeIndex);
         _removingIds.remove(item.todoId);
+        _ensureNodeLayouts(force: true);
       });
     });
   }
@@ -112,12 +132,9 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
       animation: _controller,
       builder: (context, _) {
         final progress = _controller.value;
-        final maxDistance = _items.isEmpty
-            ? 1.0
-            : _items
-                .map((e) => e.distanceMeters)
-                .reduce((a, b) => a > b ? a : b)
-                .toDouble();
+        _ensureNodeLayouts();
+        final nodeItems = _nodeItems;
+        final nodeLayouts = _nodeLayouts;
         return SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
@@ -202,33 +219,27 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       ),
                       Positioned.fill(
                         child: IgnorePointer(
-                          ignoring: _activeIndex == null,
+                          ignoring: _activeGroupId == null,
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: () => setState(() => _activeIndex = null),
+                            onTap: () => setState(() => _activeGroupId = null),
                           ),
                         ),
                       ),
                         ...[
-                          ...List.generate(_items.length, (i) {
-                            if (_activeIndex == i) return const SizedBox.shrink();
-                            final item = _items[i];
-                            final bearingDeg = _calculateBearingDegrees(
-                              fromLat: widget.currentLatitude ?? _currentLat,
-                              fromLng: widget.currentLongitude ?? _currentLng,
-                              toLat: item.placeLat,
-                              toLng: item.placeLng,
-                            );
+                          ...List.generate(nodeItems.length, (i) {
+                            final item = nodeItems[i];
+                            if (_activeGroupId == item.groupId) {
+                              return const SizedBox.shrink();
+                            }
+                            final layout = nodeLayouts[item.groupId];
                             return _NodeStub(
-                              key: ValueKey(item.todoId),
-                              isRemoving: _removingIds.contains(item.todoId),
+                              key: ValueKey(item.groupId),
+                              isRemoving: _removingIds.contains(item.todoId) &&
+                                  item.todoCount <= 1,
                               isActive: false,
-                              angle: (bearingDeg * math.pi / 180) - (math.pi / 2),
-                              radius: (() {
-                                final t = (item.distanceMeters / maxDistance).clamp(0.0, 1.0);
-                                final normalized = 0.28 + (0.72 * t);
-                                return 72 + ((138 - 72) * normalized);
-                              })(),
+                              angle: layout?.angle ?? 0,
+                              radius: layout?.radius ?? 72,
                               centerX: 160,
                               centerY: 160,
                               color: _CategoryPalette.colorForCategory(item.category),
@@ -236,30 +247,26 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                                   'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
                               placeLabel: item.place,
                               distanceLabel: _formatDistance(item.distanceMeters),
+                              badgeCount: item.todoCount,
                               floatPhase: (progress * math.pi * 2) + (i * 0.9),
-                              onTap: () => _onTapNode(i),
+                              onTap: () => _onTapNode(item.groupId),
                             );
                           }),
-                          if (_activeIndex != null && _activeIndex! >= 0 && _activeIndex! < _items.length)
+                          if (_activeGroupId != null &&
+                              nodeItems.any((e) => e.groupId == _activeGroupId))
                             (() {
-                              final i = _activeIndex!;
-                              final item = _items[i];
-                              final bearingDeg = _calculateBearingDegrees(
-                                fromLat: widget.currentLatitude ?? _currentLat,
-                                fromLng: widget.currentLongitude ?? _currentLng,
-                                toLat: item.placeLat,
-                                toLng: item.placeLng,
+                              final i = nodeItems.indexWhere(
+                                (e) => e.groupId == _activeGroupId,
                               );
+                              final item = nodeItems[i];
+                              final layout = nodeLayouts[item.groupId];
                               return _NodeStub(
-                                key: ValueKey(item.todoId),
-                                isRemoving: _removingIds.contains(item.todoId),
+                                key: ValueKey(item.groupId),
+                                isRemoving: _removingIds.contains(item.todoId) &&
+                                    item.todoCount <= 1,
                                 isActive: true,
-                                angle: (bearingDeg * math.pi / 180) - (math.pi / 2),
-                                radius: (() {
-                                  final t = (item.distanceMeters / maxDistance).clamp(0.0, 1.0);
-                                  final normalized = 0.28 + (0.72 * t);
-                                  return 72 + ((138 - 72) * normalized);
-                                })(),
+                                angle: layout?.angle ?? 0,
+                                radius: layout?.radius ?? 72,
                                 centerX: 160,
                                 centerY: 160,
                                 color: _CategoryPalette.colorForCategory(item.category),
@@ -267,8 +274,9 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                                     'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
                                 placeLabel: item.place,
                                 distanceLabel: _formatDistance(item.distanceMeters),
+                                badgeCount: item.todoCount,
                                 floatPhase: (progress * math.pi * 2) + (i * 0.9),
-                                onTap: () => _onTapNode(i),
+                                onTap: () => _onTapNode(item.groupId),
                               );
                             })(),
                         ],
@@ -278,14 +286,17 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                   ),
                 ),
               ),
-              if (_activeIndex != null && _activeIndex! < _items.length)
+              if (_activeGroupId != null &&
+                  _items.any((e) => e.groupId == _activeGroupId))
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                   child: _ActivePlaceInfo(
-                    place: _items[_activeIndex!].place,
-                    distance: _formatDistance(_items[_activeIndex!].distanceMeters),
+                    place: _items.firstWhere((e) => e.groupId == _activeGroupId).place,
+                    distance: _formatDistance(
+                      _items.firstWhere((e) => e.groupId == _activeGroupId).distanceMeters,
+                    ),
                     color: _CategoryPalette.colorForCategory(
-                      _items[_activeIndex!].category,
+                      _items.firstWhere((e) => e.groupId == _activeGroupId).category,
                     ),
                   ),
                 ),
@@ -297,7 +308,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                     return _CardStub(
                       key: ValueKey(item.todoId),
                       item: item,
-                      isActive: _activeIndex == i,
+                      isActive: _activeGroupId == item.groupId,
                       isRemoving: _removingIds.contains(item.todoId),
                       onDone: () {
                         _onTapCompleteItem(i);
@@ -311,6 +322,76 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
         );
       },
     );
+  }
+
+  void _ensureNodeLayouts({bool force = false}) {
+    final lat = widget.currentLatitude ?? _currentLat;
+    final lng = widget.currentLongitude ?? _currentLng;
+    final signature = [
+      lat.toStringAsFixed(6),
+      lng.toStringAsFixed(6),
+      ..._items.map((e) => '${e.groupId}:${e.distanceMeters}:${e.placeLat}:${e.placeLng}'),
+    ].join('|');
+    if (!force && signature == _layoutSignature) return;
+
+    _layoutSignature = signature;
+    _nodeItems = <HomeRecommendationItem>[
+      ...{
+        for (final item in _items) item.groupId: item,
+      }.values,
+    ];
+
+    final maxDistance = _nodeItems.isEmpty
+        ? 1.0
+        : _nodeItems
+            .map((e) => e.distanceMeters)
+            .reduce((a, b) => a > b ? a : b)
+            .toDouble();
+
+    final nodeLayouts = <int, _NodeLayoutData>{};
+    final placedOffsets = <Offset>[];
+    for (var i = 0; i < _nodeItems.length; i++) {
+      final item = _nodeItems[i];
+      final bearingDeg = _calculateBearingDegrees(
+        fromLat: lat,
+        fromLng: lng,
+        toLat: item.placeLat,
+        toLng: item.placeLng,
+      );
+      final baseAngle = (bearingDeg * math.pi / 180) - (math.pi / 2);
+      final t = (item.distanceMeters / maxDistance).clamp(0.0, 1.0);
+      final normalized = 0.28 + (0.72 * t);
+      final baseRadius = 72 + ((138 - 72) * normalized);
+
+      var adjustedAngle = baseAngle;
+      var adjustedRadius = baseRadius;
+      for (var attempt = 0; attempt < 12; attempt++) {
+        final dx = math.cos(adjustedAngle) * adjustedRadius;
+        final dy = math.sin(adjustedAngle) * adjustedRadius;
+        final current = Offset(dx, dy);
+        final isOverlapped = placedOffsets.any(
+          (prev) => (prev - current).distance < 34,
+        );
+        if (!isOverlapped) {
+          placedOffsets.add(current);
+          break;
+        }
+        final step = 0.12 * ((attempt ~/ 2) + 1);
+        adjustedAngle = baseAngle + (attempt.isEven ? step : -step);
+        adjustedRadius = (baseRadius + (attempt.isEven ? 6 : -6)).clamp(
+          70.0,
+          146.0,
+        );
+        if (attempt == 11) {
+          placedOffsets.add(current);
+        }
+      }
+      nodeLayouts[item.groupId] = _NodeLayoutData(
+        angle: adjustedAngle,
+        radius: adjustedRadius,
+      );
+    }
+    _nodeLayouts = nodeLayouts;
   }
 
   String _bearingToText(double bearingDeg) {
@@ -408,6 +489,7 @@ class _NodeStub extends StatefulWidget {
     required this.image,
     required this.placeLabel,
     required this.distanceLabel,
+    required this.badgeCount,
     required this.floatPhase,
     required this.onTap,
   });
@@ -421,6 +503,7 @@ class _NodeStub extends StatefulWidget {
   final String image;
   final String placeLabel;
   final String distanceLabel;
+  final int badgeCount;
   final double floatPhase;
   final VoidCallback onTap;
 
@@ -471,6 +554,30 @@ class _NodeStubState extends State<_NodeStub> {
                   ),
                   child: ClipOval(child: Image.asset(widget.image, fit: BoxFit.cover)),
                 ),
+                if (widget.badgeCount > 1)
+                  Transform.translate(
+                    offset: const Offset(16, -42),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: SpaceColors.neonPink,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.86),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        '${widget.badgeCount}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'Galmuri11',
+                        ),
+                      ),
+                    ),
+                  ),
                 if (widget.isActive) ...[
                   const SizedBox(height: 4),
                   Container(
@@ -819,4 +926,14 @@ class _CategoryPalette {
         return 'A78BFA';
     }
   }
+}
+
+class _NodeLayoutData {
+  const _NodeLayoutData({
+    required this.angle,
+    required this.radius,
+  });
+
+  final double angle;
+  final double radius;
 }
