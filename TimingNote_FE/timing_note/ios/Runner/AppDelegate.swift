@@ -261,9 +261,11 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   private var activeBubblePoiId: String?
   private var bubbleEnabledPoiIds = Set<String>()
 
-  // ── 사용자 위치 마커 (흰 코어 + 보라 ring) ─────────────────────────────────
-  // todo 마커와 동일한 LabelLayer를 공유하되 별도 styleID로 분리.
+  // ── 사용자 위치 마커 (작은 흰 코어 + 보라 ring) ─────────────────────────────
+  // 장소 마커보다 위에 보이도록 별도 LabelLayer를 사용하되 clickable=false로 둔다.
   // 좌표 변경 시 기존 Poi를 제거하고 새로 추가 (Kakao SDK가 Poi move를 직접 지원 안 함).
+  private var userLocationLayer: LabelLayer?
+  private let userLocationLayerID = "timing_note_user_location"
   private let userLocationStyleID = "tn_user_location"
   private let userLocationPoiID = "tn_user_location_poi"
   private var userLocationStyleRegistered = false
@@ -697,25 +699,40 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     candidateStylesRegistered = true
   }
 
-  /// 사용자 GPS 위치를 흰+보라 마커로 표시. Kakao SDK는 Poi 이동을 직접 지원 안 하므로
+  /// 사용자 GPS 위치를 작은 흰+보라 dot으로 표시. Kakao SDK는 Poi 이동을 직접 지원 안 하므로
   /// 같은 PoiID를 매번 제거(removePoi) 후 새로 추가(addPoi). 좌표 변경 빈도 낮으니 비용 무시 가능.
   private func applyUserLocation(latitude: Double, longitude: Double) {
     guard let map = kakaoMap else { return }
     currentUserLocation = (latitude, longitude)
     let manager = map.getLabelManager()
     registerUserLocationStyleIfNeeded(manager: manager)
-    let layer = ensureCandidateLayer(manager: manager) // todo 마커와 같은 layer 공유
+    let layer = ensureUserLocationLayer(manager: manager)
 
     // 기존 사용자 위치 Poi가 있으면 제거 (좌표 갱신용)
     layer?.removePoi(poiID: userLocationPoiID)
 
     let options = PoiOptions(styleID: userLocationStyleID, poiID: userLocationPoiID)
-    // 사용자 위치는 모든 todo 마커보다 위(zOrder 상위)에 그려져야 함. rank를 음수로.
-    options.rank = -1
-    options.clickable = false // 사용자 위치는 탭 액션 없음
+    // 별도 상위 layer에 그리되 클릭 불가로 둬서 겹친 장소 마커 탭을 가로채지 않는다.
+    options.rank = 10_000
+    options.clickable = false
     let point = MapPoint(longitude: longitude, latitude: latitude)
     let poi = layer?.addPoi(option: options, at: point)
     poi?.show()
+  }
+
+  /// 사용자 위치 전용 레이어. 장소 마커보다 위에 보이지만 탭 가능한 Poi는 만들지 않는다.
+  private func ensureUserLocationLayer(manager: LabelManager) -> LabelLayer? {
+    if let existing = userLocationLayer { return existing }
+    let option = LabelLayerOptions(
+      layerID: userLocationLayerID,
+      competitionType: .none,
+      competitionUnit: .symbolFirst,
+      orderType: .rank,
+      zOrder: 6000
+    )
+    let layer = manager.addLabelLayer(option: option)
+    userLocationLayer = layer
+    return layer
   }
 
   /// 사용자 위치 PoiStyle 등록 — 1회만 (이미지 정적).
@@ -729,32 +746,32 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     userLocationStyleRegistered = true
   }
 
-  /// 사용자 위치 마커 이미지 — 흰 코어 + 보라 ring (iOS Maps 표준 패턴).
+  /// 사용자 위치 마커 이미지 — 작은 흰 코어 + 보라 ring (iOS Maps 표준 패턴).
   /// 핀 형태(물방울)와 형태 자체가 달라 todo 마커와 시각 구분.
   private func makeUserLocationImage() -> UIImage? {
-    let size = CGSize(width: 22, height: 22)
+    let size = CGSize(width: 16, height: 16)
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
       let center = CGPoint(x: size.width / 2, y: size.height / 2)
       let purple = UIColor(red: 0.655, green: 0.545, blue: 0.980, alpha: 1.0) // #A78BFA
 
-      // 외곽 옅은 보라 글로우 (반경 11)
-      cg.setFillColor(purple.withAlphaComponent(0.25).cgColor)
+      // 외곽 옅은 보라 halo. 클릭 대상이 아니므로 장소 마커를 가리지 않게 작고 투명하게 둔다.
+      cg.setFillColor(purple.withAlphaComponent(0.18).cgColor)
       cg.fillEllipse(in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
 
       // 보라 ring (stroke)
       cg.setStrokeColor(purple.cgColor)
-      cg.setLineWidth(2)
+      cg.setLineWidth(1.5)
       let ringRect = CGRect(
-        x: center.x - 7, y: center.y - 7, width: 14, height: 14
+        x: center.x - 5, y: center.y - 5, width: 10, height: 10
       )
       cg.strokeEllipse(in: ringRect)
 
-      // 흰 코어 (반경 5)
+      // 흰 코어
       cg.setFillColor(UIColor.white.cgColor)
       cg.fillEllipse(in: CGRect(
-        x: center.x - 5, y: center.y - 5, width: 10, height: 10
+        x: center.x - 3, y: center.y - 3, width: 6, height: 6
       ))
     }
   }
