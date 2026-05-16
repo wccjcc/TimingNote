@@ -19,7 +19,6 @@ import '../core/notification/push_action_bridge.dart';
 import '../features/bootstrap/service/app_bootstrap_service.dart';
 import '../features/notification/service/notification_service.dart';
 import '../features/notification/widgets/foreground_notification_toast_card.dart';
-import '../shared/theme/colors.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -38,6 +37,8 @@ class App extends ConsumerStatefulWidget {
 class _AppState extends ConsumerState<App>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static final Logger _logger = Logger();
+  static const String _locationPermissionPromptRequestedKey =
+      'location_permission_prompt_requested';
 
   late final Future<void> _bootstrapFuture;
   final PushActionBridge _pushActionBridge = PushActionBridge();
@@ -529,12 +530,8 @@ class _AppState extends ConsumerState<App>
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          supportedLocales: const [
-            Locale('ko', 'KR'),
-            Locale('en', 'US'),
-          ],
+          supportedLocales: const [Locale('ko', 'KR'), Locale('en', 'US')],
           locale: const Locale('ko', 'KR'),
-
         );
       },
     );

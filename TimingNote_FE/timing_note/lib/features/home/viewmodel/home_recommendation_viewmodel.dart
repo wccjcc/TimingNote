@@ -47,6 +47,7 @@ class HomeRecommendationState {
 class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
   late final HomeRecommendationService _recommendationService;
   late final TodoService _todoService;
+  Future<void>? _loadFuture;
 
   @override
   HomeRecommendationState build() {
@@ -57,6 +58,21 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
   }
 
   Future<void> load() async {
+    final runningLoad = _loadFuture;
+    if (runningLoad != null) return runningLoad;
+
+    final future = _load();
+    _loadFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_loadFuture, future)) {
+        _loadFuture = null;
+      }
+    }
+  }
+
+  Future<void> _load() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final gps = await tryGetGpsSnapshot(ref);
@@ -89,10 +105,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
       );
     } catch (e) {
       debugPrint('[RECO] load error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: '추천 정보를 불러오지 못했어요.',
-      );
+      state = state.copyWith(isLoading: false, error: '추천 정보를 불러오지 못했어요.');
     }
   }
 
