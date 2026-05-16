@@ -26,15 +26,23 @@ class AppBootstrapService {
   Future<BootstrapResult> run() async {
     // 1) installationUuid 확보
     String? installationUuid = await _store.getInstallationUuid();
+    var createdInstallationUuid = false;
+
     //installationUuid가 없을때의 로직
     if (installationUuid == null || installationUuid.isEmpty) {
       installationUuid = const Uuid().v4();
       await _store.saveInstallationUuid(installationUuid);
+      createdInstallationUuid = true;
+      // iOS Keychain 값은 앱 삭제 후에도 남을 수 있습니다.
+      // 새 installationUuid를 만든 상태라면 이전 설치의 deviceSecret을 재사용하지 않고 재등록합니다.
+      await _store.clearDeviceSecret();
     }
 
     // 2) 기존 deviceSecret 재사용
     final savedSecret = await _store.getDeviceSecret();
-    if (savedSecret != null && savedSecret.isNotEmpty) {
+    if (!createdInstallationUuid &&
+        savedSecret != null &&
+        savedSecret.isNotEmpty) {
       return BootstrapResult(
         installationUuid: installationUuid,
         deviceSecret: savedSecret,

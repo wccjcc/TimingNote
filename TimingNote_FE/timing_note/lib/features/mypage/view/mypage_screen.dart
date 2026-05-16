@@ -1,8 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
+import 'package:timing_note/core/location/location_permission_service.dart';
+import 'package:timing_note/core/notification/notification_permission_service.dart';
 import 'package:timing_note/features/mypage/model/user_place.dart';
 import 'package:timing_note/features/mypage/service/user_place_service.dart';
 import 'package:timing_note/features/mypage/service/user_settings_service.dart';
@@ -21,7 +25,10 @@ class MyPageScreen extends ConsumerStatefulWidget {
   ConsumerState<MyPageScreen> createState() => _MyPageScreenState();
 }
 
-class _MyPageScreenState extends ConsumerState<MyPageScreen> {
+enum _LocationPermissionUiStatus { always, whenInUse, off }
+
+class _MyPageScreenState extends ConsumerState<MyPageScreen>
+    with WidgetsBindingObserver {
   // 서버 허용 정책과 1:1로 맞춘 반경 단계값입니다.
   // UI에서 이 목록 외 값이 선택되지 않게 해서, 저장 실패(VALIDATION_ERROR)를 사전에 방지합니다.
   static const List<int> _allowedRadiusMeters = <int>[
@@ -34,7 +41,8 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
   ];
   int _radiusMeter = 300;
   int _savedRadiusMeter = 300;
-  bool _locationAlertEnabled = true;
+  _LocationPermissionUiStatus _locationPermissionStatus =
+      _LocationPermissionUiStatus.off;
   bool _pushAlertEnabled = true;
 
   bool _isLoadingSettings = true;
@@ -46,9 +54,23 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _placesFuture = _loadPlaces();
     _loadSettings();
     _loadAppVersion();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshPermissionToggleState();
+    }
   }
 
   Future<List<UserPlace>> _loadPlaces() {
@@ -91,8 +113,8 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
       if (!mounted) return;
 
       setState(() {
-        _locationAlertEnabled = settings.locationAlertEnabled;
-        _pushAlertEnabled = settings.pushAlertEnabled;
+        _locationPermissionStatus = _LocationPermissionUiStatus.always;
+        _pushAlertEnabled = true;
         // 과거 버전 값(예: 150, 700)이 남아 있을 수 있으므로,
         // 가장 가까운 허용 단계로 스냅해 UI/저장 정책을 일치시킵니다.
         final normalizedRadius = _normalizeRadius(settings.radiusM);
@@ -100,6 +122,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
         _savedRadiusMeter = normalizedRadius;
         _isLoadingSettings = false;
       });
+      await _refreshPermissionToggleState();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -113,47 +136,111 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     }
   }
 
-  Future<void> _toggleLocationAlert() async {
-    final nextValue = !_locationAlertEnabled;
-    setState(() => _locationAlertEnabled = nextValue);
-    try {
-      final updated = await ref
-          .read(userSettingsServiceProvider)
-          .updateSettings(locationAlertEnabled: nextValue);
+  Future<void> _openLocationPermissionSettings() async {
+    if (kIsWeb) {
       if (!mounted) return;
-      setState(() {
-        _locationAlertEnabled = updated.locationAlertEnabled;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _locationAlertEnabled = !nextValue);
       SpaceToast.show(
         context,
-        message: '위치 알림 설정 저장에 실패했어요',
-        kind: ToastKind.error,
+        message: 'Web cannot open app settings.',
+        kind: ToastKind.info,
       );
+      return;
+    }
+
+    final permissionService = ref.read(locationPermissionServiceProvider);
+    final whenInUseStatus = await permissionService.checkWhenInUse();
+    final alwaysStatus = await permissionService.checkAlways();
+
+    if (alwaysStatus.isGranted) {
+      await permissionService.openSettings();
+      return;
+    }
+
+    // iOS에서는 첫 팝업에서 바로 Always를 받을 수 없으므로,
+    // When In Use 상태라면 먼저 Always 승격 요청을 시도합니다.
+    if (whenInUseStatus.isGranted) {
+      await permissionService.requestAlways();
+      await _refreshPermissionToggleState();
+      final refreshedAlwaysStatus = await permissionService.checkAlways();
+      if (refreshedAlwaysStatus.isGranted || !mounted) {
+        return;
+      }
+    }
+
+    await permissionService.openSettings();
+    if (!mounted) return;
+    SpaceToast.show(
+      context,
+      message: 'iOS Settings에서 위치 권한을 항상 허용으로 변경해 주세요.',
+      kind: ToastKind.info,
+    );
+  }
+
+  Future<void> _openPushPermissionSettings() async {
+    if (kIsWeb) {
+      if (!mounted) return;
+      SpaceToast.show(
+        context,
+        message: 'Web cannot open app settings.',
+        kind: ToastKind.info,
+      );
+      return;
+    }
+
+    await ref.read(notificationPermissionServiceProvider).openSettings();
+    if (!mounted) return;
+    SpaceToast.show(
+      context,
+      message: 'iOS Settings에서 알림 권한을 변경해 주세요.',
+      kind: ToastKind.info,
+    );
+  }
+
+  Future<void> _refreshPermissionToggleState() async {
+    if (!mounted || _isLoadingSettings || kIsWeb) return;
+    try {
+      final locationPermission = ref.read(locationPermissionServiceProvider);
+      final notificationPermission = ref.read(
+        notificationPermissionServiceProvider,
+      );
+      final alwaysStatus = await locationPermission.checkAlways();
+      final whenInUseStatus = await locationPermission.checkWhenInUse();
+      final canUsePushAlert = await notificationPermission.isGranted();
+      if (!mounted) return;
+      setState(() {
+        if (alwaysStatus.isGranted) {
+          _locationPermissionStatus = _LocationPermissionUiStatus.always;
+        } else if (whenInUseStatus.isGranted) {
+          _locationPermissionStatus = _LocationPermissionUiStatus.whenInUse;
+        } else {
+          _locationPermissionStatus = _LocationPermissionUiStatus.off;
+        }
+        _pushAlertEnabled = canUsePushAlert;
+      });
+    } catch (_) {
+      // best effort
     }
   }
 
-  Future<void> _togglePushAlert() async {
-    final nextValue = !_pushAlertEnabled;
-    setState(() => _pushAlertEnabled = nextValue);
-    try {
-      final updated = await ref
-          .read(userSettingsServiceProvider)
-          .updateSettings(pushAlertEnabled: nextValue);
-      if (!mounted) return;
-      setState(() {
-        _pushAlertEnabled = updated.pushAlertEnabled;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _pushAlertEnabled = !nextValue);
-      SpaceToast.show(
-        context,
-        message: '푸시 알림 설정 저장에 실패했어요',
-        kind: ToastKind.error,
-      );
+  String get _locationPermissionBadgeText {
+    switch (_locationPermissionStatus) {
+      case _LocationPermissionUiStatus.always:
+        return 'ON';
+      case _LocationPermissionUiStatus.whenInUse:
+        return '제한됨';
+      case _LocationPermissionUiStatus.off:
+        return 'OFF';
+    }
+  }
+
+  Color get _locationPermissionBadgeColor {
+    switch (_locationPermissionStatus) {
+      case _LocationPermissionUiStatus.always:
+        return SpaceColors.neonPurple;
+      case _LocationPermissionUiStatus.whenInUse:
+        return SpaceColors.neonYellow;
+      case _LocationPermissionUiStatus.off:
+        return Colors.grey;
     }
   }
 
@@ -277,31 +364,29 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   Widget _buildPermissionSection() {
     return _SettingGroup(
-      title: 'Sensor Permissions',
+      title: '권한',
       child: Column(
         children: [
           _PermissionTile(
             icon: Icons.location_on_outlined,
             iconColor: SpaceColors.neonPurple,
             iconBackground: const Color(0x22A78BFA),
-            title: '위치 알림 상태',
-            subtitle: '지오펜스 동작을 위한 위치 권한',
-            badgeText: _locationAlertEnabled ? 'ONLINE' : 'OFFLINE',
-            badgeColor: _locationAlertEnabled
-                ? SpaceColors.neonPurple
-                : Colors.grey,
-            onTap: _isLoadingSettings ? null : _toggleLocationAlert,
+            title: '위치 권한',
+            subtitle: '위치 알림은 항상 허용이 필요해요',
+            badgeText: _locationPermissionBadgeText,
+            badgeColor: _locationPermissionBadgeColor,
+            onTap: _isLoadingSettings ? null : _openLocationPermissionSettings,
           ),
           const Divider(height: 1, color: Color(0x22A78BFA)),
           _PermissionTile(
             icon: Icons.notifications_active_outlined,
             iconColor: SpaceColors.neonPink,
             iconBackground: const Color(0x22F472B6),
-            title: '푸시 알림 상태',
-            subtitle: '시스템 알림 수신 권한',
-            badgeText: _pushAlertEnabled ? 'ONLINE' : 'OFFLINE',
+            title: '알림 권한',
+            subtitle: '탭해서 iOS 앱 설정에서 변경',
+            badgeText: _pushAlertEnabled ? 'ON' : 'OFF',
             badgeColor: _pushAlertEnabled ? SpaceColors.neonPink : Colors.grey,
-            onTap: _isLoadingSettings ? null : _togglePushAlert,
+            onTap: _isLoadingSettings ? null : _openPushPermissionSettings,
           ),
         ],
       ),
@@ -313,7 +398,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
     final sliderIndex = _allowedRadiusMeters.indexOf(_radiusMeter).toDouble();
 
     return _SettingGroup(
-      title: 'Radar Radius',
+      title: '반경 설정',
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -383,7 +468,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   Widget _buildPlacesSection() {
     return _SettingGroup(
-      title: 'Registered Planets',
+      title: '내 장소',
       child: FutureBuilder<List<UserPlace>>(
         future: _placesFuture,
         builder: (context, snapshot) {
@@ -408,7 +493,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen> {
 
   Widget _buildSystemSection() {
     return _SettingGroup(
-      title: 'System Intel',
+      title: '앱 버전',
       child: Column(
         children: [
           const _SimpleActionTile(label: '앱 버전 업데이트 안내'),

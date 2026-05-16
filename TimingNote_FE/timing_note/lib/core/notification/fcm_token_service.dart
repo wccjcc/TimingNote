@@ -14,11 +14,6 @@ import 'notification_permission_service.dart';
 
 const String _lastSyncedFcmTokenKey = 'last_synced_fcm_token';
 
-final notificationPermissionServiceProvider =
-    Provider<NotificationPermissionService>((ref) {
-  return NotificationPermissionService();
-});
-
 final fcmTokenServiceProvider = Provider<FcmTokenService>((ref) {
   return FcmTokenService(
     apiClient: ref.read(apiClientProvider),
@@ -31,8 +26,8 @@ class FcmTokenService {
   FcmTokenService({
     required ApiClient apiClient,
     required NotificationPermissionService permissionService,
-  })  : _apiClient = apiClient,
-        _permissionService = permissionService;
+  }) : _apiClient = apiClient,
+       _permissionService = permissionService;
 
   final ApiClient _apiClient;
   final NotificationPermissionService _permissionService;
@@ -77,11 +72,7 @@ class FcmTokenService {
       return;
     }
 
-    await _upsertFcmToken(
-      token: token,
-      isActive: false,
-      forceSync: true,
-    );
+    await _upsertFcmToken(token: token, isActive: false, forceSync: true);
   }
 
   Future<void> _initializeFirebase() async {
@@ -101,14 +92,13 @@ class FcmTokenService {
       throw StateError('Firebase Messaging이 초기화되지 않았습니다.');
     }
 
-    await _permissionService.request();
+    final currentSettings = await messaging.getNotificationSettings();
+    if (currentSettings.authorizationStatus !=
+        AuthorizationStatus.notDetermined) {
+      return;
+    }
 
-    await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
+    await _permissionService.request();
   }
 
   /// 앱 시작 직후 현재 토큰을 한 번 읽어서 서버와 맞춘다.
@@ -140,11 +130,7 @@ class FcmTokenService {
           return;
         }
 
-        await _upsertFcmToken(
-          token: token,
-          isActive: true,
-          forceSync: true,
-        );
+        await _upsertFcmToken(token: token, isActive: true, forceSync: true);
       },
       onError: (Object error, StackTrace stackTrace) {
         _logger.e(
