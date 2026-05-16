@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/location/location_provider.dart';
+import '../../home/viewmodel/home_recommendation_viewmodel.dart';
 import '../model/todo.dart';
 import '../service/todo_service.dart';
 
@@ -290,6 +291,7 @@ class TodoListNotifier extends Notifier<TodoListState> {
         course: gps?.course,
         occurredAt: gps?.occurredAt,
       );
+      ref.invalidate(homeRecommendationProvider);
     } catch (_) {
       _updateItem(index, original);
     } finally {
@@ -320,6 +322,7 @@ class TodoListNotifier extends Notifier<TodoListState> {
         course: gps?.course,
         occurredAt: gps?.occurredAt,
       );
+      ref.invalidate(homeRecommendationProvider);
     } catch (_) {
       // 실패 시 원래 위치에 복원
       final restored = [...state.items]..insert(index, removed);
