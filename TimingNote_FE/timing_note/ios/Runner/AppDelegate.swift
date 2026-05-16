@@ -815,17 +815,19 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     glow: Bool = false,
     compact: Bool = false
   ) -> UIImage? {
-    // glow가 활성이면 외곽 3-4px 흰 빛이 퍼지므로 size를 그만큼 키우고 핀을 중앙에 위치.
-    // anchorPoint=(0.5, 1.0)이므로 꼬리 끝이 좌표 지점에 닿는다.
+    // ── 1. 사이즈 정의 ──
+    // Map Tab(compact:false)은 전체적으로 작게 줄이고,
+    // Detail Page(compact:true)는 좌우 폭을 줄여 '동그란' 느낌을 제거하고 날렵하게 조정.
     let size: CGSize
     if compact {
-      size = glow ? CGSize(width: 30, height: 38) : CGSize(width: 24, height: 31)
+      // 상세 페이지용 (날렵한 형태: 폭 20, 높이 32)
+      size = glow ? CGSize(width: 26, height: 38) : CGSize(width: 20, height: 32)
     } else {
-      size = glow ? CGSize(width: 40, height: 52) : CGSize(width: 32, height: 44)
+      // 지도 탭용 (작고 균형잡힌 형태: 폭 26, 높이 38)
+      size = glow ? CGSize(width: 34, height: 46) : CGSize(width: 26, height: 38)
     }
-    let inset: CGFloat = glow ? (compact ? 3 : 4) : 0
     
-    // 핀의 논리적 크기 (inset 제외)
+    let inset: CGFloat = glow ? (compact ? 3 : 4) : 0
     let pinW = size.width - (inset * 2)
     
     let bodyHalf = pinW / 2
@@ -834,31 +836,33 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     // 머리 중심 및 반지름
     let headRadius = bodyHalf
     let headCenterY = inset + headRadius
-    let innerRadius: CGFloat = compact ? 3.2 : 4.5
+    
+    // 안쪽 구멍 크기 (핀이 작아졌으므로 비율에 맞춰 조정)
+    let innerRadius: CGFloat = compact ? 2.8 : 3.8
     
     let tailTipY = size.height - (glow ? 4 : 2)
-    let strokeWidth: CGFloat = compact ? 1.2 : 1.5
-    let shadowBlur: CGFloat = compact ? 4 : 6
+    let strokeWidth: CGFloat = compact ? 1.0 : 1.2
+    let shadowBlur: CGFloat = compact ? 3 : 5
     
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
 
-      // ── 물방울 형태의 통합 Path 생성 ──
-      // 머리의 원형과 꼬리의 뾰족함을 부드러운 곡선으로 이어 각진 결합부 제거.
+      // ── 2. 물방울 형태의 통합 Path (Bezier Curve) ──
       let path = UIBezierPath()
       
-      // 1. 꼬리 끝에서 시작
+      // 꼬리 끝에서 시작
       path.move(to: CGPoint(x: centerX, y: tailTipY))
       
-      // 2. 왼쪽 곡선 (꼬리 -> 머리)
+      // 왼쪽 곡선 (꼬리 -> 머리)
+      // 제어점을 축에 가깝게 붙여서 더 뾰족하고 날렵한 꼬리 라인 생성
       path.addCurve(
         to: CGPoint(x: centerX - headRadius, y: headCenterY),
-        controlPoint1: CGPoint(x: centerX - headRadius * 0.1, y: tailTipY - headRadius * 0.5),
-        controlPoint2: CGPoint(x: centerX - headRadius, y: headCenterY + headRadius * 0.8)
+        controlPoint1: CGPoint(x: centerX - headRadius * 0.05, y: tailTipY - headRadius * 0.6),
+        controlPoint2: CGPoint(x: centerX - headRadius, y: headCenterY + headRadius * 0.7)
       )
       
-      // 3. 상단 원형 (머리)
+      // 상단 원형 (머리)
       path.addArc(
         withCenter: CGPoint(x: centerX, y: headCenterY),
         radius: headRadius,
@@ -867,15 +871,14 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
         clockwise: true
       )
       
-      // 4. 오른쪽 곡선 (머리 -> 꼬리)
+      // 오른쪽 곡선 (머리 -> 꼬리)
       path.addCurve(
         to: CGPoint(x: centerX, y: tailTipY),
-        controlPoint1: CGPoint(x: centerX + headRadius, y: headCenterY + headRadius * 0.8),
-        controlPoint2: CGPoint(x: centerX + headRadius * 0.1, y: tailTipY - headRadius * 0.5)
+        controlPoint1: CGPoint(x: centerX + headRadius, y: headCenterY + headRadius * 0.7),
+        controlPoint2: CGPoint(x: centerX + headRadius * 0.05, y: tailTipY - headRadius * 0.6)
       )
       path.close()
 
-      // glow=true면 본체 그리기 전에 흰 빛이 핀 외곽으로 퍼지는 shadow를 깐다.
       if glow {
         cg.saveGState()
         cg.setShadow(
@@ -894,7 +897,7 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       path.fill()
       path.stroke()
 
-      // ── 안쪽 흰 highlight (Material location_on의 구멍 부분) ──
+      // ── 3. 안쪽 흰 highlight (Material 구멍) ──
       let innerRect = CGRect(
         x: centerX - innerRadius,
         y: headCenterY - innerRadius,
