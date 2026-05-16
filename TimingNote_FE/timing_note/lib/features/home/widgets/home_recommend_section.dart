@@ -97,9 +97,6 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     final item = _items[index];
     if (_removingIds.contains(item.todoId)) return;
 
-    // TODO: 완료 API 연결 지점
-    // - 예시: await _completeRecommendation(item.id);
-    // - 현재는 UI 동작 검증을 위해 즉시 성공으로 처리한다.
     setState(() {
       _removingIds.add(item.todoId);
       if (!_items.any((e) => e.groupId == item.groupId && e.todoId != item.todoId)) {
@@ -190,44 +187,44 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                     height: 320,
                     child: Stack(
                       children: [
-                      const Positioned(
-                        left: 88,
-                        top: 88,
-                        child: _OrbitRing(radius: 72),
-                      ),
-                      const Positioned(
-                        left: 52,
-                        top: 52,
-                        child: _OrbitRing(radius: 108),
-                      ),
-                      const Positioned(
-                        left: 22,
-                        top: 22,
-                        child: _OrbitRing(radius: 138),
-                      ),
-                      Positioned(
-                        left: 22,
-                        top: 22,
-                        child: _RadarSweep(progress: progress, radius: 138),
-                      ),
-                      Positioned(
-                        left: 117,
-                        top: 117,
-                        child: _CenterPlanet(
-                          progress: progress,
-                          isError: hasError,
-                          isLoading: isInitialLoading,
+                        const Positioned(
+                          left: 88,
+                          top: 88,
+                          child: _OrbitRing(radius: 72),
                         ),
-                      ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          ignoring: _activeGroupId == null,
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onTap: () => setState(() => _activeGroupId = null),
+                        const Positioned(
+                          left: 52,
+                          top: 52,
+                          child: _OrbitRing(radius: 108),
+                        ),
+                        const Positioned(
+                          left: 22,
+                          top: 22,
+                          child: _OrbitRing(radius: 138),
+                        ),
+                        Positioned(
+                          left: 22,
+                          top: 22,
+                          child: _RadarSweep(progress: progress, radius: 138),
+                        ),
+                        Positioned(
+                          left: 117,
+                          top: 117,
+                          child: _CenterPlanet(
+                            progress: progress,
+                            isError: hasError,
+                            isLoading: isInitialLoading,
                           ),
                         ),
-                      ),
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            ignoring: _activeGroupId == null,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTap: () => setState(() => _activeGroupId = null),
+                            ),
+                          ),
+                        ),
                         if (!isInitialLoading) ...[
                           ...List.generate(nodeItems.length, (i) {
                             final item = nodeItems[i];
@@ -236,7 +233,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                             }
                             final layout = nodeLayouts[item.groupId];
                             return _NodeStub(
-                              key: ValueKey(item.groupId),
+                              key: ValueKey('node-${item.groupId}'),
                               isRemoving: _removingIds.contains(item.todoId) &&
                                   item.todoCount <= 1,
                               isActive: false,
@@ -263,7 +260,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                               final item = nodeItems[i];
                               final layout = nodeLayouts[item.groupId];
                               return _NodeStub(
-                                key: ValueKey(item.groupId),
+                                key: ValueKey('active-node-${item.groupId}'),
                                 isRemoving: _removingIds.contains(item.todoId) &&
                                     item.todoCount <= 1,
                                 isActive: true,
@@ -282,14 +279,14 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                               );
                             })(),
                         ],
-                      if (_items.isEmpty && !isInitialLoading) const _EmptyHint(),
-                      if (isInitialLoading)
-                        const _LoadingHint(text: '추천 할일 생각중이다냥..'),
-                      if (hasError)
-                        const _LoadingHint(
-                          text: '추천에 실패했다냥..',
-                          borderColor: SpaceColors.error,
-                        ),
+                        if (_items.isEmpty && !isInitialLoading) const _EmptyHint(),
+                        if (isInitialLoading)
+                          const _LoadingHint(text: '추천 할일 생각중이다냥..'),
+                        if (hasError)
+                          const _LoadingHint(
+                            text: '추천에 실패했다냥..',
+                            borderColor: SpaceColors.error,
+                          ),
                       ],
                     ),
                   ),
@@ -316,7 +313,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                   children: List.generate(_items.length, (i) {
                     final item = _items[i];
                     return _CardStub(
-                      key: ValueKey('${item.todoId}_${item.groupId}'),
+                      key: ValueKey('card-${item.groupId}-${item.todoId}-$i'),
                       item: item,
                       isActive: _activeGroupId == item.groupId,
                       isRemoving: _removingIds.contains(item.todoId),
@@ -431,7 +428,6 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     final theta = math.atan2(y, x) * 180 / math.pi;
     return (theta + 360) % 360;
   }
-
 }
 
 class _CenterPlanet extends StatelessWidget {
@@ -561,67 +557,69 @@ class _NodeStubState extends State<_NodeStub> {
             child: SizedBox(
               width: 72,
               child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: widget.color.withValues(alpha: widget.isActive ? 0.52 : 0.34),
-                        blurRadius: widget.isActive ? 18 : 12,
-                        spreadRadius: widget.isActive ? 2 : 1,
-                      ),
-                    ],
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: widget.color.withValues(
+                            alpha: widget.isActive ? 0.52 : 0.34,
+                          ),
+                          blurRadius: widget.isActive ? 18 : 12,
+                          spreadRadius: widget.isActive ? 2 : 1,
+                        ),
+                      ],
+                    ),
+                    child: ClipOval(child: Image.asset(widget.image, fit: BoxFit.cover)),
                   ),
-                  child: ClipOval(child: Image.asset(widget.image, fit: BoxFit.cover)),
-                ),
-                if (widget.badgeCount > 1)
-                  Transform.translate(
-                    offset: const Offset(16, -42),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: SpaceColors.neonPink,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.86),
-                          width: 1,
+                  if (widget.badgeCount > 1)
+                    Transform.translate(
+                      offset: const Offset(16, -42),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: SpaceColors.neonPink,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.86),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          '${widget.badgeCount}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            fontFamily: 'Galmuri11',
+                          ),
                         ),
                       ),
+                    ),
+                  if (widget.isActive) ...[
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: SpaceColors.space900.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: widget.color.withValues(alpha: 0.7)),
+                      ),
                       child: Text(
-                        '${widget.badgeCount}',
+                        widget.placeLabel,
                         style: const TextStyle(
-                          color: Colors.white,
                           fontSize: 10,
-                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
                           fontFamily: 'Galmuri11',
                         ),
                       ),
                     ),
-                  ),
-                if (widget.isActive) ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: SpaceColors.space900.withValues(alpha: 0.95),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: widget.color.withValues(alpha: 0.7)),
-                    ),
-                    child: Text(
-                      widget.placeLabel,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                        fontFamily: 'Galmuri11',
-                      ),
-                    ),
-                  ),
+                  ],
                 ],
-              ],
               ),
             ),
           ),
@@ -741,7 +739,9 @@ class _CardStub extends StatelessWidget {
                       backgroundColor: SpaceColors.neonPurple.withValues(alpha: 0.3),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(color: SpaceColors.neonPurple.withValues(alpha: 0.78)),
+                        side: BorderSide(
+                          color: SpaceColors.neonPurple.withValues(alpha: 0.78),
+                        ),
                       ),
                       textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                     ),
@@ -1018,10 +1018,7 @@ class _LocationSkeleton extends StatelessWidget {
 }
 
 class _NodeLayoutData {
-  const _NodeLayoutData({
-    required this.angle,
-    required this.radius,
-  });
+  const _NodeLayoutData({required this.angle, required this.radius});
 
   final double angle;
   final double radius;
@@ -1068,7 +1065,9 @@ class _SkeletonCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: SpaceColors.space800.withValues(alpha: opacity),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.28 + (0.22 * wave))),
+        border: Border.all(
+          color: SpaceColors.neonPurple.withValues(alpha: 0.28 + (0.22 * wave)),
+        ),
       ),
     );
   }

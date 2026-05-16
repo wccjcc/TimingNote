@@ -3,14 +3,19 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:logger/logger.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/core/location/location_permission_service.dart';
 import 'package:timing_note/core/location/location_provider.dart';
 import 'package:timing_note/features/bootstrap/service/app_bootstrap_service.dart';
+import 'package:timing_note/features/mypage/service/user_settings_service.dart';
 
 import 'app/app.dart';
 
 final _logger = Logger();
+const String _locationPermissionPromptRequestedKey =
+    'location_permission_prompt_requested';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +29,24 @@ Future<void> main() async {
 
   try {
     // 1) installationUuid / deviceSecret 준비
-    await container.read(appBootstrapServiceProvider).run();
+    final bootstrapResult = await container
+        .read(appBootstrapServiceProvider)
+        .run();
+
+    // 1-1) 신규 디바이스 등록 직후 SETTINGS-03 기본 설정을 1회 생성한다.
+    if (bootstrapResult.isNewRegistration) {
+      try {
+        await container
+            .read(userSettingsServiceProvider)
+            .registerSettings(
+              locationAlertEnabled: true,
+              pushAlertEnabled: true,
+              radiusM: 300,
+            );
+      } catch (e, st) {
+        _logger.w('SETTINGS-03 register failed', error: e, stackTrace: st);
+      }
+    }
 
     // 2) 모바일(iOS/Android)에서만 geofence 런타임 사전 시작을 시도합니다.
     // - 웹에서는 브라우저 제약으로 초기 진입 지연이 커질 수 있어 제외합니다.
@@ -44,8 +66,15 @@ Future<void> main() async {
   // 결과는 캐싱하지 않고 버린다 (모든 사용처는 호출 시점에 GPS 직접 조회).
   try {
     final perm = LocationPermissionService();
-    if (!await perm.isWhenInUseGranted()) {
+    final preferences = await SharedPreferences.getInstance();
+    final alreadyPrompted =
+        preferences.getBool(_locationPermissionPromptRequestedKey) ?? false;
+    final whenInUseStatus = await perm.checkWhenInUse();
+
+    // 아직 권한 결정을 하지 않은(최초) 상태에서만 OS 권한 팝업을 자동 요청한다.
+    if (!alreadyPrompted && whenInUseStatus.isDenied) {
       await perm.requestWhenInUse();
+      await preferences.setBool(_locationPermissionPromptRequestedKey, true);
     }
     await container.read(locationServiceProvider).getCurrentPosition();
   } catch (_) {

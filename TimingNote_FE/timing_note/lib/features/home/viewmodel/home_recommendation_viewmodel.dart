@@ -46,9 +46,9 @@ class HomeRecommendationState {
 }
 
 class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
-  // late final 대신 명시적인 타입 선언 (build 내에서 매번 할당하므로 안전)
-  HomeRecommendationService? _recommendationService;
-  TodoService? _todoService;
+  late final HomeRecommendationService _recommendationService;
+  late final TodoService _todoService;
+  Future<void>? _loadFuture;
 
   @override
   HomeRecommendationState build() {
@@ -59,7 +59,21 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
   }
 
   Future<void> load() async {
-    if (_recommendationService == null) return;
+    final runningLoad = _loadFuture;
+    if (runningLoad != null) return runningLoad;
+
+    final future = _load();
+    _loadFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_loadFuture, future)) {
+        _loadFuture = null;
+      }
+    }
+  }
+
+  Future<void> _load() async {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final gps = await tryGetGpsSnapshot(ref);
@@ -73,7 +87,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
         return;
       }
 
-      final result = await _recommendationService!.getRecommendations(
+      final result = await _recommendationService.getRecommendations(
         latitude: gps.latitude,
         longitude: gps.longitude,
         radiusM: 2000,
@@ -100,9 +114,8 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
   }
 
   Future<void> completeTodo(int todoId) async {
-    if (_todoService == null) return;
     final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
-    await _todoService!.updateStatus(
+    await _todoService.updateStatus(
       todoId,
       status: TodoStatus.done,
       latitude: gps?.latitude,
