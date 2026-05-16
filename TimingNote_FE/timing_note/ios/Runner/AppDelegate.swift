@@ -1,4 +1,4 @@
-﻿import Flutter
+import Flutter
 import UIKit
 import KakaoMapsSDK
 import UserNotifications
@@ -129,7 +129,7 @@ import UserNotifications
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void        
   ) {
     completionHandler([])
   }
@@ -137,7 +137,7 @@ import UserNotifications
   /// 사용자가 알림 액션 버튼을 눌렀을 때 호출됩니다.
   ///
   /// 현재 단계에서는 카테고리/액션 수신 경로를 확정하는 것이 목표이며,
-  /// 실제 COMPLETE/SNOOZE API 호출은 다음 단계에서 Flutter 또는 네이티브 네트워크 계층으로 연결하면 됩니다.
+  /// 실제 COMPLETE/SNOOZE API 호출은 다음 단계에서 Flutter 또는 네이티브 네트워크 계층으로 연결하면 됩니 다.
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse,
@@ -450,7 +450,7 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       options.clickable = true // 사용자가 마커를 탭하면 Flutter에 poiId 전달
       let point = MapPoint(longitude: lng, latitude: lat)
       let poi = layer?.addPoi(option: options, at: point)
-      // Poi 단위로 tap handler 등록 — handler에서 itemID(=Flutter에서 전달한 id) 회수해 채널 전송.
+      // Poi 단위로 tap handler 등록 — handler에서 itemID(=Flutter에서 전달한 id) 회수해 채널 전송.       
       _ = poi?.addPoiTappedEventHandler(
         target: self,
         handler: TimingNoteNativeKakaoMapView.handlePoiTapped
@@ -704,7 +704,7 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   }
 
   /// 사용자 GPS 위치를 작은 흰+보라 dot으로 표시. Kakao SDK는 Poi 이동을 직접 지원 안 하므로
-  /// 같은 PoiID를 매번 제거(removePoi) 후 새로 추가(addPoi). 좌표 변경 빈도 낮으니 비용 무시 가능.
+  /// 같은 PoiID를 매번 제거(removePoi) 후 새로 추가(addPoi). 좌표 변경 빈도 낮으니 비용 무시 가능.       
   private func applyUserLocation(latitude: Double, longitude: Double) {
     guard let map = kakaoMap else { return }
     currentUserLocation = (latitude, longitude)
@@ -821,51 +821,61 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     if compact {
       size = glow ? CGSize(width: 30, height: 38) : CGSize(width: 24, height: 31)
     } else {
-      size = glow ? CGSize(width: 40, height: 50) : CGSize(width: 32, height: 42)
+      size = glow ? CGSize(width: 40, height: 52) : CGSize(width: 32, height: 44)
     }
     let inset: CGFloat = glow ? (compact ? 3 : 4) : 0
-    let bodyHalf: CGFloat = compact ? 10 : 14
-    let topY: CGFloat = inset + (compact ? 2 : 3)
-    let centerY: CGFloat = topY + bodyHalf
-    let lowerY: CGFloat = centerY + bodyHalf * 0.28
-    let tailTipY: CGFloat = size.height - (glow ? 4 : 2)
-    let tailControlX: CGFloat = compact ? 4 : 5.2
-    let tailControlY: CGFloat = tailTipY - (compact ? 6 : 8)
-    let innerRadius: CGFloat = compact ? 3.1 : 4.4
+    
+    // 핀의 논리적 크기 (inset 제외)
+    let pinW = size.width - (inset * 2)
+    
+    let bodyHalf = pinW / 2
+    let centerX = size.width / 2
+    
+    // 머리 중심 및 반지름
+    let headRadius = bodyHalf
+    let headCenterY = inset + headRadius
+    let innerRadius: CGFloat = compact ? 3.2 : 4.5
+    
+    let tailTipY = size.height - (glow ? 4 : 2)
     let strokeWidth: CGFloat = compact ? 1.2 : 1.5
     let shadowBlur: CGFloat = compact ? 4 : 6
+    
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
 
-      let centerX = size.width / 2
+      // ── 물방울 형태의 통합 Path 생성 ──
+      // 머리의 원형과 꼬리의 뾰족함을 부드러운 곡선으로 이어 각진 결합부 제거.
       let path = UIBezierPath()
+      
+      // 1. 꼬리 끝에서 시작
       path.move(to: CGPoint(x: centerX, y: tailTipY))
+      
+      // 2. 왼쪽 곡선 (꼬리 -> 머리)
       path.addCurve(
-        to: CGPoint(x: centerX - bodyHalf, y: lowerY),
-        controlPoint1: CGPoint(x: centerX - tailControlX, y: tailControlY),
-        controlPoint2: CGPoint(x: centerX - bodyHalf, y: lowerY + bodyHalf * 0.25)
+        to: CGPoint(x: centerX - headRadius, y: headCenterY),
+        controlPoint1: CGPoint(x: centerX - headRadius * 0.1, y: tailTipY - headRadius * 0.5),
+        controlPoint2: CGPoint(x: centerX - headRadius, y: headCenterY + headRadius * 0.8)
       )
-      path.addCurve(
-        to: CGPoint(x: centerX, y: topY),
-        controlPoint1: CGPoint(x: centerX - bodyHalf, y: centerY - bodyHalf * 0.65),
-        controlPoint2: CGPoint(x: centerX - bodyHalf * 0.55, y: topY)
+      
+      // 3. 상단 원형 (머리)
+      path.addArc(
+        withCenter: CGPoint(x: centerX, y: headCenterY),
+        radius: headRadius,
+        startAngle: .pi,
+        endAngle: 0,
+        clockwise: true
       )
-      path.addCurve(
-        to: CGPoint(x: centerX + bodyHalf, y: lowerY),
-        controlPoint1: CGPoint(x: centerX + bodyHalf * 0.55, y: topY),
-        controlPoint2: CGPoint(x: centerX + bodyHalf, y: centerY - bodyHalf * 0.65)
-      )
+      
+      // 4. 오른쪽 곡선 (머리 -> 꼬리)
       path.addCurve(
         to: CGPoint(x: centerX, y: tailTipY),
-        controlPoint1: CGPoint(x: centerX + bodyHalf, y: lowerY + bodyHalf * 0.25),
-        controlPoint2: CGPoint(x: centerX + tailControlX, y: tailControlY)
+        controlPoint1: CGPoint(x: centerX + headRadius, y: headCenterY + headRadius * 0.8),
+        controlPoint2: CGPoint(x: centerX + headRadius * 0.1, y: tailTipY - headRadius * 0.5)
       )
       path.close()
 
       // glow=true면 본체 그리기 전에 흰 빛이 핀 외곽으로 퍼지는 shadow를 깐다.
-      // setShadow + fill 하면 fill 색 주변에 shadow가 그려지고, 그 위에 본체를 다시
-      // 그려서 핀 자체는 흰색이 아닌 자기 색을 유지한다.
       if glow {
         cg.saveGState()
         cg.setShadow(
@@ -884,10 +894,10 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       path.fill()
       path.stroke()
 
-      // 안쪽 흰 highlight (Material location_on의 작은 원 부분).
+      // ── 안쪽 흰 highlight (Material location_on의 구멍 부분) ──
       let innerRect = CGRect(
         x: centerX - innerRadius,
-        y: centerY - innerRadius,
+        y: headCenterY - innerRadius,
         width: innerRadius * 2,
         height: innerRadius * 2
       )
