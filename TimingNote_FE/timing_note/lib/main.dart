@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:logger/logger.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_note/core/geofence/geofence_runtime.dart';
 import 'package:timing_note/core/location/location_permission_service.dart';
@@ -28,15 +29,20 @@ Future<void> main() async {
 
   try {
     // 1) installationUuid / deviceSecret 준비
-    final bootstrapResult = await container.read(appBootstrapServiceProvider).run();
+    final bootstrapResult = await container
+        .read(appBootstrapServiceProvider)
+        .run();
 
     // 1-1) 신규 디바이스 등록 직후 SETTINGS-03 기본 설정을 1회 생성한다.
     if (bootstrapResult.isNewRegistration) {
       try {
-        await container.read(userSettingsServiceProvider).registerSettings(
-          locationAlertEnabled: true,
-          pushAlertEnabled: true,
-        );
+        await container
+            .read(userSettingsServiceProvider)
+            .registerSettings(
+              locationAlertEnabled: true,
+              pushAlertEnabled: true,
+              radiusM: 300,
+            );
       } catch (e, st) {
         _logger.w('SETTINGS-03 register failed', error: e, stackTrace: st);
       }
