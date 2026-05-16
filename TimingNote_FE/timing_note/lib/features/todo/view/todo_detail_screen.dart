@@ -47,7 +47,12 @@ class TodoDetailScreen extends ConsumerWidget {
                     color: SpaceColors.neonPurple,
                   ),
                 )
-              : _buildMainContent(context, ref, state.detail!, state.currentGps),
+              : _buildMainContent(
+                  context,
+                  ref,
+                  state.detail!,
+                  state.currentGps,
+                ),
         ),
       ),
     );
@@ -199,7 +204,10 @@ class TodoDetailScreen extends ConsumerWidget {
                 if (detail.todoType == TodoType.generic &&
                     detail.candidates.isNotEmpty) ...[
                   // 7. GENERIC 후보 장소 — 미니 지도 + 카드 리스트
-                  _CandidateSection(todoId: detail.id, candidates: detail.candidates),
+                  _CandidateSection(
+                    todoId: detail.id,
+                    candidates: detail.candidates,
+                  ),
                   const SizedBox(height: 24),
                 ] else if (detail.primaryPlace != null) ...[
                   // 7. SPECIFIC/ALIAS 단일 장소 — 일관성: [지도 → 카드] 순
@@ -209,6 +217,7 @@ class TodoDetailScreen extends ConsumerWidget {
                       detail.primaryPlace!.longitude != null) ...[
                     _PrimaryPlaceMap(
                       place: detail.primaryPlace!,
+                      placeType: detail.todoType,
                       primaryCandidate: _findPrimaryCandidate(detail),
                     ),
                     const SizedBox(height: 12),
@@ -410,7 +419,9 @@ class TodoDetailScreen extends ConsumerWidget {
                   decoration: BoxDecoration(
                     color: Colors.cyanAccent.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                    border: Border.all(
+                      color: Colors.cyanAccent.withOpacity(0.3),
+                    ),
                   ),
                   child: const Icon(
                     Icons.add,
@@ -463,8 +474,7 @@ class TodoDetailScreen extends ConsumerWidget {
     TodoCandidate? primaryCandidate,
   ) {
     final activeSlot = primaryCandidate?.activeSlot ?? false;
-    final activeColor =
-        activeSlot ? SpaceColors.success : SpaceColors.white50;
+    final activeColor = activeSlot ? SpaceColors.success : SpaceColors.white50;
     final activeLabel = activeSlot ? '감지중' : '대기';
     final distanceLabel = _placeDistanceLabel(place, gps);
 
@@ -542,7 +552,8 @@ class TodoDetailScreen extends ConsumerWidget {
     final lng = place.longitude;
     if (lat == null || lng == null || gps == null) return null;
     return formatDistance(
-        haversineMeters(gps.latitude, gps.longitude, lat, lng));
+      haversineMeters(gps.latitude, gps.longitude, lat, lng),
+    );
   }
 
   Widget _buildBottomActions(WidgetRef ref, TodoDetail detail) {
@@ -576,7 +587,6 @@ class TodoDetailScreen extends ConsumerWidget {
       ),
     );
   }
-
 
   Color _getCategoryColor(String category) {
     switch (category) {
@@ -650,7 +660,10 @@ class TodoDetailScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('취소', style: TextStyle(color: SpaceColors.white50)),
+            child: const Text(
+              '취소',
+              style: TextStyle(color: SpaceColors.white50),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
@@ -847,10 +860,7 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _ImageThumbnail extends StatelessWidget {
-  const _ImageThumbnail({
-    required this.imageUrls,
-    required this.initialIndex,
-  });
+  const _ImageThumbnail({required this.imageUrls, required this.initialIndex});
   final List<String> imageUrls;
   final int initialIndex;
 
@@ -873,10 +883,8 @@ class _ImageThumbnail extends StatelessWidget {
   void _openFullScreenViewer(BuildContext context) {
     showDialog<void>(
       context: context,
-      builder: (ctx) => _ImageGalleryViewer(
-        imageUrls: imageUrls,
-        initialIndex: initialIndex,
-      ),
+      builder: (ctx) =>
+          _ImageGalleryViewer(imageUrls: imageUrls, initialIndex: initialIndex),
     );
   }
 }
@@ -932,7 +940,11 @@ class _ImageGalleryViewerState extends State<_ImageGalleryViewer> {
                     imageUrl,
                     fit: BoxFit.contain,
                     errorBuilder: (_, __, ___) => const Center(
-                      child: Icon(Icons.broken_image_outlined, color: Colors.white38, size: 40),
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white38,
+                        size: 40,
+                      ),
                     ),
                   ),
                 ),
@@ -944,7 +956,11 @@ class _ImageGalleryViewerState extends State<_ImageGalleryViewer> {
             left: 20,
             child: Text(
               '${_currentIndex + 1} / ${widget.imageUrls.length}',
-              style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           Positioned(
@@ -1012,9 +1028,14 @@ class _CircleActionButton extends StatelessWidget {
 /// 단일 장소라 마커 탭 정보 띠는 노출하지 않는다 (정보 카드와 중복).
 /// 마커 색상은 GENERIC과 동일 규칙: primaryCandidate.activeSlot=true면 활성(초록), 아니면 회색.
 class _PrimaryPlaceMap extends StatefulWidget {
-  const _PrimaryPlaceMap({required this.place, this.primaryCandidate});
+  const _PrimaryPlaceMap({
+    required this.place,
+    required this.placeType,
+    this.primaryCandidate,
+  });
 
   final TodoPlace place;
+  final String placeType;
   final TodoCandidate? primaryCandidate;
 
   @override
@@ -1035,7 +1056,8 @@ class _PrimaryPlaceMapState extends State<_PrimaryPlaceMap> {
         latitude: lat,
         longitude: lng,
         active: active,
-        name: widget.place.name,
+        placeType: widget.placeType,
+        compact: true,
       ),
     ]);
   }
@@ -1053,11 +1075,11 @@ class _PrimaryPlaceMapState extends State<_PrimaryPlaceMap> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: SizedBox(
-        height: 180,
+        height: 220,
         width: double.infinity,
         child: NativeKakaoMap(
           center: center,
-          initialLevel: 14,
+          initialLevel: 15,
           onMapCreated: (controller) {
             _mapController = controller;
             _applyMarker();
@@ -1087,35 +1109,48 @@ class _CandidateSection extends ConsumerStatefulWidget {
 class _CandidateSectionState extends ConsumerState<_CandidateSection> {
   NativeKakaoMapController? _mapController;
   bool _listExpanded = false;
-  // 마커 탭 시 정보 표시는 네이티브 KakaoMap 말풍선(badge)이 처리.
-  // FE는 더 이상 하단 정보 띠를 그리지 않는다 (정보 중복 회피).
+  int? _selectedCandidateId;
 
-  /// 좌표가 있는 후보만 모아 평균 좌표로 지도 초기 중심을 잡는다.
-  /// 후보가 모두 좌표 없음이면 기본값(서울 시청)으로 대체 — UX보다는 안전성 우선.
+  /// 포괄 후보 지도는 평균 좌표가 아니라 "실제로 핀이 있는 후보"를 초기 중심으로 쓴다.
+  /// 평균 중심은 후보들이 넓게 퍼진 경우 화면 중앙에 아무 핀도 없는 인상을 만들 수 있다.
+  /// 우선순위: 감지중 후보 → 첫 번째 좌표 후보 → 서울 fallback.
   LatLng get _initialCenter {
-    final withCoord = widget.candidates
-        .where((c) => c.place.latitude != null && c.place.longitude != null)
-        .toList();
-    if (withCoord.isEmpty) return const LatLng(37.5665, 126.9780);
-    final lat = withCoord.map((c) => c.place.latitude!).reduce((a, b) => a + b) /
-        withCoord.length;
-    final lng = withCoord.map((c) => c.place.longitude!).reduce((a, b) => a + b) /
-        withCoord.length;
-    return LatLng(lat, lng);
+    final focus = _initialFocusCandidate;
+    if (focus == null) return const LatLng(37.5665, 126.9780);
+    return LatLng(focus.place.latitude!, focus.place.longitude!);
   }
+
+  TodoCandidate? get _initialFocusCandidate {
+    final active = _firstCandidateWhere((c) => c.activeSlot && _hasCoords(c));
+    if (active != null) return active;
+    return _firstCandidateWhere(_hasCoords);
+  }
+
+  TodoCandidate? _firstCandidateWhere(bool Function(TodoCandidate) test) {
+    for (final candidate in widget.candidates) {
+      if (test(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  bool _hasCoords(TodoCandidate c) =>
+      c.place.latitude != null && c.place.longitude != null;
 
   void _applyMarkers() {
     final controller = _mapController;
     if (controller == null) return;
     final markers = widget.candidates
-        .where((c) => c.place.latitude != null && c.place.longitude != null)
-        .map((c) => CandidateMarker(
-              id: c.candidateId.toString(),
-              latitude: c.place.latitude!,
-              longitude: c.place.longitude!,
-              active: c.activeSlot,
-              name: c.place.name,
-            ))
+        .where(_hasCoords)
+        .map(
+          (c) => CandidateMarker(
+            id: c.candidateId.toString(),
+            latitude: c.place.latitude!,
+            longitude: c.place.longitude!,
+            active: c.activeSlot,
+            placeType: TodoType.generic,
+            compact: true,
+          ),
+        )
         .toList();
     controller.setMarkers(markers);
   }
@@ -1123,15 +1158,46 @@ class _CandidateSectionState extends ConsumerState<_CandidateSection> {
   @override
   void didUpdateWidget(_CandidateSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_selectedCandidateId != null &&
+        _firstCandidateWhere((c) => c.candidateId == _selectedCandidateId) ==
+            null) {
+      _selectedCandidateId = null;
+    }
     // toggleAlert/refresh 등으로 후보가 갱신되면 마커도 새로 그린다.
     _applyMarkers();
   }
 
   void _onCardTap(TodoCandidate c) {
-    final lat = c.place.latitude;
-    final lng = c.place.longitude;
+    _selectCandidate(c, panToCandidate: true);
+  }
+
+  void _onMarkerTap(String id) {
+    final candidateId = int.tryParse(id);
+    if (candidateId == null) return;
+    final candidate = _firstCandidateWhere((c) => c.candidateId == candidateId);
+    if (candidate == null) return;
+    _selectCandidate(candidate, panToCandidate: true);
+  }
+
+  void _selectCandidate(
+    TodoCandidate candidate, {
+    required bool panToCandidate,
+  }) {
+    final lat = candidate.place.latitude;
+    final lng = candidate.place.longitude;
     if (lat == null || lng == null) return;
-    _mapController?.panTo(LatLng(lat, lng));
+    final index = widget.candidates.indexWhere(
+      (c) => c.candidateId == candidate.candidateId,
+    );
+    setState(() {
+      _selectedCandidateId = candidate.candidateId;
+      if (index >= _previewCount) {
+        _listExpanded = true;
+      }
+    });
+    if (panToCandidate) {
+      _mapController?.panTo(LatLng(lat, lng));
+    }
   }
 
   /// "특정 장소 지정" — 후보 1개를 골라 SPECIFIC 전환. BE setTodoPlace로 위임.
@@ -1149,11 +1215,17 @@ class _CandidateSectionState extends ConsumerState<_CandidateSection> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('취소', style: TextStyle(color: SpaceColors.white50)),
+            child: const Text(
+              '취소',
+              style: TextStyle(color: SpaceColors.white50),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('지정', style: TextStyle(color: SpaceColors.neonPurple)),
+            child: const Text(
+              '지정',
+              style: TextStyle(color: SpaceColors.neonPurple),
+            ),
           ),
         ],
       ),
@@ -1217,10 +1289,7 @@ class _CandidateSectionState extends ConsumerState<_CandidateSection> {
                 color: SpaceColors.success,
               ),
               const SizedBox(width: 6),
-              _CandidateBadge(
-                label: '총 $total',
-                color: SpaceColors.white50,
-              ),
+              _CandidateBadge(label: '총 $total', color: SpaceColors.white50),
             ],
           ),
         ),
@@ -1228,32 +1297,34 @@ class _CandidateSectionState extends ConsumerState<_CandidateSection> {
         ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: SizedBox(
-            height: 220,
+            height: 280,
             width: double.infinity,
             child: NativeKakaoMap(
               center: _initialCenter,
+              initialLevel: 16,
               onMapCreated: (controller) {
                 _mapController = controller;
                 _applyMarkers();
               },
               onCameraIdle: (_, __) {},
               onCameraMoveStarted: () {},
-              // 마커 탭은 네이티브 KakaoMap이 직접 처리(말풍선 badge 토글)하므로 FE 콜백 불필요.
+              onMarkerTap: _onMarkerTap,
             ),
           ),
         ),
-        // 마커 탭은 네이티브 KakaoMap에서 말풍선(badge)으로 표시되므로 별도 FE 정보 띠 없음.
-        // 사용자의 "특정 장소 지정" 액션 진입은 후보 카드의 trailing 버튼.
         const SizedBox(height: 12),
         // 미리보기 카드 (기본 3개)
-        ...visible.map((c) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _CandidateCard(
-                candidate: c,
-                onTap: () => _onCardTap(c),
-                onPickSpecific: () => _confirmPickSpecific(c),
-              ),
-            )),
+        ...visible.map(
+          (c) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _CandidateCard(
+              candidate: c,
+              selected: c.candidateId == _selectedCandidateId,
+              onTap: () => _onCardTap(c),
+              onPickSpecific: () => _confirmPickSpecific(c),
+            ),
+          ),
+        ),
         // 더보기/접기 버튼 — 후보가 미리보기보다 많을 때만 노출
         if (total > _previewCount)
           _ShowMoreButton(
@@ -1317,20 +1388,30 @@ class _ShowMoreButton extends StatelessWidget {
 class _CandidateCard extends StatelessWidget {
   const _CandidateCard({
     required this.candidate,
+    required this.selected,
     required this.onTap,
     this.onPickSpecific,
   });
 
   final TodoCandidate candidate;
+  final bool selected;
   final VoidCallback onTap;
+
   /// non-null이면 우측 [📌] 버튼 노출. GENERIC 후보 카드에서만 SPECIFIC 전환 진입점으로 사용.
   final VoidCallback? onPickSpecific;
 
   @override
   Widget build(BuildContext context) {
     final c = candidate;
-    final activeColor = c.activeSlot ? SpaceColors.success : SpaceColors.white50;
+    final activeColor = c.activeSlot
+        ? SpaceColors.success
+        : SpaceColors.white50;
     final activeLabel = c.activeSlot ? '감지중' : '대기';
+    final borderColor = selected
+        ? SpaceColors.neonPurple.withOpacity(0.75)
+        : c.activeSlot
+        ? SpaceColors.success.withOpacity(0.4)
+        : SpaceColors.white10;
 
     return InkWell(
       onTap: onTap,
@@ -1338,13 +1419,11 @@ class _CandidateCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: SpaceColors.white.withOpacity(0.04),
+          color: selected
+              ? SpaceColors.neonPurple.withOpacity(0.08)
+              : SpaceColors.white.withOpacity(0.04),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: c.activeSlot
-                ? SpaceColors.success.withOpacity(0.4)
-                : SpaceColors.white10,
-          ),
+          border: Border.all(color: borderColor),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1379,7 +1458,10 @@ class _CandidateCard extends StatelessWidget {
                       onTap: onPickSpecific,
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: SpaceColors.neonPurple.withOpacity(0.18),
                           borderRadius: BorderRadius.circular(8),
@@ -1736,10 +1818,7 @@ class _SharedLinkCard extends StatelessWidget {
           fontSize: 14,
           fontWeight: FontWeight.bold,
         ),
-        bodyStyle: const TextStyle(
-          color: SpaceColors.white50,
-          fontSize: 12,
-        ),
+        bodyStyle: const TextStyle(color: SpaceColors.white50, fontSize: 12),
         borderRadius: 14,
         removeElevation: true,
         boxShadow: const [],
@@ -1824,11 +1903,7 @@ class _LinkFallbackBox extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            const Icon(
-              Icons.open_in_new,
-              color: SpaceColors.white50,
-              size: 16,
-            ),
+            const Icon(Icons.open_in_new, color: SpaceColors.white50, size: 16),
           ],
         ),
       ),

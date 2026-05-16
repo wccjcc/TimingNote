@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
 import '../../../shared/util/navigation_guard.dart';
-import '../../../shared/widgets/tap_bounce.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/util/todo_type_style.dart';
 import '../../todo/widgets/native_kakao_map.dart';
@@ -15,6 +14,11 @@ import '../viewmodel/map_viewmodel.dart';
 // 기본 카메라 위치 (서울 시청) — GPS 미동의 시 fallback
 const _kDefaultLat = 37.5665;
 const _kDefaultLng = 126.9780;
+const _kBottomNavigationHeight = 90.0;
+const _kMapPanelRadius = 20.0;
+const _kMapPanelGap = 16.0;
+const _kMyLocationFabGap = 14.0;
+const _kPeekSheetFabOffset = 236.0;
 
 /// 지도 탭 — 활성 todo 장소들을 카카오 지도에 시각화.
 ///
@@ -37,10 +41,16 @@ class _MapScreenState extends ConsumerState<MapScreen>
   // 시트에 표시한 카드의 현재 인덱스 (가로 스크롤). 마커 바꿀 때 첫 페이지로 리셋용.
   final PageController _pageController = PageController(viewportFraction: 0.92);
   String? _lastSelectedMarkerId;
+  bool _didCenterOnInitialGps = false;
 
   /// 미니 카드 더블 탭으로 같은 상세 화면이 두 번 push되는 것을 방지.
   void _openDetail(int todoId) {
     guardedRunSync(() => context.push('/todos/$todoId'));
+  }
+
+  Future<void> _refreshMap() async {
+    ref.read(mapProvider.notifier).dismissSelection();
+    await ref.read(mapProvider.notifier).load();
   }
 
   @override
@@ -51,12 +61,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
   @override
   Widget build(BuildContext context) {
-    // 마커 갱신 — 상태 변화 시 native에 동기. selectMarker로 시트만 바뀔 때도 호출되지만
-    // setMarkers는 idempotent라서 자주 호출해도 비용 작음.
+    // 마커 갱신 — todo/filter가 바뀔 때만 native에 동기한다.
+    // selectedMarkerId 변경으로 setMarkers를 다시 호출하면 iOS Poi가 재생성되어
+    // 마커 탭 직후 표시 상태가 흔들릴 수 있다.
     ref.listen<MapState>(mapProvider, (prev, next) {
       if (prev?.todos != next.todos ||
-          prev?.activeTypeFilters != next.activeTypeFilters ||
-          prev?.selectedMarkerId != next.selectedMarkerId) {
+          prev?.activeTypeFilters != next.activeTypeFilters) {
         _syncMarkers(next);
       }
       // 사용자 GPS 변화 시 위치 마커 갱신
@@ -64,6 +74,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
         _mapController?.setUserLocation(
           LatLng(next.currentGps!.latitude, next.currentGps!.longitude),
         );
+        _centerOnGpsIfNeeded(next);
       }
       // 마커 그룹이 바뀌면 시트 첫 페이지로 리셋
       if (prev?.selectedMarkerId != next.selectedMarkerId &&
@@ -79,67 +90,47 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
     return Scaffold(
       backgroundColor: SpaceColors.space950,
-      // StackFit.expand로 Stack이 풀스크린 차지. fit이 loose면 non-positioned 자식
-      // (SafeArea+칩)의 작은 크기에 Stack이 묶여 Positioned(bottom:24)가 칩 바로 아래로
-      // 떠버리는 버그가 발생함. (Web에서 더 명확히 노출됨)
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── 1. 카카오 지도 (전체 화면) ─────────────────────────────
-          Positioned.fill(
-            child: _buildMap(state),
-          ),
-
-          // ── 2. 상단 필터 칩 + 안전 영역 ────────────────────────────
-          // Positioned로 감싸서 Stack의 크기 결정에 미관여하게 함 — Stack은
-          // expand로 풀스크린 유지, 칩은 위에만 떠있는 layer.
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: _FilterChipsBar(
-                  activeFilters: state.activeTypeFilters,
-                  onToggle: (type) =>
-                      ref.read(mapProvider.notifier).toggleTypeFilter(type),
-                  totalCount: state.todos.length,
-                  visibleCount: state.filteredTodos.length,
-                ),
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                _kBottomNavigationHeight +
+                    _kMapPanelGap +
+                    MediaQuery.of(context).padding.bottom,
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FilterChipsBar(
+                          activeFilters: state.activeTypeFilters,
+                          onToggle: (type) => ref
+                              .read(mapProvider.notifier)
+                              .toggleTypeFilter(type),
+                          totalCount: state.todos.length,
+                          visibleCount: state.filteredTodos.length,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _MapRefreshButton(
+                        loading: state.isLoading,
+                        onTap: state.isLoading ? null : _refreshMap,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(child: _MapPanel(child: _buildMapStack(state))),
+                ],
               ),
             ),
           ),
-
-          // ── 3. 우하단 FAB "내 위치로" ──────────────────────────────
-          Positioned(
-            right: 16,
-            bottom: state.selectedMarkerId != null ? 220 : 24,
-            child: _MyLocationFab(
-              gps: state.currentGps,
-              onTap: _panToMyLocation,
-            ),
-          ),
-
-          // ── 4. peek 바텀 시트 ──────────────────────────────────────
-          if (state.selectedMarkerId != null &&
-              state.selectedGroupTodos.isNotEmpty)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _MarkerPeekSheet(
-                todos: state.selectedGroupTodos,
-                pageController: _pageController,
-                currentGps: state.currentGps,
-                onDismiss: () =>
-                    ref.read(mapProvider.notifier).dismissSelection(),
-                onCardTap: _openDetail,
-              ),
-            ),
-
-          // ── 5. 로딩 인디케이터 (초기 진입) ─────────────────────────
           if (state.isLoading && state.todos.isEmpty)
             const Positioned(
               top: 0,
@@ -152,10 +143,9 @@ class _MapScreenState extends ConsumerState<MapScreen>
               ),
             ),
 
-          // ── 6. 에러 배너 ───────────────────────────────────────────
           if (state.error != null)
             Positioned(
-              top: 80,
+              top: MediaQuery.of(context).padding.top + 72,
               left: 16,
               right: 16,
               child: _ErrorBanner(
@@ -168,31 +158,61 @@ class _MapScreenState extends ConsumerState<MapScreen>
     );
   }
 
+  Widget _buildMapStack(MapState state) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(child: _buildMap(state)),
+        if (state.selectedMarkerId != null &&
+            state.selectedGroupTodos.isNotEmpty)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => ref.read(mapProvider.notifier).dismissSelection(),
+            ),
+          ),
+        Positioned(
+          right: _kMyLocationFabGap,
+          bottom: state.selectedMarkerId != null
+              ? _kPeekSheetFabOffset
+              : _kMyLocationFabGap,
+          child: _MyLocationFab(gps: state.currentGps, onTap: _panToMyLocation),
+        ),
+        if (state.selectedMarkerId != null &&
+            state.selectedGroupTodos.isNotEmpty)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _MarkerPeekSheet(
+              todos: state.selectedGroupTodos,
+              pageController: _pageController,
+              currentGps: state.currentGps,
+              onDismiss: () =>
+                  ref.read(mapProvider.notifier).dismissSelection(),
+              onCardTap: _openDetail,
+            ),
+          ),
+      ],
+    );
+  }
+
   // ── 지도 — iOS만 실제 KakaoMap, 그 외(web/android)는 안내 placeholder ─
   Widget _buildMap(MapState state) {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
-      // 둥근 카드 + 외곽 마진. 상단 칩과 시각적으로 분리되도록 top 마진을 칩 영역(약 60px)
-      // 보다 크게 잡아 칩 아래에서 시작하는 듯한 인상.
-      return SafeArea(
-        child: Container(
-          margin: const EdgeInsets.fromLTRB(16, 64, 16, 16),
-          decoration: BoxDecoration(
-            color: SpaceColors.space800,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: SpaceColors.white10),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.map_outlined, color: Colors.white24, size: 64),
-                SizedBox(height: 16),
-                Text(
-                  '지도는 iOS 앱에서 확인할 수 있어요',
-                  style: TextStyle(color: Colors.white38, fontSize: 14),
-                ),
-              ],
-            ),
+      return const ColoredBox(
+        color: SpaceColors.space800,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.map_outlined, color: Colors.white24, size: 64),
+              SizedBox(height: 16),
+              Text(
+                '지도는 iOS 앱에서 확인할 수 있어요',
+                style: TextStyle(color: Colors.white38, fontSize: 14),
+              ),
+            ],
           ),
         ),
       );
@@ -210,8 +230,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
         // 사용자 위치도 첫 sync — 이미 GPS 받았으면 즉시 표시.
         if (mapState.currentGps != null) {
           controller.setUserLocation(
-            LatLng(mapState.currentGps!.latitude, mapState.currentGps!.longitude),
+            LatLng(
+              mapState.currentGps!.latitude,
+              mapState.currentGps!.longitude,
+            ),
           );
+          _centerOnGpsIfNeeded(mapState);
         }
       },
       onCameraIdle: (_, __) {
@@ -226,7 +250,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
       },
       onMarkerTap: (id) {
         ref.read(mapProvider.notifier).selectMarker(id);
-        _panToMarker(id);
       },
     );
   }
@@ -239,7 +262,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
   /// viewmodel의 markerGroups를 native KakaoMap에 동기.
   /// 마커 active 표시는 그룹 내 todo 중 하나라도 alertEnabled=true면 true (감지중 proxy).
-  /// 그룹 다중일 때 name에 "장소명 (N)" 형태로 개수 노출.
+  /// 그룹 다중 여부와 관계없이 마커 위 숫자 배지에 등록된 할 일 개수를 표시한다.
   void _syncMarkers(MapState state) {
     final controller = _mapController;
     if (controller == null) return;
@@ -251,30 +274,30 @@ class _MapScreenState extends ConsumerState<MapScreen>
       final lng = first.placeLongitude!;
       // 진짜 감지중 = 그룹 중 하나라도 BE의 activeSlot=true
       final active = group.any((t) => t.activeSlot);
-      final label = first.resolvedPlaceLabel ?? '장소';
-      final name = group.length > 1 ? '$label (${group.length})' : label;
       // 같은 좌표 다중 todo 그룹은 첫 항목의 todoType을 대표색으로 사용.
       // 실제론 같은 매장이라 같은 타입일 확률 높고, 다중 타입 케이스는 시트 카드로 분리됨.
-      markers.add(CandidateMarker(
-        id: id,
-        latitude: lat,
-        longitude: lng,
-        active: active,
-        name: name,
-        placeType: first.todoType,
-      ));
+      markers.add(
+        CandidateMarker(
+          id: id,
+          latitude: lat,
+          longitude: lng,
+          active: active,
+          placeType: first.todoType,
+          badgeText: group.length.toString(),
+        ),
+      );
     });
     controller.setMarkers(markers);
   }
 
-  void _panToMarker(String markerId) {
+  void _centerOnGpsIfNeeded(MapState state) {
+    if (_didCenterOnInitialGps) return;
     final controller = _mapController;
     if (controller == null) return;
-    final group = ref.read(mapProvider).markerGroups[markerId];
-    if (group == null || group.isEmpty) return;
-    final first = group.first;
-    if (!first.hasPlaceCoords) return;
-    controller.panTo(LatLng(first.placeLatitude!, first.placeLongitude!));
+    final gps = state.currentGps;
+    if (gps == null) return;
+    _didCenterOnInitialGps = true;
+    controller.panTo(LatLng(gps.latitude, gps.longitude));
   }
 
   void _panToMyLocation() {
@@ -284,6 +307,85 @@ class _MapScreenState extends ConsumerState<MapScreen>
       return;
     }
     _mapController?.panTo(LatLng(gps.latitude, gps.longitude));
+  }
+}
+
+class _MapPanel extends StatelessWidget {
+  const _MapPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(_kMapPanelRadius),
+          child: child,
+        ),
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(_kMapPanelRadius),
+              border: Border.all(color: SpaceColors.white10),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MapRefreshButton extends StatelessWidget {
+  const _MapRefreshButton({required this.loading, required this.onTap});
+
+  final bool loading;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+
+    return Tooltip(
+      message: '새로고침',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: SpaceColors.space900.withOpacity(0.88),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: enabled ? SpaceColors.white20 : SpaceColors.white10,
+              ),
+            ),
+            child: Center(
+              child: loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: SpaceColors.neonPurple,
+                      ),
+                    )
+                  : Icon(
+                      Icons.refresh_rounded,
+                      color: enabled
+                          ? SpaceColors.neonPurple
+                          : SpaceColors.white20,
+                      size: 19,
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -437,9 +539,7 @@ class _TypeChip extends StatelessWidget {
                 Text(
                   '${data.count}',
                   style: TextStyle(
-                    color: selected
-                        ? data.color
-                        : SpaceColors.white50,
+                    color: selected ? data.color : SpaceColors.white50,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -575,7 +675,7 @@ class _MarkerPeekSheet extends StatelessWidget {
 
             // 카드 (단일이면 1장, 다중이면 가로 스크롤)
             SizedBox(
-              height: 140,
+              height: 152,
               child: PageView.builder(
                 controller: pageController,
                 itemCount: todos.length,
@@ -598,10 +698,7 @@ class _MarkerPeekSheet extends StatelessWidget {
             // dots (다중일 때만)
             if (todos.length > 1) ...[
               const SizedBox(height: 10),
-              _PageDots(
-                count: todos.length,
-                pageController: pageController,
-              ),
+              _PageDots(count: todos.length, pageController: pageController),
             ],
           ],
         ),
@@ -620,115 +717,135 @@ class _TodoMiniCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final typeColor = todoTypeColor(todo.todoType);
     final category = todo.category;
-    final categoryLabel = category != null ? TodoCategory.labels[category] : null;
+    final categoryLabel = category != null
+        ? TodoCategory.labels[category]
+        : null;
 
-    return TapBounce(
-      onTap: onTap,
-      child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: SpaceColors.space800,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: SpaceColors.white10),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: SpaceColors.space800,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: SpaceColors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. 배지 row — 카테고리 + 타입 점 + 감지중
+          Row(
             children: [
-              // 1. 배지 row — 카테고리 + 타입 점 + 감지중
-              Row(
-                children: [
-                  if (categoryLabel != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: SpaceColors.white10,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        categoryLabel,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  const SizedBox(width: 6),
-                  // 장소 타입 점 (색만으로 분류)
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: typeColor,
-                      shape: BoxShape.circle,
+              if (categoryLabel != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: SpaceColors.white10,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    categoryLabel,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  // 정확한 감지중 = BE의 geofence_slots.is_active=true (activeSlot).
-                  // alertEnabled는 사용자 의도, activeSlot은 실제 슬롯 등록 여부 — 후자가 진실.
-                  if (todo.activeSlot) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: SpaceColors.neonCyan.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: SpaceColors.neonCyan.withOpacity(0.4),
-                        ),
-                      ),
-                      child: const Text(
-                        '감지중',
-                        style: TextStyle(
-                          color: SpaceColors.neonCyan,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: SpaceColors.white50,
-                    size: 18,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // 2. 본문
-              Text(
-                todo.content,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  height: 1.3,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const Spacer(),
-              // 3. 장소 라벨
-              if (todo.resolvedPlaceLabel != null)
-                Text(
-                  todo.resolvedPlaceLabel!,
-                  style: const TextStyle(
-                    color: SpaceColors.white50,
-                    fontSize: 12,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              const SizedBox(width: 6),
+              // 장소 타입 점 (색만으로 분류)
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: typeColor,
+                  shape: BoxShape.circle,
                 ),
+              ),
+              // 정확한 감지중 = BE의 geofence_slots.is_active=true (activeSlot).
+              // alertEnabled는 사용자 의도, activeSlot은 실제 슬롯 등록 여부 — 후자가 진실.
+              if (todo.activeSlot) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: SpaceColors.neonCyan.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: SpaceColors.neonCyan.withOpacity(0.4),
+                    ),
+                  ),
+                  child: const Text(
+                    '감지중',
+                    style: TextStyle(
+                      color: SpaceColors.neonCyan,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
-        ),
+          const SizedBox(height: 10),
+          // 2. 본문
+          Text(
+            todo.content,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              height: 1.3,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              if (todo.resolvedPlaceLabel != null)
+                Expanded(
+                  child: Text(
+                    todo.resolvedPlaceLabel!,
+                    style: const TextStyle(
+                      color: SpaceColors.white50,
+                      fontSize: 12,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )
+              else
+                const Spacer(),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: onTap,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 30),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  '상세보기',
+                  style: TextStyle(
+                    color: SpaceColors.neonPurple,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -779,9 +896,7 @@ class _PageDotsState extends State<_PageDots> {
           width: selected ? 16 : 6,
           height: 6,
           decoration: BoxDecoration(
-            color: selected
-                ? SpaceColors.neonPurple
-                : SpaceColors.white20,
+            color: selected ? SpaceColors.neonPurple : SpaceColors.white20,
             borderRadius: BorderRadius.circular(3),
           ),
         );
