@@ -805,8 +805,8 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     return active ? base : base.withAlphaComponent(0.5)
   }
 
-  /// Material `Icons.location_on` 톤의 둥근 핀 마커를 그린다.
-  /// 원형 머리 + 짧고 둥근 꼬리 + 안쪽 흰 highlight로 지도 검색 화면의 핀 느낌에 맞춘다.
+  /// Material `Icons.location_on` 톤의 물방울 핀 마커를 그린다.
+  /// 머리와 꼬리를 하나의 베지어 path로 이어서, 접합부가 V처럼 갈라지지 않게 한다.
   /// place_search_screen의 Flutter 위젯 오버레이(Icons.location_on)와 톤 통일.
   /// glow=true면 핀 외곽에 흰 shadow blur로 "감지중" 시각 강조 — 동적 펄스가 아닌
   /// 정적 글로우라 GPU/배터리 비용 0. 카메라 이동/줌과 무관하게 안정적.
@@ -816,52 +816,52 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     compact: Bool = false
   ) -> UIImage? {
     // glow가 활성이면 외곽 3-4px 흰 빛이 퍼지므로 size를 그만큼 키우고 핀을 중앙에 위치.
-    // anchor 기준이 size.height-2(꼬리 끝)라 size 변경 시 anchor도 자동 따라감.
+    // anchorPoint=(0.5, 1.0)이므로 꼬리 끝이 좌표 지점에 닿는다.
     let size: CGSize
     if compact {
-      size = glow ? CGSize(width: 30, height: 34) : CGSize(width: 24, height: 28)
+      size = glow ? CGSize(width: 30, height: 38) : CGSize(width: 24, height: 31)
     } else {
-      size = glow ? CGSize(width: 38, height: 42) : CGSize(width: 30, height: 34)
+      size = glow ? CGSize(width: 40, height: 50) : CGSize(width: 32, height: 42)
     }
     let inset: CGFloat = glow ? (compact ? 3 : 4) : 0
-    let headRadius: CGFloat = compact ? 8.5 : 11.5
-    let headCenterY: CGFloat = inset + headRadius + (compact ? 0.5 : 1)
-    let innerRadius: CGFloat = compact ? 3.1 : 4.2
+    let bodyHalf: CGFloat = compact ? 10 : 14
+    let topY: CGFloat = inset + (compact ? 2 : 3)
+    let centerY: CGFloat = topY + bodyHalf
+    let lowerY: CGFloat = centerY + bodyHalf * 0.28
+    let tailTipY: CGFloat = size.height - (glow ? 4 : 2)
+    let tailControlX: CGFloat = compact ? 4 : 5.2
+    let tailControlY: CGFloat = tailTipY - (compact ? 6 : 8)
+    let innerRadius: CGFloat = compact ? 3.1 : 4.4
     let strokeWidth: CGFloat = compact ? 1.2 : 1.5
     let shadowBlur: CGFloat = compact ? 4 : 6
-    let tailNeckHalf: CGFloat = compact ? 4.8 : 6.2
-    let tailTipHalf: CGFloat = compact ? 1.8 : 2.4
-    let tailBaseY: CGFloat = headCenterY + headRadius * 0.55
-    let tailTipY: CGFloat = size.height - (glow ? 3 : 2)
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
 
-      let headCenter = CGPoint(x: size.width / 2, y: headCenterY)
-      let headRect = CGRect(
-        x: headCenter.x - headRadius,
-        y: headCenter.y - headRadius,
-        width: headRadius * 2,
-        height: headRadius * 2
+      let centerX = size.width / 2
+      let path = UIBezierPath()
+      path.move(to: CGPoint(x: centerX, y: tailTipY))
+      path.addCurve(
+        to: CGPoint(x: centerX - bodyHalf, y: lowerY),
+        controlPoint1: CGPoint(x: centerX - tailControlX, y: tailControlY),
+        controlPoint2: CGPoint(x: centerX - bodyHalf, y: lowerY + bodyHalf * 0.25)
       )
-      let headPath = UIBezierPath(ovalIn: headRect)
-      let tailPath = UIBezierPath()
-      tailPath.move(to: CGPoint(x: headCenter.x - tailNeckHalf, y: tailBaseY))
-      tailPath.addCurve(
-        to: CGPoint(x: headCenter.x - tailTipHalf, y: tailTipY),
-        controlPoint1: CGPoint(x: headCenter.x - tailNeckHalf, y: tailBaseY + 5),
-        controlPoint2: CGPoint(x: headCenter.x - tailTipHalf, y: tailTipY - 4)
+      path.addCurve(
+        to: CGPoint(x: centerX, y: topY),
+        controlPoint1: CGPoint(x: centerX - bodyHalf, y: centerY - bodyHalf * 0.65),
+        controlPoint2: CGPoint(x: centerX - bodyHalf * 0.55, y: topY)
       )
-      tailPath.addQuadCurve(
-        to: CGPoint(x: headCenter.x + tailTipHalf, y: tailTipY),
-        controlPoint: CGPoint(x: headCenter.x, y: tailTipY + 2)
+      path.addCurve(
+        to: CGPoint(x: centerX + bodyHalf, y: lowerY),
+        controlPoint1: CGPoint(x: centerX + bodyHalf * 0.55, y: topY),
+        controlPoint2: CGPoint(x: centerX + bodyHalf, y: centerY - bodyHalf * 0.65)
       )
-      tailPath.addCurve(
-        to: CGPoint(x: headCenter.x + tailNeckHalf, y: tailBaseY),
-        controlPoint1: CGPoint(x: headCenter.x + tailTipHalf, y: tailTipY - 4),
-        controlPoint2: CGPoint(x: headCenter.x + tailNeckHalf, y: tailBaseY + 5)
+      path.addCurve(
+        to: CGPoint(x: centerX, y: tailTipY),
+        controlPoint1: CGPoint(x: centerX + bodyHalf, y: lowerY + bodyHalf * 0.25),
+        controlPoint2: CGPoint(x: centerX + tailControlX, y: tailControlY)
       )
-      tailPath.close()
+      path.close()
 
       // glow=true면 본체 그리기 전에 흰 빛이 핀 외곽으로 퍼지는 shadow를 깐다.
       // setShadow + fill 하면 fill 색 주변에 shadow가 그려지고, 그 위에 본체를 다시
@@ -874,25 +874,20 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
           color: UIColor.white.withAlphaComponent(0.95).cgColor
         )
         UIColor.white.withAlphaComponent(0.9).setFill()
-        tailPath.fill()
-        headPath.fill()
+        path.fill()
         cg.restoreGState()
       }
 
       color.setFill()
       UIColor.white.setStroke()
-      tailPath.lineWidth = strokeWidth
-      tailPath.fill()
-      tailPath.stroke()
-      headPath.lineWidth = strokeWidth
-      headPath.fill()
-      headPath.stroke()
+      path.lineWidth = strokeWidth
+      path.fill()
+      path.stroke()
 
       // 안쪽 흰 highlight (Material location_on의 작은 원 부분).
-      // headCenter는 이미 inset 적용된 좌표라 추가 보정 불필요.
       let innerRect = CGRect(
-        x: headCenter.x - innerRadius,
-        y: headCenter.y - innerRadius,
+        x: centerX - innerRadius,
+        y: centerY - innerRadius,
         width: innerRadius * 2,
         height: innerRadius * 2
       )
