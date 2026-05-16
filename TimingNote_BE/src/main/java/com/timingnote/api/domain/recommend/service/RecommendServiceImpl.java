@@ -6,8 +6,10 @@ import com.timingnote.api.domain.recommend.dto.response.RecommendListResponseDto
 import com.timingnote.api.domain.recommend.repository.projection.RecommendCandidateProjection;
 import com.timingnote.api.infra.client.kakao.KakaoGeoClient;
 import com.timingnote.api.infra.client.kakao.dto.KakaoRegionCodeResponse;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,6 +19,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class RecommendServiceImpl implements RecommendService {
 
@@ -157,9 +160,32 @@ public class RecommendServiceImpl implements RecommendService {
     //카카오 coord2regioncode 호출
     //주의 : AI는 x = 경도, y = 위도 순서
     private String resolveCurrentLocationLabel(double latitude, double longitude) {
-        KakaoRegionCodeResponse response = kakaoGeoClient
-                .coordToRegionCode(String.valueOf(longitude), String.valueOf(latitude))
-                .block();
+        KakaoRegionCodeResponse response;
+        try {
+            String x = String.valueOf(longitude);
+            String y = String.valueOf(latitude);
+            log.info("[RECO][KAKAO] coord2regioncode request x={}, y={}", x, y);
+            response = kakaoGeoClient
+                    .coordToRegionCode(x, y)
+                    .block();
+        } catch (WebClientResponseException e) {
+            log.error(
+                    "[RECO][KAKAO] coord2regioncode failed status={}, body={}, latitude={}, longitude={}",
+                    e.getStatusCode(),
+                    e.getResponseBodyAsString(),
+                    latitude,
+                    longitude
+            );
+            return null;
+        } catch (Exception e) {
+            log.error(
+                    "[RECO][KAKAO] coord2regioncode unexpected error latitude={}, longitude={}",
+                    latitude,
+                    longitude,
+                    e
+            );
+            return null;
+        }
 
         //응답이 비어있으면 라벨을 만들 수 없으니 null
         if (response == null || response.getDocuments() == null || response.getDocuments().isEmpty()) {
