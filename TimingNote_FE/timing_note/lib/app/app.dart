@@ -7,15 +7,18 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/geofence/geofence_runtime.dart';
 import '../core/location/location_permission_service.dart';
 import '../core/location/location_service.dart';
 import '../core/notification/fcm_token_service.dart';
+import '../core/notification/notification_permission_service.dart';
 import '../core/notification/push_action_bridge.dart';
+import '../features/bootstrap/service/app_bootstrap_service.dart';
 import '../features/notification/service/notification_service.dart';
 import '../features/notification/widgets/foreground_notification_toast_card.dart';
-import '../shared/theme/colors.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -34,6 +37,8 @@ class App extends ConsumerStatefulWidget {
 class _AppState extends ConsumerState<App>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static final Logger _logger = Logger();
+  static const String _locationPermissionPromptRequestedKey =
+      'location_permission_prompt_requested';
 
   late final Future<void> _bootstrapFuture;
   final PushActionBridge _pushActionBridge = PushActionBridge();
@@ -50,6 +55,10 @@ class _AppState extends ConsumerState<App>
     WidgetsBinding.instance.addObserver(this);
 
     _bootstrapFuture = Future<void>.microtask(() async {
+      // main.dart에서 1차 등록을 수행하지만, hot restart/lifecycle 타이밍에 따라
+      // App 초기화가 인증값 없이 API를 치지 않도록 앱 루트에서도 한 번 더 보장합니다.
+      await ref.read(appBootstrapServiceProvider).run();
+
       try {
         // FCM 토큰 초기화는 앱 시작 시점에 1회 수행합니다.
         await ref.read(fcmTokenServiceProvider).initialize();
@@ -60,8 +69,9 @@ class _AppState extends ConsumerState<App>
 
         // iOS 액션 버튼 브리지 초기화
         await _pushActionBridge.initialize();
-        _pushActionSubscription =
-            _pushActionBridge.events.listen(_handlePushActionEvent);
+        _pushActionSubscription = _pushActionBridge.events.listen(
+          _handlePushActionEvent,
+        );
       } catch (e) {
         debugPrint('Bootstrap skipped: $e');
       }
@@ -105,10 +115,17 @@ class _AppState extends ConsumerState<App>
       return;
     }
 
+    try {
+      await _bootstrapFuture;
+    } catch (_) {
+      return;
+    }
+
     final runtime = ref.read(geofenceRuntimeProvider);
 
     switch (state) {
       case AppLifecycleState.resumed:
+        await _requestUndeterminedPermissionsOnResume();
         // foreground 복귀 시:
         // 1) 런타임이 꺼져있다면 다시 시작
         // 2) 슬롯 강제 동기화 1회로 background 동안의 상태 차이를 복구
@@ -124,6 +141,47 @@ class _AppState extends ConsumerState<App>
         // SSE 실시간 동기화만 중지합니다.
         await runtime.pauseRealtimeSync();
         break;
+    }
+  }
+
+  Future<void> _requestUndeterminedPermissionsOnResume() async {
+    if (kIsWeb) {
+      return;
+    }
+
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final alreadyPrompted =
+          preferences.getBool(_locationPermissionPromptRequestedKey) ?? false;
+      final locationPermissionService = ref.read(
+        locationPermissionServiceProvider,
+      );
+      final whenInUseStatus = await locationPermissionService.checkWhenInUse();
+      if (!alreadyPrompted && whenInUseStatus.isDenied) {
+        await locationPermissionService.requestWhenInUse();
+        await preferences.setBool(_locationPermissionPromptRequestedKey, true);
+      }
+    } catch (e, st) {
+      _logger.w(
+        '[PERMISSION_RESUME] location prompt skipped',
+        error: e,
+        stackTrace: st,
+      );
+    }
+
+    try {
+      final notificationSettings = await FirebaseMessaging.instance
+          .getNotificationSettings();
+      if (notificationSettings.authorizationStatus ==
+          AuthorizationStatus.notDetermined) {
+        await ref.read(notificationPermissionServiceProvider).request();
+      }
+    } catch (e, st) {
+      _logger.w(
+        '[PERMISSION_RESUME] notification prompt skipped',
+        error: e,
+        stackTrace: st,
+      );
     }
   }
 
@@ -273,7 +331,8 @@ class _AppState extends ConsumerState<App>
     _removeForegroundToast();
 
     final router = ref.read(appRouterProvider);
-    final overlayState = router.routerDelegate.navigatorKey.currentState?.overlay;
+    final overlayState =
+        router.routerDelegate.navigatorKey.currentState?.overlay;
     if (overlayState == null) {
       _logger.w(
         '[PUSH_FOREGROUND_TOAST_SKIP] overlay unavailable data=${message.data}',
@@ -298,8 +357,9 @@ class _AppState extends ConsumerState<App>
       builder: (context) {
         final placeName = _resolvePlaceNameFromMessage(message);
         final todoText = _resolveTodoTextFromMessage(message);
-        final notificationId =
-            int.tryParse(message.data['notificationId']?.toString() ?? '');
+        final notificationId = int.tryParse(
+          message.data['notificationId']?.toString() ?? '',
+        );
 
         return Positioned(
           top: 0,
@@ -320,23 +380,24 @@ class _AppState extends ConsumerState<App>
                     child: ForegroundNotificationToastCard(
                       placeName: placeName,
                       todoText: todoText,
-                      onTapCard: () => unawaited(_handleForegroundToastTap(message)),
+                      onTapCard: () =>
+                          unawaited(_handleForegroundToastTap(message)),
                       onTapSnooze: notificationId == null
                           ? null
                           : () => unawaited(
-                                _handleForegroundToastAction(
-                                  notificationId: notificationId,
-                                  actionId: 'SNOOZE_60',
-                                ),
+                              _handleForegroundToastAction(
+                                notificationId: notificationId,
+                                actionId: 'SNOOZE_60',
                               ),
+                            ),
                       onTapComplete: notificationId == null
                           ? null
                           : () => unawaited(
-                                _handleForegroundToastAction(
-                                  notificationId: notificationId,
-                                  actionId: 'COMPLETE',
-                                ),
+                              _handleForegroundToastAction(
+                                notificationId: notificationId,
+                                actionId: 'COMPLETE',
                               ),
+                            ),
                       onClose: () => unawaited(_dismissForegroundToast()),
                     ),
                   ),
@@ -395,7 +456,8 @@ class _AppState extends ConsumerState<App>
   }
 
   String _resolveTodoTextFromMessage(RemoteMessage message) {
-    final body = message.notification?.body ?? message.data['body']?.toString() ?? '';
+    final body =
+        message.notification?.body ?? message.data['body']?.toString() ?? '';
     if (body.trim().isEmpty) {
       return '할 일을 확인해 주세요';
     }
@@ -410,12 +472,7 @@ class _AppState extends ConsumerState<App>
       return '현재 위치';
     }
 
-    final suffixes = <String>[
-      '근처에요',
-      '근처예요',
-      '근처입니다',
-      '근처',
-    ];
+    final suffixes = <String>['근처에요', '근처예요', '근처입니다', '근처'];
     for (final suffix in suffixes) {
       if (title.endsWith(suffix)) {
         final place = title.substring(0, title.length - suffix.length).trim();
@@ -437,9 +494,7 @@ class _AppState extends ConsumerState<App>
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             home: const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
+              body: Center(child: CircularProgressIndicator()),
             ),
           );
         }
@@ -475,10 +530,7 @@ class _AppState extends ConsumerState<App>
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          supportedLocales: const [
-            Locale('ko', 'KR'),
-            Locale('en', 'US'),
-          ],
+          supportedLocales: const [Locale('ko', 'KR'), Locale('en', 'US')],
           locale: const Locale('ko', 'KR'),
         );
       },
