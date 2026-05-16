@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../shared/widgets/space_toast.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
 import '../model/todo.dart';
@@ -32,19 +33,21 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(todoInputProvider);
-    // 등록/삭제 시 invalidate되어 자동 갱신. 로딩/에러는 빈 목록으로 처리.
     final userPlaces = ref.watch(userPlacesProvider).maybeWhen(
       data: (list) => list,
       orElse: () => const <UserPlace>[],
     );
 
-    // 완료 → 상세 화면으로 이동
     ref.listen<TodoInputState>(todoInputProvider, (prev, next) {
       if (next.isCompleted && next.createdTodoId != null) {
-        // 짧은 딜레이 후 이동 (빌드 사이클 보호)
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            context.pushReplacement('/todos/${next.createdTodoId}');
+            SpaceToast.show(
+              context,
+              message: '할 일이 등록되었습니다.',
+              kind: ToastKind.success,
+            );
+            context.go('/todos');
           }
         });
       }
@@ -71,7 +74,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
   }
 
   Widget _buildBody(BuildContext context, TodoInputState state, List<UserPlace> userPlaces) {
-    // 제출 오버레이
     if (state.isSubmitting) {
       return const _LoadingOverlay(
         message: '저장 중…',
@@ -83,7 +85,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── 입력 유형 선택 ─────────────────────────────────────────
           _InputTypeSelector(
             selected: _selectedInputType,
             onChanged: (type) {
@@ -93,7 +94,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ── 내 장소 태그 목록 (등록된 게 있을 때만, 클릭 시 ALIAS 명시 선택/교체) ──
           if (userPlaces.isNotEmpty) ...[
             _UserPlaceTags(
               places: userPlaces,
@@ -103,14 +103,13 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
                 if (state.selectedUserPlace?.id == place.id) {
                   notifier.clearUserPlace();
                 } else {
-                  notifier.setUserPlace(place); // 교체
+                  notifier.setUserPlace(place);
                 }
               },
             ),
             const SizedBox(height: 12),
           ],
 
-          // ── 내용 입력 (선택된 ALIAS는 prefix chip으로 입력창 안에 표시) ──
           TextField(
             controller: _contentController,
             focusNode: _focusNode,
@@ -140,7 +139,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
 
           const SizedBox(height: 16),
 
-          // ── 오류 메시지 ───────────────────────────────────────────
           if (state.error != null)
             _ErrorBanner(
               message: state.error!,
@@ -151,7 +149,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
 
           const SizedBox(height: 8),
 
-          // ── 안내 텍스트 ───────────────────────────────────────────
           Text(
             '장소, 날짜, 시간을 포함해 입력하면 AI가 자동으로 구조화합니다.',
             style: Theme.of(context)
@@ -165,11 +162,6 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
   }
 }
 
-// ── 내 장소 태그 목록 ────────────────────────────────────────────────
-/// 사용자가 등록한 별칭 모두를 ChoiceChip으로 표시.
-/// - 클릭: ALIAS 명시 선택 (선택된 게 있으면 교체)
-/// - 선택된 chip 다시 클릭: 해제
-/// 선택된 ALIAS는 입력창 prefix chip으로 별도 표시됨.
 class _UserPlaceTags extends StatelessWidget {
   const _UserPlaceTags({
     required this.places,
@@ -202,7 +194,6 @@ class _UserPlaceTags extends StatelessWidget {
   }
 }
 
-// ── 입력 유형 선택 ─────────────────────────────────────────────────
 class _InputTypeSelector extends StatelessWidget {
   const _InputTypeSelector({required this.selected, required this.onChanged});
 
@@ -239,7 +230,6 @@ class _InputTypeSelector extends StatelessWidget {
   }
 }
 
-// ── 로딩 오버레이 ─────────────────────────────────────────────────
 class _LoadingOverlay extends StatelessWidget {
   const _LoadingOverlay({required this.message});
 
@@ -260,7 +250,6 @@ class _LoadingOverlay extends StatelessWidget {
   }
 }
 
-// ── 오류 배너 ─────────────────────────────────────────────────────
 class _ErrorBanner extends StatelessWidget {
   const _ErrorBanner({required this.message, required this.onRetry});
 
