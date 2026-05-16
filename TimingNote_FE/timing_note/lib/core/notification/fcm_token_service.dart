@@ -26,8 +26,8 @@ class FcmTokenService {
   FcmTokenService({
     required ApiClient apiClient,
     required NotificationPermissionService permissionService,
-  })  : _apiClient = apiClient,
-        _permissionService = permissionService;
+  }) : _apiClient = apiClient,
+       _permissionService = permissionService;
 
   final ApiClient _apiClient;
   final NotificationPermissionService _permissionService;
@@ -72,11 +72,7 @@ class FcmTokenService {
       return;
     }
 
-    await _upsertFcmToken(
-      token: token,
-      isActive: false,
-      forceSync: true,
-    );
+    await _upsertFcmToken(token: token, isActive: false, forceSync: true);
   }
 
   Future<void> _initializeFirebase() async {
@@ -97,18 +93,12 @@ class FcmTokenService {
     }
 
     final currentSettings = await messaging.getNotificationSettings();
-    if (currentSettings.authorizationStatus != AuthorizationStatus.notDetermined) {
+    if (currentSettings.authorizationStatus !=
+        AuthorizationStatus.notDetermined) {
       return;
     }
 
     await _permissionService.request();
-
-    await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
   }
 
   /// 앱 시작 직후 현재 토큰을 한 번 읽어서 서버와 맞춘다.
@@ -140,11 +130,7 @@ class FcmTokenService {
           return;
         }
 
-        await _upsertFcmToken(
-          token: token,
-          isActive: true,
-          forceSync: true,
-        );
+        await _upsertFcmToken(token: token, isActive: true, forceSync: true);
       },
       onError: (Object error, StackTrace stackTrace) {
         _logger.e(
