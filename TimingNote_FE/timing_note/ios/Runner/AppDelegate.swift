@@ -514,9 +514,13 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
 
     let iconStyle: PoiIconStyle
     if badges.isEmpty {
-      iconStyle = PoiIconStyle(symbol: pin)
+      iconStyle = PoiIconStyle(symbol: pin, anchorPoint: CGPoint(x: 0.5, y: 1.0))
     } else {
-      iconStyle = PoiIconStyle(symbol: pin, badges: badges)
+      iconStyle = PoiIconStyle(
+        symbol: pin,
+        anchorPoint: CGPoint(x: 0.5, y: 1.0),
+        badges: badges
+      )
     }
     let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
     manager.addPoiStyle(PoiStyle(styleID: styleID, styles: [perLevel]))
@@ -529,7 +533,7 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     let font = UIFont.systemFont(ofSize: 11, weight: .bold)
     let attrs: [NSAttributedString.Key: Any] = [
       .font: font,
-      .foregroundColor: UIColor.white,
+      .foregroundColor: UIColor(red: 0.055, green: 0.051, blue: 0.094, alpha: 1.0),
     ]
     let textSize = (display as NSString).size(withAttributes: attrs)
     let badgeWidth = max(CGFloat(20), ceil(textSize.width) + 10)
@@ -543,11 +547,11 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
         cornerRadius: size.height / 2
       )
       let cg = ctx.cgContext
-      cg.setFillColor(UIColor(red: 0.059, green: 0.059, blue: 0.102, alpha: 0.94).cgColor)
+      cg.setFillColor(UIColor(red: 0.973, green: 0.957, blue: 1.0, alpha: 0.96).cgColor)
       cg.addPath(path.cgPath)
       cg.fillPath()
 
-      cg.setStrokeColor(UIColor.white.withAlphaComponent(0.82).cgColor)
+      cg.setStrokeColor(UIColor(red: 0.655, green: 0.545, blue: 0.980, alpha: 0.78).cgColor)
       cg.setLineWidth(1)
       cg.addPath(path.cgPath)
       cg.strokePath()
@@ -687,12 +691,12 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       color: UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 1.0),
       glow: true
     ) {
-      let iconStyle = PoiIconStyle(symbol: image)
+      let iconStyle = PoiIconStyle(symbol: image, anchorPoint: CGPoint(x: 0.5, y: 1.0))
       let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
       manager.addPoiStyle(PoiStyle(styleID: candidateActiveStyleID, styles: [perLevel]))
     }
     if let image = makeMarkerImage(color: UIColor(white: 0.6, alpha: 0.85)) {
-      let iconStyle = PoiIconStyle(symbol: image)
+      let iconStyle = PoiIconStyle(symbol: image, anchorPoint: CGPoint(x: 0.5, y: 1.0))
       let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
       manager.addPoiStyle(PoiStyle(styleID: candidateInactiveStyleID, styles: [perLevel]))
     }
@@ -801,8 +805,8 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     return active ? base : base.withAlphaComponent(0.5)
   }
 
-  /// Material `Icons.location_on` 스타일 핀 마커를 그린다.
-  /// 위쪽 둥근 머리 + 아래쪽 뾰족한 꼬리 + 안쪽 흰 highlight (물방울 형태).
+  /// Material `Icons.location_on` 톤의 둥근 핀 마커를 그린다.
+  /// 원형 머리 + 짧고 둥근 꼬리 + 안쪽 흰 highlight로 지도 검색 화면의 핀 느낌에 맞춘다.
   /// place_search_screen의 Flutter 위젯 오버레이(Icons.location_on)와 톤 통일.
   /// glow=true면 핀 외곽에 흰 shadow blur로 "감지중" 시각 강조 — 동적 펄스가 아닌
   /// 정적 글로우라 GPU/배터리 비용 0. 카메라 이동/줌과 무관하게 안정적.
@@ -811,54 +815,53 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     glow: Bool = false,
     compact: Bool = false
   ) -> UIImage? {
-    // glow가 활성이면 외곽 4-5px 흰 빛이 퍼지므로 size를 그만큼 키우고 핀을 중앙에 위치.
+    // glow가 활성이면 외곽 3-4px 흰 빛이 퍼지므로 size를 그만큼 키우고 핀을 중앙에 위치.
     // anchor 기준이 size.height-2(꼬리 끝)라 size 변경 시 anchor도 자동 따라감.
     let size: CGSize
     if compact {
-      size = glow ? CGSize(width: 30, height: 36) : CGSize(width: 24, height: 30)
+      size = glow ? CGSize(width: 30, height: 34) : CGSize(width: 24, height: 28)
     } else {
-      size = glow ? CGSize(width: 36, height: 44) : CGSize(width: 28, height: 36)
+      size = glow ? CGSize(width: 38, height: 42) : CGSize(width: 30, height: 34)
     }
     let inset: CGFloat = glow ? (compact ? 3 : 4) : 0
-    let headBaseY: CGFloat = compact ? 10 : 13
-    let headRadius: CGFloat = compact ? 8.5 : 11
-    let innerRadius: CGFloat = compact ? 3 : 4
+    let headRadius: CGFloat = compact ? 8.5 : 11.5
+    let headCenterY: CGFloat = inset + headRadius + (compact ? 0.5 : 1)
+    let innerRadius: CGFloat = compact ? 3.1 : 4.2
     let strokeWidth: CGFloat = compact ? 1.2 : 1.5
     let shadowBlur: CGFloat = compact ? 4 : 6
+    let tailNeckHalf: CGFloat = compact ? 4.8 : 6.2
+    let tailTipHalf: CGFloat = compact ? 1.8 : 2.4
+    let tailBaseY: CGFloat = headCenterY + headRadius * 0.55
+    let tailTipY: CGFloat = size.height - (glow ? 3 : 2)
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
 
-      // 머리 + 꼬리를 한 path로 합쳐서 한 번에 fill — 경계 안티앨리어싱 자국 방지.
-      let headCenter = CGPoint(x: size.width / 2, y: headBaseY + inset)
-      let tailTipY = size.height - 2
-      // 머리 양옆 접선 각도 (수평선 기준 약 30° 아래) — 꼬리가 자연스럽게 이어지는 폭.
-      let tangentAngle: CGFloat = .pi / 6   // 30°
-      let rightTangent = CGPoint(
-        x: headCenter.x + headRadius * cos(tangentAngle),
-        y: headCenter.y + headRadius * sin(tangentAngle)
+      let headCenter = CGPoint(x: size.width / 2, y: headCenterY)
+      let headRect = CGRect(
+        x: headCenter.x - headRadius,
+        y: headCenter.y - headRadius,
+        width: headRadius * 2,
+        height: headRadius * 2
       )
-      let leftTangent = CGPoint(
-        x: headCenter.x - headRadius * cos(tangentAngle),
-        y: headCenter.y + headRadius * sin(tangentAngle)
+      let headPath = UIBezierPath(ovalIn: headRect)
+      let tailPath = UIBezierPath()
+      tailPath.move(to: CGPoint(x: headCenter.x - tailNeckHalf, y: tailBaseY))
+      tailPath.addCurve(
+        to: CGPoint(x: headCenter.x - tailTipHalf, y: tailTipY),
+        controlPoint1: CGPoint(x: headCenter.x - tailNeckHalf, y: tailBaseY + 5),
+        controlPoint2: CGPoint(x: headCenter.x - tailTipHalf, y: tailTipY - 4)
       )
-
-      let path = UIBezierPath()
-      // 오른쪽 접점 → 꼬리 끝 → 왼쪽 접점
-      path.move(to: rightTangent)
-      path.addLine(to: CGPoint(x: headCenter.x, y: tailTipY))
-      path.addLine(to: leftTangent)
-      // 왼쪽 접점 → 위쪽 호 → 오른쪽 접점.
-      // UIKit 좌표(y 아래 양수)에서 angle 양수가 시계방향이라 clockwise=true가
-      // 150°→180°→270°→0°→30° 경로로 머리 위쪽을 돌아간다.
-      path.addArc(
-        withCenter: headCenter,
-        radius: headRadius,
-        startAngle: .pi - tangentAngle,    // 왼 접점 각도 (180° - 30° = 150°)
-        endAngle: tangentAngle,            // 오른 접점 각도 (30°)
-        clockwise: true                    // 위쪽으로 호
+      tailPath.addQuadCurve(
+        to: CGPoint(x: headCenter.x + tailTipHalf, y: tailTipY),
+        controlPoint: CGPoint(x: headCenter.x, y: tailTipY + 2)
       )
-      path.close()
+      tailPath.addCurve(
+        to: CGPoint(x: headCenter.x + tailNeckHalf, y: tailBaseY),
+        controlPoint1: CGPoint(x: headCenter.x + tailTipHalf, y: tailTipY - 4),
+        controlPoint2: CGPoint(x: headCenter.x + tailNeckHalf, y: tailBaseY + 5)
+      )
+      tailPath.close()
 
       // glow=true면 본체 그리기 전에 흰 빛이 핀 외곽으로 퍼지는 shadow를 깐다.
       // setShadow + fill 하면 fill 색 주변에 shadow가 그려지고, 그 위에 본체를 다시
@@ -871,19 +874,19 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
           color: UIColor.white.withAlphaComponent(0.95).cgColor
         )
         UIColor.white.withAlphaComponent(0.9).setFill()
-        path.fill()
+        tailPath.fill()
+        headPath.fill()
         cg.restoreGState()
       }
 
-      cg.setFillColor(color.cgColor)
-      cg.addPath(path.cgPath)
-      cg.fillPath()
-
-      // 흰 테두리 (얇게)
-      cg.setStrokeColor(UIColor.white.cgColor)
-      cg.setLineWidth(strokeWidth)
-      cg.addPath(path.cgPath)
-      cg.strokePath()
+      color.setFill()
+      UIColor.white.setStroke()
+      tailPath.lineWidth = strokeWidth
+      tailPath.fill()
+      tailPath.stroke()
+      headPath.lineWidth = strokeWidth
+      headPath.fill()
+      headPath.stroke()
 
       // 안쪽 흰 highlight (Material location_on의 작은 원 부분).
       // headCenter는 이미 inset 적용된 좌표라 추가 보정 불필요.
