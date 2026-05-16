@@ -160,6 +160,8 @@ public class RecommendServiceImpl implements RecommendService {
     //카카오 coord2regioncode 호출
     //주의 : AI는 x = 경도, y = 위도 순서
     private String resolveCurrentLocationLabel(double latitude, double longitude) {
+        return "현재 위치 기준";
+        /*
         KakaoRegionCodeResponse response;
         try {
             String x = String.valueOf(longitude);
@@ -215,6 +217,7 @@ public class RecommendServiceImpl implements RecommendService {
 
         String addressName = safe(target.getAddressName());
         return addressName.isEmpty() ? null : addressName;
+        */
     }
 
     // null-safe trim 유틸
