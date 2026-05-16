@@ -120,8 +120,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     Future<void>.delayed(const Duration(milliseconds: 360), () {
       if (!mounted) return;
       setState(() {
-        final removeIndex = _items.indexWhere((e) => e.todoId == item.todoId);
-        if (removeIndex >= 0) _items.removeAt(removeIndex);
+        _items.removeWhere((e) => e.todoId == item.todoId);
         _removingIds.remove(item.todoId);
         _ensureNodeLayouts(force: true);
       });
@@ -317,7 +316,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                   children: List.generate(_items.length, (i) {
                     final item = _items[i];
                     return _CardStub(
-                      key: ValueKey(item.todoId),
+                      key: ValueKey('${item.todoId}_${item.groupId}'),
                       item: item,
                       isActive: _activeGroupId == item.groupId,
                       isRemoving: _removingIds.contains(item.todoId),
