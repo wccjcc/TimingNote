@@ -16,18 +16,17 @@ const _kDefaultLat = 37.5665;
 const _kDefaultLng = 126.9780;
 const _kBottomNavigationHeight = 90.0;
 const _kMapPanelRadius = 20.0;
-const _kMapPanelGap = 16.0;
+const _kMapBottomGap = 8.0;
 const _kMyLocationFabGap = 14.0;
 const _kPeekSheetFabOffset = 236.0;
 
 /// 지도 탭 — 활성 todo 장소들을 카카오 지도에 시각화.
 ///
-/// Phase 1 정책:
-/// - 모든 active todo의 primary place 좌표를 마커로 표시 (SPECIFIC/ALIAS/GENERIC 무관)
-///   · Phase 2에서 BE API에 activeSlot 확장 후 GENERIC은 감지중만 필터링
+/// 표시 정책:
+/// - SPECIFIC/ALIAS는 감지중 여부와 무관하게 primary place 좌표를 마커로 표시
+/// - GENERIC은 현재 활성 geofence slot에 들어간 후보 좌표만 표시
 /// - 같은 좌표 다중 todo는 하나의 마커 + 시트 가로 스크롤로 처리
-/// - 감지중 강조는 alertEnabled를 proxy로 사용 (BE의 정확한 activeSlot은 Phase 2)
-/// - 마커 색 분기는 Swift 확장 필요 — Phase 2에서 도입. 현재는 시트 카드 색으로 타입 시각화.
+/// - 감지중 강조는 BE의 geofence_slots.is_active 기준으로 표시
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
@@ -66,6 +65,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     // 마커 탭 직후 표시 상태가 흔들릴 수 있다.
     ref.listen<MapState>(mapProvider, (prev, next) {
       if (prev?.todos != next.todos ||
+          prev?.activeSlots != next.activeSlots ||
           prev?.activeTypeFilters != next.activeTypeFilters) {
         _syncMarkers(next);
       }
@@ -100,9 +100,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 16,
                 8,
                 16,
-                _kBottomNavigationHeight +
-                    _kMapPanelGap +
-                    MediaQuery.of(context).padding.bottom,
+                _kBottomNavigationHeight + _kMapBottomGap,
               ),
               child: Column(
                 children: [
@@ -114,8 +112,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                           onToggle: (type) => ref
                               .read(mapProvider.notifier)
                               .toggleTypeFilter(type),
-                          totalCount: state.todos.length,
-                          visibleCount: state.filteredTodos.length,
+                          visibleCount: state.markerItems.length,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -270,10 +267,10 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final markers = <CandidateMarker>[];
     state.markerGroups.forEach((id, group) {
       final first = group.first;
-      final lat = first.placeLatitude!;
-      final lng = first.placeLongitude!;
+      final lat = first.latitude;
+      final lng = first.longitude;
       // 진짜 감지중 = 그룹 중 하나라도 BE의 activeSlot=true
-      final active = group.any((t) => t.activeSlot);
+      final active = group.any((item) => item.active);
       // 같은 좌표 다중 todo 그룹은 첫 항목의 todoType을 대표색으로 사용.
       // 실제론 같은 매장이라 같은 타입일 확률 높고, 다중 타입 케이스는 시트 카드로 분리됨.
       markers.add(
@@ -282,7 +279,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           latitude: lat,
           longitude: lng,
           active: active,
-          placeType: first.todoType,
+          placeType: first.todo.todoType,
           badgeText: group.length.toString(),
         ),
       );
@@ -397,13 +394,11 @@ class _FilterChipsBar extends StatelessWidget {
   const _FilterChipsBar({
     required this.activeFilters,
     required this.onToggle,
-    required this.totalCount,
     required this.visibleCount,
   });
 
   final Set<String> activeFilters;
   final ValueChanged<String> onToggle;
-  final int totalCount;
   final int visibleCount;
 
   @override
@@ -413,7 +408,7 @@ class _FilterChipsBar extends StatelessWidget {
         type: null,
         label: '전체',
         color: SpaceColors.white50,
-        count: totalCount,
+        count: visibleCount,
       ),
       _ChipData(
         type: TodoType.specific,
@@ -613,7 +608,7 @@ class _MarkerPeekSheet extends StatelessWidget {
     required this.onCardTap,
   });
 
-  final List<TodoItem> todos;
+  final List<MapTodoMarker> todos;
   final PageController pageController;
   final Object? currentGps; // GpsSnapshot? — distance 계산용
   final VoidCallback onDismiss;
@@ -683,12 +678,12 @@ class _MarkerPeekSheet extends StatelessWidget {
                     ? const BouncingScrollPhysics()
                     : const NeverScrollableScrollPhysics(),
                 itemBuilder: (_, i) {
-                  final todo = todos[i];
+                  final marker = todos[i];
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: _TodoMiniCard(
-                      todo: todo,
-                      onTap: () => onCardTap(todo.id),
+                      marker: marker,
+                      onTap: () => onCardTap(marker.todo.id),
                     ),
                   );
                 },
@@ -708,13 +703,14 @@ class _MarkerPeekSheet extends StatelessWidget {
 }
 
 class _TodoMiniCard extends StatelessWidget {
-  const _TodoMiniCard({required this.todo, required this.onTap});
+  const _TodoMiniCard({required this.marker, required this.onTap});
 
-  final TodoItem todo;
+  final MapTodoMarker marker;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final todo = marker.todo;
     final typeColor = todoTypeColor(todo.todoType);
     final category = todo.category;
     final categoryLabel = category != null
@@ -763,9 +759,8 @@ class _TodoMiniCard extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
               ),
-              // 정확한 감지중 = BE의 geofence_slots.is_active=true (activeSlot).
-              // alertEnabled는 사용자 의도, activeSlot은 실제 슬롯 등록 여부 — 후자가 진실.
-              if (todo.activeSlot) ...[
+              // 정확한 감지중 = BE의 geofence_slots.is_active=true.
+              if (marker.active) ...[
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
