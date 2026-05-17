@@ -114,14 +114,25 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     return Scaffold(
       body: CosmicBackground(
         child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(state.items.length, state.placeTypeFilter),
-              _buildSearchBar(searchState),
-              _buildMissionChips(),
-              Expanded(child: _buildBody(state, searchState)),
-            ],
+          child: RefreshIndicator(
+            onRefresh: () => ref.read(todoListProvider.notifier).load(),
+            color: SpaceColors.neonPurple,
+            backgroundColor: SpaceColors.space900,
+            child: CustomScrollView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _buildHeader(
+                    state.items.length,
+                    state.placeTypeFilter,
+                  ),
+                ),
+                SliverToBoxAdapter(child: _buildSearchBar(searchState)),
+                SliverToBoxAdapter(child: _buildMissionChips()),
+                _buildSliverBody(state, searchState),
+              ],
+            ),
           ),
         ),
       ),
@@ -132,8 +143,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
   Widget _buildSearchBar(SearchState searchState) {
     final hasQuery = searchState.query.isNotEmpty;
     final tabLabel = _kCategoryTabs[_tabController.index].label;
-    final placeholder =
-        tabLabel == '전체' ? '할 일 검색' : '$tabLabel에서 검색';
+    final placeholder = tabLabel == '전체' ? '할 일 검색' : '$tabLabel에서 검색';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -185,8 +195,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   isCollapsed: true,
                 ),
                 textInputAction: TextInputAction.search,
-                onChanged: (v) =>
-                    ref.read(searchProvider.notifier).setQuery(v),
+                onChanged: (v) => ref.read(searchProvider.notifier).setQuery(v),
               ),
             ),
             if (hasQuery)
@@ -201,8 +210,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                 },
                 child: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                  child: Icon(Icons.close,
-                      color: Colors.white54, size: 18),
+                  child: Icon(Icons.close, color: Colors.white54, size: 18),
                 ),
               ),
           ],
@@ -238,7 +246,13 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Galmuri11',
-                  shadows: [Shadow(color: Color(0x7FA78BFA), blurRadius: 10, offset: Offset(0, 4))],
+                  shadows: [
+                    Shadow(
+                      color: Color(0x7FA78BFA),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -288,16 +302,26 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0x26A78BFA) : const Color(0x992A2A4A),
+                  color: isSelected
+                      ? const Color(0x26A78BFA)
+                      : const Color(0x992A2A4A),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: isSelected ? SpaceColors.neonPurple : const Color(0x33A78BFA),
+                    color: isSelected
+                        ? SpaceColors.neonPurple
+                        : const Color(0x33A78BFA),
                     width: 1,
                   ),
                   boxShadow: isSelected
                       ? [
-                          const BoxShadow(color: Color(0x66A78BFA), blurRadius: 10),
-                          const BoxShadow(color: Color(0xFF581C87), offset: Offset(0, 2)),
+                          const BoxShadow(
+                            color: Color(0x66A78BFA),
+                            blurRadius: 10,
+                          ),
+                          const BoxShadow(
+                            color: Color(0xFF581C87),
+                            offset: Offset(0, 2),
+                          ),
                         ]
                       : null,
                 ),
@@ -309,7 +333,13 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                       fontSize: 11,
                       fontFamily: 'Galmuri11',
                       shadows: isSelected
-                          ? [Shadow(offset: const Offset(0, 0), blurRadius: 5, color: SpaceColors.neonPurple.withOpacity(0.8))]
+                          ? [
+                              Shadow(
+                                offset: const Offset(0, 0),
+                                blurRadius: 5,
+                                color: SpaceColors.neonPurple.withOpacity(0.8),
+                              ),
+                            ]
                           : null,
                     ),
                   ),
@@ -322,25 +352,40 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     );
   }
 
-  Widget _buildBody(TodoListState state, SearchState searchState) {
-    // 검색 모드: searchProvider 결과를 ListView에 노출 (todoList는 숨김)
+  Widget _buildSliverBody(TodoListState state, SearchState searchState) {
     if (searchState.isActive) {
-      return _buildSearchBody(searchState);
+      return _buildSearchSliverBody(searchState);
     }
 
     if (state.isLoading && state.items.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: SpaceColors.neonPurple));
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: CircularProgressIndicator(color: SpaceColors.neonPurple),
+        ),
+      );
     }
 
     if (state.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.assignment_late_outlined, size: 60, color: Colors.white24),
-            const SizedBox(height: 16),
-            const Text('등록된 할 일이 없습니다.', style: TextStyle(color: Colors.white38)),
-          ],
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Container(
+          alignment: Alignment.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.assignment_late_outlined,
+                size: 60,
+                color: Colors.white24,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '등록된 할 일이 없습니다.',
+                style: TextStyle(color: Colors.white38),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -348,18 +393,12 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     final activeItems = state.items.where((i) => !i.isDone).toList();
     final doneItems = state.items.where((i) => i.isDone).toList();
 
-    return RefreshIndicator(
-      onRefresh: () => ref.read(todoListProvider.notifier).load(),
-      color: SpaceColors.neonPurple,
-      backgroundColor: SpaceColors.space900,
-      child: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16),
-        children: [
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverList(
+        delegate: SliverChildListDelegate([
           // ── 진행 중 섹션 ──
           if (activeItems.isNotEmpty) ...[
-            // 카드 stagger entrance — 첫 등장 시 아래에서 fade up.
-            // 스크롤로 가려져있다 다시 보이는 경우엔 재발동 X (initState 1회만).
             for (var i = 0; i < activeItems.length; i++)
               AnimatedListEntry(
                 index: i,
@@ -400,8 +439,6 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                 ],
               ),
             ),
-            // 완료 섹션도 동일 stagger entrance — 진행 중 항목 등장 후 이어서.
-            // index를 active 길이만큼 offset해 일관된 차례로 등장.
             for (var i = 0; i < doneItems.length; i++)
               AnimatedListEntry(
                 index: activeItems.length + i,
@@ -425,8 +462,8 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
               padding: EdgeInsets.symmetric(vertical: 20),
               child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
             ),
-          const SizedBox(height: 80), // 여백
-        ],
+          const SizedBox(height: 80),
+        ]),
       ),
     );
   }
@@ -826,82 +863,94 @@ class _PlaceTypeFilterMenu extends StatelessWidget {
 
 // ── 검색 결과 본문 ────────────────────────────────────────────────
 extension _TodoListScreenSearch on _TodoListScreenState {
-  Widget _buildSearchBody(SearchState searchState) {
+  Widget _buildSearchSliverBody(SearchState searchState) {
     if (searchState.isLoading) {
-      return const AppLoadingView(message: '검색 중...', compact: true);
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: AppLoadingView(message: '검색 중...', compact: true),
+      );
     }
     if (searchState.hasError && searchState.items.isEmpty) {
-      return AppErrorView(
-        title: '검색 실패',
-        message: searchState.error ?? '잠시 후 다시 시도해 주세요.',
-        onRetry: () => ref.read(searchProvider.notifier).retry(),
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: AppErrorView(
+          title: '검색 실패',
+          message: searchState.error ?? '잠시 후 다시 시도해 주세요.',
+          onRetry: () => ref.read(searchProvider.notifier).retry(),
+        ),
       );
     }
     if (searchState.isEmptyResult) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.search_off, size: 48, color: Colors.white24),
-              const SizedBox(height: 16),
-              Text(
-                '«${searchState.query}» 결과가 없어요.',
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '다른 키워드로 다시 시도해 보세요.',
-                style: TextStyle(color: Colors.white38, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-            ],
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.search_off, size: 48, color: Colors.white24),
+                const SizedBox(height: 16),
+                Text(
+                  '«${searchState.query}» 결과가 없어요.',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '다른 키워드로 다시 시도해 보세요.',
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
-    return ListView.builder(
-      controller: _scrollController,
+    return SliverPadding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
-      itemCount: searchState.items.length +
-          1 + // 결과 헤더
-          (searchState.isLoadingMore ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-            child: Text(
-              '«${searchState.query}» 검색 결과 ${searchState.total}건',
-              style: const TextStyle(
-                color: SpaceColors.neonPurple,
-                fontSize: 11,
-                fontFamily: 'Galmuri11',
-                letterSpacing: 1,
-              ),
-            ),
-          );
-        }
-        final itemIndex = index - 1;
-        if (itemIndex >= searchState.items.length) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Center(
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: SpaceColors.neonPurple,
-              ),
-            ),
-          );
-        }
-        final item = searchState.items[itemIndex];
-        return _SearchResultTile(
-          item: item,
-          onTap: () => _openDetail(item.id),
-        );
-      },
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+                child: Text(
+                  '«${searchState.query}» 검색 결과 ${searchState.total}건',
+                  style: const TextStyle(
+                    color: SpaceColors.neonPurple,
+                    fontSize: 11,
+                    fontFamily: 'Galmuri11',
+                    letterSpacing: 1,
+                  ),
+                ),
+              );
+            }
+            final itemIndex = index - 1;
+            if (itemIndex >= searchState.items.length) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: SpaceColors.neonPurple,
+                  ),
+                ),
+              );
+            }
+            final item = searchState.items[itemIndex];
+            return _SearchResultTile(
+              item: item,
+              onTap: () => _openDetail(item.id),
+            );
+          },
+          childCount: searchState.items.length +
+              1 +
+              (searchState.isLoadingMore ? 1 : 0),
+        ),
+      ),
     );
   }
 }

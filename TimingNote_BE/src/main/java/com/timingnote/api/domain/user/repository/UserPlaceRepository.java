@@ -13,6 +13,8 @@ public interface UserPlaceRepository extends JpaRepository<UserPlace, Long> {
 
     Optional<UserPlace> findByIdAndUser_Id(Long id, Long userId);
 
+    Optional<UserPlace> findFirstByUser_IdAndPlace_IdOrderByIdAsc(Long userId, Long placeId);
+
     long countByUser_Id(Long userId);
 
     boolean existsByUser_IdAndAliasName(Long userId, String aliasName);

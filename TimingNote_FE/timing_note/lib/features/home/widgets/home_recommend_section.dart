@@ -56,10 +56,9 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     super.initState();
     _items = List<HomeRecommendationItem>.from(widget.items);
     _ensureNodeLayouts();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 14),
-    )..repeat();
+    _controller =
+        AnimationController(vsync: this, duration: const Duration(seconds: 14))
+          ..repeat();
   }
 
   @override
@@ -88,7 +87,9 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
   }
 
   void _onTapNode(int groupId) {
-    setState(() => _activeGroupId = _activeGroupId == groupId ? null : groupId);
+    setState(
+      () => _activeGroupId = _activeGroupId == groupId ? null : groupId,
+    );
   }
 
   Future<void> _onTapCompleteItem(int index) async {
@@ -96,14 +97,9 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     final item = _items[index];
     if (_removingIds.contains(item.todoId)) return;
 
-    // TODO: 완료 API 연결 지점
-    // - 예시: await _completeRecommendation(item.id);
-    // - 현재는 UI 동작 검증을 위해 즉시 성공으로 처리한다.
     setState(() {
       _removingIds.add(item.todoId);
-      if (!_items.any(
-        (e) => e.groupId == item.groupId && e.todoId != item.todoId,
-      )) {
+      if (!_items.any((e) => e.groupId == item.groupId && e.todoId != item.todoId)) {
         _activeGroupId = null;
       }
     });
@@ -121,8 +117,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     Future<void>.delayed(const Duration(milliseconds: 360), () {
       if (!mounted) return;
       setState(() {
-        final removeIndex = _items.indexWhere((e) => e.todoId == item.todoId);
-        if (removeIndex >= 0) _items.removeAt(removeIndex);
+        _items.removeWhere((e) => e.todoId == item.todoId);
         _removingIds.remove(item.todoId);
         _ensureNodeLayouts(force: true);
       });
@@ -135,12 +130,12 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
       animation: _controller,
       builder: (context, _) {
         final progress = _controller.value;
+        _ensureNodeLayouts();
         final nodeItems = _nodeItems;
         final nodeLayouts = _nodeLayouts;
         final isInitialLoading = widget.isLoading && _items.isEmpty;
         final hasError =
-            widget.errorMessage != null &&
-            widget.errorMessage!.trim().isNotEmpty;
+            widget.errorMessage != null && widget.errorMessage!.trim().isNotEmpty;
         return SingleChildScrollView(
           padding: const EdgeInsets.only(bottom: 24),
           child: Column(
@@ -226,8 +221,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                             ignoring: _activeGroupId == null,
                             child: GestureDetector(
                               behavior: HitTestBehavior.translucent,
-                              onTap: () =>
-                                  setState(() => _activeGroupId = null),
+                              onTap: () => setState(() => _activeGroupId = null),
                             ),
                           ),
                         ),
@@ -240,23 +234,18 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                             final layout = nodeLayouts[item.groupId];
                             return _NodeStub(
                               key: ValueKey('node-${item.groupId}'),
-                              isRemoving:
-                                  _removingIds.contains(item.todoId) &&
+                              isRemoving: _removingIds.contains(item.todoId) &&
                                   item.todoCount <= 1,
                               isActive: false,
                               angle: layout?.angle ?? 0,
                               radius: layout?.radius ?? 72,
                               centerX: 160,
                               centerY: 160,
-                              color: _CategoryPalette.colorForCategory(
-                                item.category,
-                              ),
+                              color: _CategoryPalette.colorForCategory(item.category),
                               image:
                                   'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
                               placeLabel: item.place,
-                              distanceLabel: _formatDistance(
-                                item.distanceMeters,
-                              ),
+                              distanceLabel: _formatDistance(item.distanceMeters),
                               badgeCount: item.todoCount,
                               floatPhase: (progress * math.pi * 2) + (i * 0.9),
                               onTap: () => _onTapNode(item.groupId),
@@ -272,32 +261,25 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                               final layout = nodeLayouts[item.groupId];
                               return _NodeStub(
                                 key: ValueKey('active-node-${item.groupId}'),
-                                isRemoving:
-                                    _removingIds.contains(item.todoId) &&
+                                isRemoving: _removingIds.contains(item.todoId) &&
                                     item.todoCount <= 1,
                                 isActive: true,
                                 angle: layout?.angle ?? 0,
                                 radius: layout?.radius ?? 72,
                                 centerX: 160,
                                 centerY: 160,
-                                color: _CategoryPalette.colorForCategory(
-                                  item.category,
-                                ),
+                                color: _CategoryPalette.colorForCategory(item.category),
                                 image:
                                     'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
                                 placeLabel: item.place,
-                                distanceLabel: _formatDistance(
-                                  item.distanceMeters,
-                                ),
+                                distanceLabel: _formatDistance(item.distanceMeters),
                                 badgeCount: item.todoCount,
-                                floatPhase:
-                                    (progress * math.pi * 2) + (i * 0.9),
+                                floatPhase: (progress * math.pi * 2) + (i * 0.9),
                                 onTap: () => _onTapNode(item.groupId),
                               );
                             })(),
                         ],
-                        if (_items.isEmpty && !isInitialLoading)
-                          const _EmptyHint(),
+                        if (_items.isEmpty && !isInitialLoading) const _EmptyHint(),
                         if (isInitialLoading)
                           const _LoadingHint(text: '추천 할일 생각중이다냥..'),
                         if (hasError)
@@ -316,39 +298,32 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                   child: _ActivePlaceInfo(
-                    place: _items
-                        .firstWhere((e) => e.groupId == _activeGroupId)
-                        .place,
+                    place: _items.firstWhere((e) => e.groupId == _activeGroupId).place,
                     distance: _formatDistance(
-                      _items
-                          .firstWhere((e) => e.groupId == _activeGroupId)
-                          .distanceMeters,
+                      _items.firstWhere((e) => e.groupId == _activeGroupId).distanceMeters,
                     ),
                     color: _CategoryPalette.colorForCategory(
-                      _items
-                          .firstWhere((e) => e.groupId == _activeGroupId)
-                          .category,
+                      _items.firstWhere((e) => e.groupId == _activeGroupId).category,
                     ),
                   ),
                 ),
-              if (!isInitialLoading)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
-                  child: Column(
-                    children: List.generate(_items.length, (i) {
-                      final item = _items[i];
-                      return _CardStub(
-                        key: ValueKey('card-${item.groupId}-${item.todoId}-$i'),
-                        item: item,
-                        isActive: _activeGroupId == item.groupId,
-                        isRemoving: _removingIds.contains(item.todoId),
-                        onDone: () {
-                          _onTapCompleteItem(i);
-                        },
-                      );
-                    }),
-                  ),
+              if (!isInitialLoading) Padding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+                child: Column(
+                  children: List.generate(_items.length, (i) {
+                    final item = _items[i];
+                    return _CardStub(
+                      key: ValueKey('card-${item.groupId}-${item.todoId}-$i'),
+                      item: item,
+                      isActive: _activeGroupId == item.groupId,
+                      isRemoving: _removingIds.contains(item.todoId),
+                      onDone: () {
+                        _onTapCompleteItem(i);
+                      },
+                    );
+                  }),
                 ),
+              ),
             ],
           ),
         );
@@ -362,23 +337,23 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     final signature = [
       lat.toStringAsFixed(6),
       lng.toStringAsFixed(6),
-      ..._items.map(
-        (e) => '${e.groupId}:${e.distanceMeters}:${e.placeLat}:${e.placeLng}',
-      ),
+      ..._items.map((e) => '${e.groupId}:${e.distanceMeters}:${e.placeLat}:${e.placeLng}'),
     ].join('|');
     if (!force && signature == _layoutSignature) return;
 
     _layoutSignature = signature;
     _nodeItems = <HomeRecommendationItem>[
-      ...{for (final item in _items) item.groupId: item}.values,
+      ...{
+        for (final item in _items) item.groupId: item,
+      }.values,
     ];
 
     final maxDistance = _nodeItems.isEmpty
         ? 1.0
         : _nodeItems
-              .map((e) => e.distanceMeters)
-              .reduce((a, b) => a > b ? a : b)
-              .toDouble();
+            .map((e) => e.distanceMeters)
+            .reduce((a, b) => a > b ? a : b)
+            .toDouble();
 
     final nodeLayouts = <int, _NodeLayoutData>{};
     final placedOffsets = <Offset>[];
@@ -448,8 +423,7 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
     final toLatRad = toLat * math.pi / 180;
     final dLngRad = (toLng - fromLng) * math.pi / 180;
     final y = math.sin(dLngRad) * math.cos(toLatRad);
-    final x =
-        math.cos(fromLatRad) * math.sin(toLatRad) -
+    final x = math.cos(fromLatRad) * math.sin(toLatRad) -
         math.sin(fromLatRad) * math.cos(toLatRad) * math.cos(dLngRad);
     final theta = math.atan2(y, x) * 180 / math.pi;
     return (theta + 360) % 360;
@@ -509,8 +483,8 @@ class _CenterPlanet extends StatelessWidget {
                 isError
                     ? 'assets/images/nyang_star_error.png'
                     : (isLoading
-                          ? 'assets/images/nyang_star_loading.png'
-                          : 'assets/images/nyang_star_1.png'),
+                        ? 'assets/images/nyang_star_loading.png'
+                        : 'assets/images/nyang_star_1.png'),
                 width: 86,
                 height: 86,
               ),
@@ -600,18 +574,13 @@ class _NodeStubState extends State<_NodeStub> {
                         ),
                       ],
                     ),
-                    child: ClipOval(
-                      child: Image.asset(widget.image, fit: BoxFit.cover),
-                    ),
+                    child: ClipOval(child: Image.asset(widget.image, fit: BoxFit.cover)),
                   ),
                   if (widget.badgeCount > 1)
                     Transform.translate(
                       offset: const Offset(16, -42),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                         decoration: BoxDecoration(
                           color: SpaceColors.neonPink,
                           borderRadius: BorderRadius.circular(999),
@@ -634,16 +603,11 @@ class _NodeStubState extends State<_NodeStub> {
                   if (widget.isActive) ...[
                     const SizedBox(height: 4),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: SpaceColors.space900.withValues(alpha: 0.95),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: widget.color.withValues(alpha: 0.7),
-                        ),
+                        border: Border.all(color: widget.color.withValues(alpha: 0.7)),
                       ),
                       child: Text(
                         widget.placeLabel,
@@ -716,16 +680,11 @@ class _CardStub extends StatelessWidget {
                 children: [
                   Flexible(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: categoryColor.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(9),
-                        border: Border.all(
-                          color: categoryColor.withValues(alpha: 0.55),
-                        ),
+                        border: Border.all(color: categoryColor.withValues(alpha: 0.55)),
                       ),
                       child: Text(
                         _CategoryPalette.labelForCategory(item.category),
@@ -758,19 +717,12 @@ class _CardStub extends StatelessWidget {
                   Expanded(
                     child: Row(
                       children: [
-                        const Icon(
-                          Icons.place_rounded,
-                          size: 14,
-                          color: SpaceColors.neonPurple,
-                        ),
+                        const Icon(Icons.place_rounded, size: 14, color: SpaceColors.neonPurple),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
                             '${item.place} (${_formatDistance(item.distanceMeters)})',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -784,19 +736,14 @@ class _CardStub extends StatelessWidget {
                       minimumSize: const Size(76, 40),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       foregroundColor: Colors.white,
-                      backgroundColor: SpaceColors.neonPurple.withValues(
-                        alpha: 0.3,
-                      ),
+                      backgroundColor: SpaceColors.neonPurple.withValues(alpha: 0.3),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                         side: BorderSide(
                           color: SpaceColors.neonPurple.withValues(alpha: 0.78),
                         ),
                       ),
-                      textStyle: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
+                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
                     ),
                     child: const Text('완료'),
                   ),
@@ -828,11 +775,7 @@ class _EmptyHint extends StatelessWidget {
           ),
           child: const Text(
             '할일이 없다냥..',
-            style: TextStyle(
-              fontFamily: 'Galmuri11',
-              fontSize: 11,
-              color: Colors.white,
-            ),
+            style: TextStyle(fontFamily: 'Galmuri11', fontSize: 11, color: Colors.white),
           ),
         ),
       ),
@@ -879,16 +822,13 @@ class _OrbitRing extends StatelessWidget {
   final double radius;
   @override
   Widget build(BuildContext context) => Container(
-    width: radius * 2,
-    height: radius * 2,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      border: Border.all(
-        color: SpaceColors.neonPurple.withValues(alpha: 0.20),
-        width: 1,
-      ),
-    ),
-  );
+        width: radius * 2,
+        height: radius * 2,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: SpaceColors.neonPurple.withValues(alpha: 0.20), width: 1),
+        ),
+      );
 }
 
 class _RadarSweep extends StatelessWidget {
@@ -912,11 +852,7 @@ class _RadarSweep extends StatelessWidget {
     );
   }
 
-  Widget _buildSweepLine(
-    double baseAngle,
-    double opacityFactor,
-    double deltaAngle,
-  ) {
+  Widget _buildSweepLine(double baseAngle, double opacityFactor, double deltaAngle) {
     return Positioned(
       left: radius,
       top: radius - 1,
@@ -940,9 +876,7 @@ class _RadarSweep extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: SpaceColors.neonPurple.withValues(
-                  alpha: 0.42 * opacityFactor,
-                ),
+                color: SpaceColors.neonPurple.withValues(alpha: 0.42 * opacityFactor),
                 blurRadius: 12,
                 spreadRadius: 0.5,
               ),

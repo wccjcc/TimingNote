@@ -66,6 +66,9 @@ public class RecommendListResponseDto {
         @Schema(description = "카테고리", example = "ACQUIRE")
         private String category;
 
+        @Schema(description = "장소 타입", example = "ALIAS")
+        private String todoType;
+
         @Schema(description = "해결된 장소 라벨", example = "이마트")
         private String resolvedPlaceLabel;
     }

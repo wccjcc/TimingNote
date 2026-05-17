@@ -34,6 +34,8 @@ import com.timingnote.api.domain.todo.entity.TodoTimeCondition;
 import com.timingnote.api.domain.todo.enums.ConditionType;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
+import com.timingnote.api.domain.user.entity.UserPlace;
+import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -71,6 +73,8 @@ class NotificationServiceImplTest {
     private UserNotificationRepository userNotificationRepository;
     @Mock
     private PlaceRepository placeRepository;
+    @Mock
+    private UserPlaceRepository userPlaceRepository;
     @Mock
     private PushNotificationSender pushNotificationSender;
     @Mock
@@ -142,6 +146,29 @@ class NotificationServiceImplTest {
         assertThat(captor.getValue().getStatus()).isEqualTo(NotificationStatus.SENT);
         assertThat(captor.getValue().getTitle()).isEqualTo("스타벅스근처에요");
         assertThat(captor.getValue().getBody()).isEqualTo("buy milk");
+    }
+
+    @Test
+    void send_success_usesAliasNameInTitle_whenTodoTypeAlias() throws Exception {
+        ReflectionTestUtils.setField(todo, "todoType", "ALIAS");
+        UserPlace userPlace = UserPlace.builder()
+                .aliasName("회사")
+                .place(place)
+                .build();
+
+        when(geofenceSlotRepository.findById(SLOT_ID)).thenReturn(Optional.of(slot));
+        when(todoRepository.findById(TODO_ID)).thenReturn(Optional.of(todo));
+        when(todoTimeConditionRepository.findAllByTodo_Id(TODO_ID)).thenReturn(List.of());
+        when(userFcmTokenRepository.findByUserId(USER_ID)).thenReturn(Optional.of(activeToken(USER_ID, "fcm-token")));
+        when(userPlaceRepository.findFirstByUser_IdAndPlace_IdOrderByIdAsc(USER_ID, 100L))
+                .thenReturn(Optional.of(userPlace));
+        when(pushNotificationSender.send(any(), any(), any(), any(), any(), any())).thenReturn(true);
+
+        NotificationGeofenceSendResponseDto result = notificationService.sendGeofenceNotification(USER_ID, SLOT_ID);
+
+        assertThat(result.isSent()).isTrue();
+        verify(pushNotificationSender).send(eq("fcm-token"), eq("GEOFENCE"), eq("회사근처에요"), eq("buy milk"), any(), any());
+        verify(placeRepository, never()).findById(100L);
     }
 
     // slot not found => NOT_FOUND
@@ -847,4 +874,3 @@ class NotificationServiceImplTest {
         return requestDto;
     }
 }
-

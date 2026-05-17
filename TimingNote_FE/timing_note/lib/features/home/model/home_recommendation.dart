@@ -5,6 +5,7 @@ class HomeRecommendationItem {
     required this.rank,
     required this.todoCount,
     required this.category,
+    required this.todoType,
     required this.title,
     required this.place,
     required this.distanceMeters,
@@ -17,6 +18,7 @@ class HomeRecommendationItem {
   final int rank;
   final int todoCount;
   final String category;
+  final String todoType;
   final String title;
   final String place;
   final double distanceMeters;

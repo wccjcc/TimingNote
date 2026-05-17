@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/location/location_provider.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/service/todo_service.dart';
+import '../../todo/viewmodel/todo_list_viewmodel.dart';
 import '../model/home_recommendation.dart';
 import '../service/home_recommendation_service.dart';
 
@@ -45,8 +46,9 @@ class HomeRecommendationState {
 }
 
 class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
-  late final HomeRecommendationService _recommendationService;
-  late final TodoService _todoService;
+  // late final 대신 명시적인 타입 선언 (build 내에서 매번 할당하므로 안전)
+  HomeRecommendationService? _recommendationService;
+  TodoService? _todoService;
   Future<void>? _loadFuture;
 
   @override
@@ -58,6 +60,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
   }
 
   Future<void> load() async {
+    if (_recommendationService == null) return;
     final runningLoad = _loadFuture;
     if (runningLoad != null) return runningLoad;
 
@@ -86,7 +89,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
         return;
       }
 
-      final result = await _recommendationService.getRecommendations(
+      final result = await _recommendationService!.getRecommendations(
         latitude: gps.latitude,
         longitude: gps.longitude,
         radiusM: 2000,
@@ -110,8 +113,9 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
   }
 
   Future<void> completeTodo(int todoId) async {
+    if (_todoService == null) return;
     final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
-    await _todoService.updateStatus(
+    await _todoService!.updateStatus(
       todoId,
       status: TodoStatus.done,
       latitude: gps?.latitude,
@@ -132,6 +136,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
             rank: e.rank,
             todoCount: groupCounts[e.groupId] ?? 0,
             category: e.category,
+            todoType: e.todoType,
             title: e.title,
             place: e.place,
             distanceMeters: e.distanceMeters,
@@ -141,6 +146,8 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
         )
         .toList();
     state = state.copyWith(items: normalized);
+    // 할 일 목록 상태 무효화하여 동기화
+    ref.invalidate(todoListProvider);
   }
 }
 

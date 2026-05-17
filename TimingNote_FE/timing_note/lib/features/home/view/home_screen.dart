@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../shared/theme/colors.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
 import '../../../../shared/widgets/floating_star_tag.dart';
+import '../../../../shared/widgets/space_toast.dart';
 import '../widgets/home_recommend_section.dart';
 import '../viewmodel/home_recommendation_viewmodel.dart';
 import '../../mypage/model/user_place.dart';
@@ -46,25 +47,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   ///   행 3 (top 260): 좌중, 우중              [작 작]
   /// 중앙 별은 화면 폭에 따라 동적 계산 → 디바이스 회전/크기 자동 대응.
   List<_TagSlot> _buildConstellationSlots(double width) {
-    // FloatingStarTag는 자체적으로 FractionalTranslation(-0.5,0)을 적용 → Positioned.left가
-    // 가리키는 X가 paint 중심(별 중심)이 된다.
-    // 주의: FractionalTranslation은 paint만 이동시키므로 Positioned.right는 라벨 폭에 의존해
-    // 중심이 어긋난다 → 슬롯은 모두 left로만 정의한다.
     return [
-      // 행 1: 좌/우 큰 별
       _TagSlot(left: 75, top: 20, small: false),
       _TagSlot(left: width - 75, top: 20, small: false),
-      // 행 2: 좌끝(작) + 중앙(큰) + 우끝(작)
       _TagSlot(left: 60, top: 140, small: true),
       _TagSlot(left: width / 2, top: 140, small: false),
       _TagSlot(left: width - 60, top: 140, small: true),
-      // 행 3: 좌중 + 우중 (작)
       _TagSlot(left: 110, top: 260, small: true),
       _TagSlot(left: width - 110, top: 260, small: true),
     ];
   }
 
-  /// 현재 시각 기반 시간 태그 추천. 발표 후 사용자 맞춤 통계로 진화 예정.
   List<String> _suggestTimeTags() {
     final hour = DateTime.now().hour;
     if (hour < 12) {
@@ -76,9 +69,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  /// 별 태그 클릭 분기:
-  /// - 장소(_TagDisplay.place != null) → state.selectedUserPlace 설정 (입력창 prefix chip으로 고정)
-  /// - 시간 → 입력창 커서 위치에 텍스트 삽입
   void _onTagTap(_TagDisplay tag) {
     if (tag.place != null) {
       ref.read(todoInputProvider.notifier).setUserPlace(tag.place!);
@@ -139,11 +129,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _showActionMenu = false;
         _isInputMode = false;
       });
+      
+      SpaceToast.show(
+        context,
+        message: '할 일이 등록되었습니다.',
+        kind: ToastKind.success,
+      );
+
+      context.go('/todos');
+      
       ref.read(todoInputProvider.notifier).reset();
     }
     if (next.phase == InputSubmitPhase.error) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(next.error ?? '등록 중 오류가 발생했어요'), backgroundColor: SpaceColors.error),
+      SpaceToast.show(
+        context,
+        message: next.error ?? '등록 중 오류가 발생했어요',
+        kind: ToastKind.error,
       );
       ref.read(todoInputProvider.notifier).resetError();
     }
@@ -159,7 +160,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       orElse: () => 0,
     );
     final recommendationState = ref.watch(homeRecommendationProvider);
-    // 내 장소: 등록/삭제 시 invalidate되어 자동 갱신됨. 로딩/에러 시 빈 목록 fallback
     final userPlaces = ref.watch(userPlacesProvider).maybeWhen(
       data: (list) => list,
       orElse: () => const <UserPlace>[],
@@ -200,7 +200,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
 
-            // LAYER 2: 입력 모드 전용 오버레이 (블러 + 닫기 핸들러)
             if (_isInputMode) ...[
               Positioned.fill(
                 child: GestureDetector(
@@ -221,7 +220,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
 
-              // LAYER 3: 플로팅 태그 (블러 위에 표시)
               Positioned.fill(
                 top: 50,
                 bottom: 220,
@@ -242,7 +240,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ],
 
-            // LAYER 4: 하단 입력바 (항상 최상단)
             Positioned(
               left: 0,
               right: 0,
@@ -276,11 +273,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-// ── 하위 위젯: 플로팅 태그 영역 ──────────────────────────────────────────
-/// 입력창 focus 시 별처럼 떠오르는 추천 태그.
-/// - 장소: 사용자 등록 내 장소 (최대 _kMaxPlaceTags개) — 노란색, 클릭 시 prefix chip으로 고정
-/// - 시간: 현재 시각 기반 추천 — 보라색, 클릭 시 입력창 커서 위치에 텍스트 삽입
-/// 슬롯 위치는 부모(_HomeScreenState)가 랜덤 생성한 것을 받아 사용.
 class _FloatingTagArea extends StatelessWidget {
   const _FloatingTagArea({
     required this.isFocused,
@@ -296,12 +288,9 @@ class _FloatingTagArea extends StatelessWidget {
   final List<String> timeSuggestions;
   final List<_TagSlot> slots;
 
-  // 장소 태그 개수 상한 — 별자리 행1(2) + 행2(3) = 5개 슬롯까지 등록 장소로 채운다.
-  // 나머지 슬롯(행3)은 시간 태그로 채움.
   static const int _kMaxPlaceTags = 5;
-
-  static const _placeColor = Color(0xFFFCD34D);    // 노란
-  static const _timeColor = SpaceColors.neonPurple; // 보라
+  static const _placeColor = Color(0xFFFCD34D);
+  static const _timeColor = SpaceColors.neonPurple;
 
   @override
   Widget build(BuildContext context) {
@@ -340,8 +329,6 @@ class _FloatingTagArea extends StatelessWidget {
 }
 
 class _TagSlot {
-  // left = 별 중심 X 좌표 (FloatingStarTag의 FractionalTranslation 기준).
-  // right는 라벨 폭에 anchor가 의존해 사용하지 않는다.
   final double left;
   final double top;
   final bool small;
@@ -351,7 +338,6 @@ class _TagSlot {
 class _TagDisplay {
   final String label;
   final Color color;
-  /// 장소 태그면 UserPlace, 시간 태그면 null.
   final UserPlace? place;
   const _TagDisplay({required this.label, required this.color, this.place});
 }
@@ -427,15 +413,9 @@ class _BottomInputBar extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      // iOS 키보드가 뜨면 시스템이 자연스럽게 입력바를 밀어올림.
-      // 과거 isInputMode 분기로 +120 추가 padding을 주었으나 키보드 유무와 관계없이 항상 올라가
-      // 이중 리프트로 보이는 문제 → 항상 동일 padding 유지.
       padding: EdgeInsets.fromLTRB(20, 10, 20, bottomPadding + 10),
-      // 외부 배경/상단 라인 제거 — 입력창 내부 둥근 박스만 시각적으로 남도록.
-      // 배경은 CosmicBackground가 책임.
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        // 메뉴는 입력바 Row의 + 버튼 위쪽에 좌측 정렬로 띄움 (가운데 정렬 X).
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
         if (showActionMenu)
@@ -443,8 +423,6 @@ class _BottomInputBar extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 8),
             child: _ActionMenu(onSelectType: onSelectType),
           ),
-        // 입력창 뒤 콘텐츠를 흐려서 가독성 ↑ — ActionMenu와 동일한 패턴(ClipRRect + BackdropFilter).
-        // Container.decoration에도 borderRadius를 동일하게 줘야 둥근 모서리에서 border가 잘리지 않음.
         ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: BackdropFilter(
@@ -473,7 +451,6 @@ class _BottomInputBar extends StatelessWidget {
                                 padding: const EdgeInsets.only(right: 6),
                                 child: InputChip(
                                   avatar: const Icon(Icons.bookmark, size: 14, color: Colors.white),
-                                  // 별칭이 길어도 입력창 폭을 잠식하지 않게 maxWidth + ellipsis.
                                   label: ConstrainedBox(
                                     constraints: const BoxConstraints(maxWidth: 90),
                                     child: Text(
@@ -500,10 +477,8 @@ class _BottomInputBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                // 음성 입력은 iOS 키보드의 받아쓰기로 위임 — 자체 마이크 버튼 미운영.
                 _IconButton(
                   icon: Icons.arrow_upward,
-                  // isLoading이면 onTap 자동 비활성 → 중복 전송 방지
                   onTap: (hasText && !isLoading) ? onSubmit : null,
                   isPrimary: hasText,
                   loading: isLoading,
@@ -546,7 +521,6 @@ class _IconButton extends StatelessWidget {
             BoxShadow(color: Colors.black45, offset: Offset(0, 4)),
           ],
         ),
-        // 진행 중에는 작은 스피너로 작동 중임을 명확히. iOS Activity Indicator처럼 흰색 strokeWidth 2.
         child: loading
             ? const Center(
                 child: SizedBox(
@@ -569,8 +543,6 @@ class _ActionMenu extends StatelessWidget {
   final ValueChanged<String> onSelectType;
   @override
   Widget build(BuildContext context) {
-    // 입력창과 동일한 어두움(space900 알파 0.9) + 뒤 콘텐츠를 흐리는 BackdropFilter.
-    // ClipRRect와 동일한 borderRadius를 Container에도 줘야 둥근 모서리에서 border가 잘리지 않음.
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -603,5 +575,17 @@ class _MenuItem extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => ListTile(visualDensity: VisualDensity.compact, leading: Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: const Color(0x33A78BFA), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: Colors.white, size: 16)), title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)), onTap: onTap);
+  Widget build(BuildContext context) => ListTile(
+    visualDensity: VisualDensity.compact,
+    leading: Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: const Color(0x33A78BFA),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(icon, color: Colors.white, size: 16),
+    ),
+    title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+    onTap: onTap,
+  );
 }
