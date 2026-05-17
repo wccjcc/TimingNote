@@ -27,6 +27,7 @@ import com.timingnote.api.domain.todo.enums.ConditionType;
 import com.timingnote.api.domain.todo.enums.TodoStatus;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
+import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -63,6 +64,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserFcmTokenRepository userFcmTokenRepository;
     private final UserNotificationRepository userNotificationRepository;
     private final PlaceRepository placeRepository;
+    private final UserPlaceRepository userPlaceRepository;
     private final PushNotificationSender pushNotificationSender;
     private final GeofenceRecalculateOutboxService geofenceRecalculateOutboxService;
 
@@ -87,7 +89,7 @@ public class NotificationServiceImpl implements NotificationService {
 
         UserFcmToken fcmToken = userFcmTokenRepository.findByUserId(userId).orElse(null);
         if (fcmToken == null || !Boolean.TRUE.equals(fcmToken.getIsActive())) {
-            String title = buildTitle(slot.getPlaceId());
+            String title = buildTitle(todo, slot);
             String body = buildBody(todo.getContent());
             UserNotification history = saveNotificationHistory(userId, todo, null, title, body, false);
             history.markFailed();
@@ -97,7 +99,7 @@ public class NotificationServiceImpl implements NotificationService {
                     .build();
         }
 
-        String title = buildTitle(slot.getPlaceId());
+        String title = buildTitle(todo, slot);
         String body = buildBody(todo.getContent());
         UserNotification history = saveNotificationHistory(userId, todo, null, title, body, false);
         Map<String, String> pushData = Map.of(
@@ -387,7 +389,23 @@ public class NotificationServiceImpl implements NotificationService {
         return end == null || !target.isAfter(end);
     }
 
-    private String buildTitle(Long placeId) {
+    private String buildTitle(Todo todo, GeofenceSlot slot) {
+        if (todo == null || slot == null || slot.getPlaceId() == null) return TITLE_FALLBACK;
+
+        if ("ALIAS".equals(todo.getTodoType())) {
+            String aliasName = userPlaceRepository.findFirstByUser_IdAndPlace_IdOrderByIdAsc(
+                            todo.getUserId(),
+                            slot.getPlaceId()
+                    )
+                    .map(userPlace -> userPlace.getAliasName())
+                    .filter(alias -> !alias.isBlank())
+                    .orElse(null);
+            if (aliasName != null) {
+                return aliasName + TITLE_SUFFIX;
+            }
+        }
+
+        Long placeId = slot.getPlaceId();
         if (placeId == null) return TITLE_FALLBACK;
         return placeRepository.findById(placeId)
                 .map(Place::getName)
