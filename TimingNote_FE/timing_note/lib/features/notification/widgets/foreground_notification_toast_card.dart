@@ -95,7 +95,7 @@ class ForegroundNotificationToastCard extends StatelessWidget {
                       text: placeName,
                       style: const TextStyle(color: Colors.white),
                     ),
-                    const TextSpan(text: ' 근처에 도착했어요.'),
+                    const TextSpan(text: '.'),
                   ],
                 ),
               ),

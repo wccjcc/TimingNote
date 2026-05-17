@@ -131,7 +131,12 @@ import UserNotifications
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void        
   ) {
-    completionHandler([])
+    // FlutterFire가 foreground 푸시를 Dart의 FirebaseMessaging.onMessage로 넘길 수 있도록
+    // FlutterAppDelegate(super)에 먼저 전달한다. 실제 iOS 시스템 배너/사운드는 숨기고,
+    // 화면 표시는 Flutter 인앱 토스트(App.dart) 한 곳에서만 처리한다.
+    super.userNotificationCenter(center, willPresent: notification) { _ in
+      completionHandler([])
+    }
   }
 
   /// 사용자가 알림 액션 버튼을 눌렀을 때 호출됩니다.
