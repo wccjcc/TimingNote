@@ -87,18 +87,23 @@ class HomeRecommendationService {
       }
 
       final category = (todoJson['category'] as String?) ?? TodoCategory.etc;
+      final todoType = (todoJson['todoType'] as String?) ?? TodoType.general;
       final title =
           ((todoJson['summaryText'] as String?) ?? '').trim().isNotEmpty
           ? (todoJson['summaryText'] as String).trim()
           : '추천 할일';
 
       final resolvedPlace = (todoJson['resolvedPlaceLabel'] as String?)?.trim();
-      final place =
-          (placeName?.isNotEmpty == true
-              ? placeName
-              : (resolvedPlace?.isNotEmpty == true ? resolvedPlace : null)) ??
-          '주변 장소';
-
+      // 내 장소(ALIAS)는 서버의 resolvedPlaceLabel에 사용자가 저장한 aliasName이 들어온다.
+      // 특정 장소의 주소 라벨과 섞이지 않도록 ALIAS일 때만 이 값을 카드 위치명으로 우선 사용한다.
+      final aliasPlace =
+          todoType == TodoType.alias && resolvedPlace?.isNotEmpty == true
+          ? resolvedPlace
+          : null;
+      final fallbackPlace = placeName?.isNotEmpty == true
+          ? placeName
+          : (resolvedPlace?.isNotEmpty == true ? resolvedPlace : null);
+      final place = aliasPlace ?? fallbackPlace ?? '주변 장소';
 
       return HomeRecommendationItem(
         groupId: groupId,
@@ -106,6 +111,7 @@ class HomeRecommendationService {
         rank: rank,
         todoCount: todoCount,
         category: category,
+        todoType: todoType,
         title: title,
         place: place,
         distanceMeters: distanceMeters,
@@ -117,4 +123,3 @@ class HomeRecommendationService {
     return parsed;
   }
 }
-

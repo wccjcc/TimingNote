@@ -8,6 +8,8 @@ public interface RecommendCandidateProjection {
 
     String getCategory();
 
+    String getTodoType();
+
     String getResolvedPlaceLabel();
 
     Long getPlaceId();
