@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/location/location_provider.dart';
+import '../../home/viewmodel/home_recommendation_viewmodel.dart';
 import '../../mypage/model/user_place.dart';
 import '../model/todo.dart';
 import '../service/todo_service.dart';
+import 'todo_list_viewmodel.dart';
 
 // ── State ────────────────────────────────────────────────────────
 // pending 단계 제거: AI 구조화 대기는 목록 화면 카드 스피너에서 처리한다.
@@ -136,6 +138,10 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
         createdTodoId: result.todoId,
         structureStatus: result.structureStatus,
       );
+
+      // 할 일 목록 및 홈 추천 목록 갱신 트리거
+      ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(phase: InputSubmitPhase.error, error: e.toString());
     }

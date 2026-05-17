@@ -247,17 +247,23 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
       backgroundColor: SpaceColors.space950,
       body: CosmicBackground(
         child: SafeArea(
-          child: Column(
-            children: [
-              _buildAppBar(places.length, showCount: !isInitialLoading),
-              Expanded(
-                child: _buildBody(
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            color: SpaceColors.neonPurple,
+            backgroundColor: SpaceColors.space900,
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _buildAppBar(places.length, showCount: !isInitialLoading),
+                ),
+                _buildSliverBody(
                   isInitialLoading: isInitialLoading,
                   hasInitialError: hasInitialError,
                   places: places,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -298,9 +304,7 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
             onPressed: canAdd ? () => _onAddTapped(count) : null,
             icon: Icon(
               Icons.add_circle_outline,
-              color: canAdd
-                  ? SpaceColors.neonLavender
-                  : SpaceColors.white20,
+              color: canAdd ? SpaceColors.neonLavender : SpaceColors.white20,
               size: 26,
             ),
             tooltip: '내 장소 추가',
@@ -310,56 +314,68 @@ class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
     );
   }
 
-  Widget _buildBody({
+  Widget _buildSliverBody({
     required bool isInitialLoading,
     required bool hasInitialError,
     required List<UserPlace> places,
   }) {
     if (isInitialLoading) {
-      return const AppLoadingView(message: '내 장소를 불러오는 중...');
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: AppLoadingView(message: '내 장소를 불러오는 중...'),
+      );
     }
     if (hasInitialError) {
-      return AppErrorView(
-        title: '내 장소를 불러오지 못했어요',
-        onRetry: _loadInitial,
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: AppErrorView(
+          title: '내 장소를 불러오지 못했어요',
+          onRetry: _loadInitial,
+        ),
       );
     }
     if (places.isEmpty) {
-      return _EmptyState(onAdd: () => _onAddTapped(0));
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Container(
+          alignment: Alignment.center,
+          child: _EmptyState(onAdd: () => _onAddTapped(0)),
+        ),
+      );
     }
-    return RefreshIndicator(
-      onRefresh: _refresh,
-      color: SpaceColors.neonPurple,
-      child: ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-        itemCount: places.length + 1,
-        separatorBuilder: (_, _) => const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          if (index == places.length) {
-            return Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                '최대 $kMyPlacesLimit개까지 등록할 수 있어요',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: SpaceTypography.pixelFontFamily,
-                  fontSize: 11,
-                  color: SpaceColors.neonLavender.withValues(alpha: 0.4),
+
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            if (index == places.length) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  '최대 $kMyPlacesLimit개까지 등록할 수 있어요',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: SpaceTypography.pixelFontFamily,
+                    fontSize: 11,
+                    color: SpaceColors.neonLavender.withValues(alpha: 0.4),
+                  ),
                 ),
+              );
+            }
+            final place = places[index];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _PlaceCard(
+                place: place,
+                indexHint: index,
+                onEditTap: () => _renameAlias(place, places),
+                onDeleteTap: () => _deleteByMenu(place),
               ),
             );
-          }
-          final place = places[index];
-          // Dismissible(swipe-to-delete) 제거 (2026-05-14) — 우측 🗑️ IconButton으로 삭제 의도가
-          // 명시적이라 swipe는 중복 + 가끔 의도치 않은 swipe로 오삭제 위험.
-          return _PlaceCard(
-            place: place,
-            indexHint: index,
-            onEditTap: () => _renameAlias(place, places),
-            onDeleteTap: () => _deleteByMenu(place),
-          );
-        },
+          },
+          childCount: places.length + 1,
+        ),
       ),
     );
   }

@@ -1,4 +1,4 @@
-﻿import Flutter
+import Flutter
 import UIKit
 import KakaoMapsSDK
 import UserNotifications
@@ -129,7 +129,7 @@ import UserNotifications
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void        
   ) {
     completionHandler([])
   }
@@ -137,7 +137,7 @@ import UserNotifications
   /// 사용자가 알림 액션 버튼을 눌렀을 때 호출됩니다.
   ///
   /// 현재 단계에서는 카테고리/액션 수신 경로를 확정하는 것이 목표이며,
-  /// 실제 COMPLETE/SNOOZE API 호출은 다음 단계에서 Flutter 또는 네이티브 네트워크 계층으로 연결하면 됩니다.
+  /// 실제 COMPLETE/SNOOZE API 호출은 다음 단계에서 Flutter 또는 네이티브 네트워크 계층으로 연결하면 됩니 다.
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse,
@@ -257,15 +257,20 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   // 마커 클릭 시 말풍선 표시 토글용 — 마지막으로 라벨이 보이는 PoiID.
   // 다른 마커 탭/지도 드래그 시 이 ID를 hideBadge로 닫고 갱신.
   private let bubbleBadgeID = "tn_bubble"
+  private let countBadgeID = "tn_count"
   private var activeBubblePoiId: String?
+  private var bubbleEnabledPoiIds = Set<String>()
 
-  // ── 사용자 위치 마커 (흰 코어 + 보라 ring) ─────────────────────────────────
-  // todo 마커와 동일한 LabelLayer를 공유하되 별도 styleID로 분리.
+  // ── 사용자 위치 마커 (작은 흰 코어 + 보라 ring) ─────────────────────────────
+  // 장소 마커보다 위에 보이도록 별도 LabelLayer를 사용하되 clickable=false로 둔다.
   // 좌표 변경 시 기존 Poi를 제거하고 새로 추가 (Kakao SDK가 Poi move를 직접 지원 안 함).
+  private var userLocationLayer: LabelLayer?
+  private let userLocationLayerID = "timing_note_user_location"
   private let userLocationStyleID = "tn_user_location"
   private let userLocationPoiID = "tn_user_location_poi"
   private var userLocationStyleRegistered = false
   private var pendingUserLocation: (Double, Double)?
+  private var currentUserLocation: (Double, Double)?
 
   init(
     frame: CGRect,
@@ -398,6 +403,7 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
 
     // 활성 말풍선 추적 초기화 — 마커 리스트가 갱신되면 이전 표시는 자동 무효.
     activeBubblePoiId = nil
+    bubbleEnabledPoiIds.removeAll()
 
     for (index, marker) in markers.enumerated() {
       guard let lat = marker["latitude"] as? Double,
@@ -407,23 +413,34 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       }
       let active = (marker["active"] as? Bool) ?? false
       let name = marker["name"] as? String
+      let badgeText = marker["badgeText"] as? String
+      let compact = (marker["compact"] as? Bool) ?? false
       // placeType: "SPECIFIC" | "ALIAS" | "GENERIC" | nil (default).
       // 지도 탭(MapScreen)에서 전달. 상세 페이지 후보 마커는 placeType 없이 default 색 유지.
       let placeType = marker["placeType"] as? String
-      // 매장별 styleID — 말풍선 이미지(이름 포함)가 매장마다 다르므로 styleID도 매장 고유.
+      let hasName = name?.isEmpty == false
+      let hasBadge = badgeText?.isEmpty == false
+      // 매장별 styleID — 말풍선/숫자 배지 이미지가 마커마다 다르므로 styleID도 마커 고유.
       // placeType이 다르면 색도 다르므로 styleID에 placeType 키 포함.
       let styleID: String
-      if let name = name, !name.isEmpty {
+      if hasName || hasBadge || compact || placeType != nil {
         let activeKey = active ? "act" : "in"
         let typeKey = placeType ?? "default"
-        styleID = "tn_label_\(id)_\(activeKey)_\(typeKey)"
+        let badgeKey = badgeText ?? "none"
+        let sizeKey = compact ? "compact" : "normal"
+        styleID = "tn_label_\(id)_\(activeKey)_\(typeKey)_\(badgeKey)_\(sizeKey)"
         registerLabeledStyleIfNeeded(
           manager: manager,
           styleID: styleID,
           active: active,
-          name: name,
-          placeType: placeType
+          name: hasName ? name : nil,
+          placeType: placeType,
+          badgeText: hasBadge ? badgeText : nil,
+          compact: compact
         )
+        if hasName {
+          bubbleEnabledPoiIds.insert(id)
+        }
       } else {
         styleID = active ? candidateActiveStyleID : candidateInactiveStyleID
       }
@@ -433,16 +450,20 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       options.clickable = true // 사용자가 마커를 탭하면 Flutter에 poiId 전달
       let point = MapPoint(longitude: lng, latitude: lat)
       let poi = layer?.addPoi(option: options, at: point)
-      // Poi 단위로 tap handler 등록 — handler에서 itemID(=Flutter에서 전달한 id) 회수해 채널 전송.
+      // Poi 단위로 tap handler 등록 — handler에서 itemID(=Flutter에서 전달한 id) 회수해 채널 전송.       
       _ = poi?.addPoiTappedEventHandler(
         target: self,
         handler: TimingNoteNativeKakaoMapView.handlePoiTapped
       )
       // 초기엔 말풍선 badge 숨김 — 마커 클릭 시점에만 노출.
-      if name != nil && !name!.isEmpty {
+      if hasName {
         poi?.hideBadge(badgeID: bubbleBadgeID)
       }
       poi?.show()
+    }
+
+    if let (lat, lng) = currentUserLocation {
+      applyUserLocation(latitude: lat, longitude: lng)
     }
   }
 
@@ -454,32 +475,95 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     manager: LabelManager,
     styleID: String,
     active: Bool,
-    name: String,
-    placeType: String? = nil
+    name: String?,
+    placeType: String? = nil,
+    badgeText: String? = nil,
+    compact: Bool = false
   ) {
     // 1) 핀 아이콘 — 타입별 색 + active 여부에 따른 명도.
     // active=true(감지중)인 경우 외곽에 흰 글로우로 강조 — 사용자 비전: "은은한 표현".
     let pinColor = pinColorFor(placeType: placeType, active: active)
-    guard let pin = makeMarkerImage(color: pinColor, glow: active) else { return }
+    guard let pin = makeMarkerImage(
+      color: pinColor,
+      glow: active,
+      compact: compact
+    ) else { return }
 
-    // 2) 말풍선 badge — 매장명을 그려넣은 이미지(박스 + 꼬리 + 텍스트).
-    let bubble = makeBubbleImage(text: name)
-
-    let iconStyle: PoiIconStyle
-    if let bubble = bubble {
-      // anchor: 핀 머리 위쪽으로 말풍선이 뜨도록 음수 y로 띄움.
-      let badge = PoiBadge(
+    // 2) 말풍선/숫자 badge.
+    // - name: 상세 화면 후보 마커용, 탭할 때만 표시.
+    // - badgeText: 지도 탭 할 일 개수용, 항상 표시.
+    var badges = [PoiBadge]()
+    if let name = name, !name.isEmpty, let bubble = makeBubbleImage(text: name) {
+      badges.append(PoiBadge(
         badgeID: bubbleBadgeID,
         image: bubble,
         offset: CGPoint(x: 0.5, y: -0.4),
         zOrder: 1
-      )
-      iconStyle = PoiIconStyle(symbol: pin, badges: [badge])
+      ))
+    }
+    if let badgeText = badgeText,
+       !badgeText.isEmpty,
+       let countBadge = makeCountBadgeImage(text: badgeText) {
+      badges.append(PoiBadge(
+        badgeID: countBadgeID,
+        image: countBadge,
+        offset: CGPoint(x: 0.62, y: -0.18),
+        zOrder: 2
+      ))
+    }
+
+    let iconStyle: PoiIconStyle
+    if badges.isEmpty {
+      iconStyle = PoiIconStyle(symbol: pin, anchorPoint: CGPoint(x: 0.5, y: 1.0))
     } else {
-      iconStyle = PoiIconStyle(symbol: pin)
+      iconStyle = PoiIconStyle(
+        symbol: pin,
+        anchorPoint: CGPoint(x: 0.5, y: 1.0),
+        badges: badges
+      )
     }
     let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
     manager.addPoiStyle(PoiStyle(styleID: styleID, styles: [perLevel]))
+  }
+
+  /// 지도 탭 마커 위에 항상 표시되는 할 일 개수 badge.
+  /// 장소명 말풍선과 달리 탭으로 열고 닫지 않고, 지도에서 밀도 정보를 바로 전달한다.
+  private func makeCountBadgeImage(text: String) -> UIImage? {
+    let display = text.count > 2 ? "99+" : text
+    let font = UIFont.systemFont(ofSize: 11, weight: .bold)
+    let attrs: [NSAttributedString.Key: Any] = [
+      .font: font,
+      .foregroundColor: UIColor(red: 0.055, green: 0.051, blue: 0.094, alpha: 1.0),
+    ]
+    let textSize = (display as NSString).size(withAttributes: attrs)
+    let badgeWidth = max(CGFloat(20), ceil(textSize.width) + 10)
+    let size = CGSize(width: badgeWidth, height: 20)
+    let renderer = UIGraphicsImageRenderer(size: size)
+
+    return renderer.image { ctx in
+      let rect = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+      let path = UIBezierPath(
+        roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+        cornerRadius: size.height / 2
+      )
+      let cg = ctx.cgContext
+      cg.setFillColor(UIColor(red: 0.973, green: 0.957, blue: 1.0, alpha: 0.96).cgColor)
+      cg.addPath(path.cgPath)
+      cg.fillPath()
+
+      cg.setStrokeColor(UIColor(red: 0.655, green: 0.545, blue: 0.980, alpha: 0.78).cgColor)
+      cg.setLineWidth(1)
+      cg.addPath(path.cgPath)
+      cg.strokePath()
+
+      let textRect = CGRect(
+        x: (size.width - textSize.width) / 2,
+        y: (size.height - textSize.height) / 2,
+        width: textSize.width,
+        height: textSize.height
+      )
+      (display as NSString).draw(in: textRect, withAttributes: attrs)
+    }
   }
 
   /// 말풍선 이미지 — 화이트 반투명 박스 + 진회색 글씨 + 아래 꼬리.
@@ -543,11 +627,13 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   }
 
   /// 마커 탭 이벤트.
-  /// 1) 말풍선 toggle — 같은 마커 재탭하면 닫고, 다른 마커면 이전 마커 닫고 새 마커 열기.
+  /// 1) 말풍선이 있는 마커만 toggle — 지도 탭의 숫자 배지 마커는 그대로 둔다.
   /// 2) Flutter "onPoiTapped" 호출 — id는 setMarkers 시 전달했던 문자열.
   private func handlePoiTapped(_ param: PoiInteractionEventParam) {
     let poiId = param.poiItem.itemID
-    toggleBubble(for: poiId)
+    if bubbleEnabledPoiIds.contains(poiId) {
+      toggleBubble(for: poiId)
+    }
     channel.invokeMethod("onPoiTapped", arguments: ["id": poiId])
   }
 
@@ -605,36 +691,52 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
       color: UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 1.0),
       glow: true
     ) {
-      let iconStyle = PoiIconStyle(symbol: image)
+      let iconStyle = PoiIconStyle(symbol: image, anchorPoint: CGPoint(x: 0.5, y: 1.0))
       let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
       manager.addPoiStyle(PoiStyle(styleID: candidateActiveStyleID, styles: [perLevel]))
     }
     if let image = makeMarkerImage(color: UIColor(white: 0.6, alpha: 0.85)) {
-      let iconStyle = PoiIconStyle(symbol: image)
+      let iconStyle = PoiIconStyle(symbol: image, anchorPoint: CGPoint(x: 0.5, y: 1.0))
       let perLevel = PerLevelPoiStyle(iconStyle: iconStyle, level: 0)
       manager.addPoiStyle(PoiStyle(styleID: candidateInactiveStyleID, styles: [perLevel]))
     }
     candidateStylesRegistered = true
   }
 
-  /// 사용자 GPS 위치를 흰+보라 마커로 표시. Kakao SDK는 Poi 이동을 직접 지원 안 하므로
-  /// 같은 PoiID를 매번 제거(removePoi) 후 새로 추가(addPoi). 좌표 변경 빈도 낮으니 비용 무시 가능.
+  /// 사용자 GPS 위치를 작은 흰+보라 dot으로 표시. Kakao SDK는 Poi 이동을 직접 지원 안 하므로
+  /// 같은 PoiID를 매번 제거(removePoi) 후 새로 추가(addPoi). 좌표 변경 빈도 낮으니 비용 무시 가능.       
   private func applyUserLocation(latitude: Double, longitude: Double) {
     guard let map = kakaoMap else { return }
+    currentUserLocation = (latitude, longitude)
     let manager = map.getLabelManager()
     registerUserLocationStyleIfNeeded(manager: manager)
-    let layer = ensureCandidateLayer(manager: manager) // todo 마커와 같은 layer 공유
+    let layer = ensureUserLocationLayer(manager: manager)
 
     // 기존 사용자 위치 Poi가 있으면 제거 (좌표 갱신용)
     layer?.removePoi(poiID: userLocationPoiID)
 
     let options = PoiOptions(styleID: userLocationStyleID, poiID: userLocationPoiID)
-    // 사용자 위치는 모든 todo 마커보다 위(zOrder 상위)에 그려져야 함. rank를 음수로.
-    options.rank = -1
-    options.clickable = false // 사용자 위치는 탭 액션 없음
+    // 별도 상위 layer에 그리되 클릭 불가로 둬서 겹친 장소 마커 탭을 가로채지 않는다.
+    options.rank = 10_000
+    options.clickable = false
     let point = MapPoint(longitude: longitude, latitude: latitude)
     let poi = layer?.addPoi(option: options, at: point)
     poi?.show()
+  }
+
+  /// 사용자 위치 전용 레이어. 장소 마커보다 위에 보이지만 탭 가능한 Poi는 만들지 않는다.
+  private func ensureUserLocationLayer(manager: LabelManager) -> LabelLayer? {
+    if let existing = userLocationLayer { return existing }
+    let option = LabelLayerOptions(
+      layerID: userLocationLayerID,
+      competitionType: .none,
+      competitionUnit: .symbolFirst,
+      orderType: .rank,
+      zOrder: 6000
+    )
+    let layer = manager.addLabelLayer(option: option)
+    userLocationLayer = layer
+    return layer
   }
 
   /// 사용자 위치 PoiStyle 등록 — 1회만 (이미지 정적).
@@ -648,32 +750,32 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     userLocationStyleRegistered = true
   }
 
-  /// 사용자 위치 마커 이미지 — 흰 코어 + 보라 ring (iOS Maps 표준 패턴).
+  /// 사용자 위치 마커 이미지 — 작은 흰 코어 + 보라 ring (iOS Maps 표준 패턴).
   /// 핀 형태(물방울)와 형태 자체가 달라 todo 마커와 시각 구분.
   private func makeUserLocationImage() -> UIImage? {
-    let size = CGSize(width: 22, height: 22)
+    let size = CGSize(width: 16, height: 16)
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
       let center = CGPoint(x: size.width / 2, y: size.height / 2)
       let purple = UIColor(red: 0.655, green: 0.545, blue: 0.980, alpha: 1.0) // #A78BFA
 
-      // 외곽 옅은 보라 글로우 (반경 11)
-      cg.setFillColor(purple.withAlphaComponent(0.25).cgColor)
+      // 외곽 옅은 보라 halo. 클릭 대상이 아니므로 장소 마커를 가리지 않게 작고 투명하게 둔다.
+      cg.setFillColor(purple.withAlphaComponent(0.18).cgColor)
       cg.fillEllipse(in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
 
       // 보라 ring (stroke)
       cg.setStrokeColor(purple.cgColor)
-      cg.setLineWidth(2)
+      cg.setLineWidth(1.5)
       let ringRect = CGRect(
-        x: center.x - 7, y: center.y - 7, width: 14, height: 14
+        x: center.x - 5, y: center.y - 5, width: 10, height: 10
       )
       cg.strokeEllipse(in: ringRect)
 
-      // 흰 코어 (반경 5)
+      // 흰 코어
       cg.setFillColor(UIColor.white.cgColor)
       cg.fillEllipse(in: CGRect(
-        x: center.x - 5, y: center.y - 5, width: 10, height: 10
+        x: center.x - 3, y: center.y - 3, width: 6, height: 6
       ))
     }
   }
@@ -682,8 +784,8 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
   /// - SPECIFIC: neonPurple #A78BFA
   /// - ALIAS: neonYellow #FDE68A
   /// - GENERIC: neonCyan #22D3EE
-  /// - default (placeType nil): 기존 초록(active) / 회색(inactive)
-  /// active=false 케이스는 본래 색을 50% 옅게 그려 dim 표시.
+  /// - default (placeType nil): 기존 초록(active) / 진한 회색(inactive)
+  /// active=false 케이스는 본래 색을 30% 옅게 그려(Map Tab) 확실히 구분되게 한다.
   private func pinColorFor(placeType: String?, active: Bool) -> UIColor {
     let base: UIColor
     switch placeType {
@@ -694,69 +796,79 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
     case "GENERIC":
       base = UIColor(red: 0.133, green: 0.827, blue: 0.933, alpha: 1.0) // #22D3EE
     default:
-      // 기존 default — 상세 페이지 후보 마커 등 호환.
+      // 상세 페이지 후보 마커 (placeType nil)
+      // active=false인 경우 확실한 구분을 위해 진한 회색(#444444)을 사용.
       return active
         ? UIColor(red: 0.06, green: 0.73, blue: 0.51, alpha: 1.0)
-        : UIColor(white: 0.6, alpha: 0.85)
+        : UIColor(white: 0.26, alpha: 1.0)
     }
-    // active=false면 같은 색 50% opacity (dim 효과)
-    return active ? base : base.withAlphaComponent(0.5)
+    // active=false면 본래 색의 30% opacity (dim 효과 강화)
+    return active ? base : base.withAlphaComponent(0.3)
   }
 
-  /// Material `Icons.location_on` 스타일 핀 마커를 그린다.
-  /// 위쪽 둥근 머리 + 아래쪽 뾰족한 꼬리 + 안쪽 흰 highlight (물방울 형태).
-  /// place_search_screen의 Flutter 위젯 오버레이(Icons.location_on)와 톤 통일.
-  /// glow=true면 핀 외곽에 흰 shadow blur로 "감지중" 시각 강조 — 동적 펄스가 아닌
-  /// 정적 글로우라 GPU/배터리 비용 0. 카메라 이동/줌과 무관하게 안정적.
-  private func makeMarkerImage(color: UIColor, glow: Bool = false) -> UIImage? {
-    // glow가 활성이면 외곽 4-5px 흰 빛이 퍼지므로 size를 그만큼 키우고 핀을 중앙에 위치.
-    // anchor 기준이 size.height-2(꼬리 끝)라 size 변경 시 anchor도 자동 따라감.
-    let size = glow ? CGSize(width: 36, height: 44) : CGSize(width: 28, height: 36)
-    let inset: CGFloat = glow ? 4 : 0  // 핀을 size 중앙에 배치하기 위한 좌측/상단 inset
+  /// Material `Icons.location_on` 톤의 물방울 핀 마커를 그린다.
+  private func makeMarkerImage(
+    color: UIColor,
+    glow: Bool = false,
+    compact: Bool = false
+  ) -> UIImage? {
+    // ── 1. 사이즈 정의 (크게 축소) ──
+    let size: CGSize
+    if compact {
+      // 상세 페이지용 (더 작고 날렵하게)
+      size = glow ? CGSize(width: 20, height: 30) : CGSize(width: 14, height: 22)
+    } else {
+      // 지도 탭용 (한눈에 들어오는 작은 크기)
+      size = glow ? CGSize(width: 26, height: 36) : CGSize(width: 18, height: 28)
+    }
+    
+    let inset: CGFloat = glow ? (compact ? 3 : 4) : 0
+    let pinW = size.width - (inset * 2)
+    
+    let bodyHalf = pinW / 2
+    let centerX = size.width / 2
+    
+    let headRadius = bodyHalf
+    let headCenterY = inset + headRadius
+    let innerRadius: CGFloat = compact ? 1.8 : 2.5
+    
+    let tailTipY = size.height - (glow ? 4 : 2)
+    let strokeWidth: CGFloat = compact ? 0.7 : 0.9
+    let shadowBlur: CGFloat = compact ? 2 : 4
+    
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { ctx in
       let cg = ctx.cgContext
 
-      // 머리 + 꼬리를 한 path로 합쳐서 한 번에 fill — 경계 안티앨리어싱 자국 방지.
-      let headCenter = CGPoint(x: size.width / 2, y: 13 + inset)
-      let headRadius: CGFloat = 11
-      let tailTipY = size.height - 2
-      // 머리 양옆 접선 각도 (수평선 기준 약 30° 아래) — 꼬리가 자연스럽게 이어지는 폭.
-      let tangentAngle: CGFloat = .pi / 6   // 30°
-      let rightTangent = CGPoint(
-        x: headCenter.x + headRadius * cos(tangentAngle),
-        y: headCenter.y + headRadius * sin(tangentAngle)
-      )
-      let leftTangent = CGPoint(
-        x: headCenter.x - headRadius * cos(tangentAngle),
-        y: headCenter.y + headRadius * sin(tangentAngle)
-      )
-
       let path = UIBezierPath()
-      // 오른쪽 접점 → 꼬리 끝 → 왼쪽 접점
-      path.move(to: rightTangent)
-      path.addLine(to: CGPoint(x: headCenter.x, y: tailTipY))
-      path.addLine(to: leftTangent)
-      // 왼쪽 접점 → 위쪽 호 → 오른쪽 접점.
-      // UIKit 좌표(y 아래 양수)에서 angle 양수가 시계방향이라 clockwise=true가
-      // 150°→180°→270°→0°→30° 경로로 머리 위쪽을 돌아간다.
+      path.move(to: CGPoint(x: centerX, y: tailTipY))
+      
+      path.addCurve(
+        to: CGPoint(x: centerX - headRadius, y: headCenterY),
+        controlPoint1: CGPoint(x: centerX - headRadius * 0.05, y: tailTipY - headRadius * 0.6),
+        controlPoint2: CGPoint(x: centerX - headRadius, y: headCenterY + headRadius * 0.7)
+      )
+      
       path.addArc(
-        withCenter: headCenter,
+        withCenter: CGPoint(x: centerX, y: headCenterY),
         radius: headRadius,
-        startAngle: .pi - tangentAngle,    // 왼 접점 각도 (180° - 30° = 150°)
-        endAngle: tangentAngle,            // 오른 접점 각도 (30°)
-        clockwise: true                    // 위쪽으로 호
+        startAngle: .pi,
+        endAngle: 0,
+        clockwise: true
+      )
+      
+      path.addCurve(
+        to: CGPoint(x: centerX, y: tailTipY),
+        controlPoint1: CGPoint(x: centerX + headRadius, y: headCenterY + headRadius * 0.7),
+        controlPoint2: CGPoint(x: centerX + headRadius * 0.05, y: tailTipY - headRadius * 0.6)
       )
       path.close()
 
-      // glow=true면 본체 그리기 전에 흰 빛이 핀 외곽으로 퍼지는 shadow를 깐다.
-      // setShadow + fill 하면 fill 색 주변에 shadow가 그려지고, 그 위에 본체를 다시
-      // 그려서 핀 자체는 흰색이 아닌 자기 색을 유지한다.
       if glow {
         cg.saveGState()
         cg.setShadow(
           offset: .zero,
-          blur: 6,
+          blur: shadowBlur,
           color: UIColor.white.withAlphaComponent(0.95).cgColor
         )
         UIColor.white.withAlphaComponent(0.9).setFill()
@@ -764,22 +876,15 @@ private final class TimingNoteNativeKakaoMapView: NSObject, FlutterPlatformView 
         cg.restoreGState()
       }
 
-      cg.setFillColor(color.cgColor)
-      cg.addPath(path.cgPath)
-      cg.fillPath()
+      color.setFill()
+      UIColor.white.setStroke()
+      path.lineWidth = strokeWidth
+      path.fill()
+      path.stroke()
 
-      // 흰 테두리 (얇게)
-      cg.setStrokeColor(UIColor.white.cgColor)
-      cg.setLineWidth(1.5)
-      cg.addPath(path.cgPath)
-      cg.strokePath()
-
-      // 안쪽 흰 highlight (Material location_on의 작은 원 부분).
-      // headCenter는 이미 inset 적용된 좌표라 추가 보정 불필요.
-      let innerRadius: CGFloat = 4
       let innerRect = CGRect(
-        x: headCenter.x - innerRadius,
-        y: headCenter.y - innerRadius,
+        x: centerX - innerRadius,
+        y: headCenterY - innerRadius,
         width: innerRadius * 2,
         height: innerRadius * 2
       )

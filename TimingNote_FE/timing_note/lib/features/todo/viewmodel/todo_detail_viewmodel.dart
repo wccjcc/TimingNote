@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/location/location_provider.dart';
+import '../../home/viewmodel/home_recommendation_viewmodel.dart';
 import '../model/selected_kakao_place.dart';
 import '../model/time_condition.dart';
 import '../model/todo.dart';
@@ -137,6 +138,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         occurredAt: gps?.occurredAt,
       );
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (_) {
       state = state.copyWith(detail: current);
     } finally {
@@ -173,6 +175,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         occurredAt: gps?.occurredAt,
       );
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (_) {
       state = state.copyWith(detail: current);
     } finally {
@@ -196,6 +199,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
         occurredAt: gps?.occurredAt,
       );
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
       state = state.copyWith(isLoading: false);
       return true;
     } catch (e) {
@@ -224,6 +228,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       );
       state = state.copyWith(detail: updated, isLoading: false);
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     } finally {
@@ -249,6 +254,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       );
       state = state.copyWith(detail: updated, isLoading: false);
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     } finally {
@@ -304,6 +310,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       );
       state = state.copyWith(detail: updated, isLoading: false);
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     } finally {
@@ -328,6 +335,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       // 목록 화면이 stale content를 보여주지 않도록 invalidate.
       // 뒤로가기 직후 같은 카테고리에 머물러도 새 fetch로 갱신됨.
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     } finally {
@@ -353,6 +361,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       );
       state = state.copyWith(detail: updated, isLoading: false);
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     } finally {
@@ -369,6 +378,7 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
       final updated = await _service.removePlace(_todoId);
       state = state.copyWith(detail: updated, isLoading: false);
       ref.invalidate(todoListProvider);
+      ref.invalidate(homeRecommendationProvider);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     } finally {

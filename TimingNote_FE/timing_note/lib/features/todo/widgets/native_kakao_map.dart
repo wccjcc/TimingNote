@@ -19,6 +19,8 @@ class LatLng {
 /// 활성(`active: true`)은 강조 색으로, 비활성은 디머된 색으로 표시된다.
 /// `placeType`을 지정하면 Swift 측이 타입별 색(SPECIFIC 보라/ALIAS 노랑/GENERIC cyan)으로
 /// 핀을 그린다. null이면 기존 default 색(초록/회색) 그대로.
+/// `badgeText`를 지정하면 핀 위에 항상 보이는 작은 숫자/텍스트 배지를 그린다.
+/// `compact`는 상세 화면 미니 지도처럼 좁은 영역에서 쓰는 작은 핀이다.
 class CandidateMarker {
   const CandidateMarker({
     required this.id,
@@ -27,12 +29,15 @@ class CandidateMarker {
     required this.active,
     this.name,
     this.placeType,
+    this.badgeText,
+    this.compact = false,
   });
 
   final String id;
   final double latitude;
   final double longitude;
   final bool active;
+
   /// 마커 클릭 시 마커 위에 띄울 장소명. null이면 라벨 미표시.
   final String? name;
 
@@ -40,14 +45,22 @@ class CandidateMarker {
   /// null이면 Swift 측 default 색 적용 (상세 페이지 후보 마커 등 호환).
   final String? placeType;
 
+  /// 지도 탭처럼 마커 위에 항상 보여야 하는 짧은 배지 텍스트.
+  /// 예: 같은 장소에 등록된 할 일 개수 "3".
+  final String? badgeText;
+
+  final bool compact;
+
   Map<String, Object> toMap() => {
-        'id': id,
-        'latitude': latitude,
-        'longitude': longitude,
-        'active': active,
-        if (name != null) 'name': name!,
-        if (placeType != null) 'placeType': placeType!,
-      };
+    'id': id,
+    'latitude': latitude,
+    'longitude': longitude,
+    'active': active,
+    if (name != null) 'name': name!,
+    if (placeType != null) 'placeType': placeType!,
+    if (badgeText != null) 'badgeText': badgeText!,
+    if (compact) 'compact': compact,
+  };
 }
 
 /// iOS 네이티브 KakaoMapsSDK 지도 컨트롤러입니다.
@@ -101,6 +114,7 @@ class NativeKakaoMap extends StatefulWidget {
   final ValueChanged<NativeKakaoMapController> onMapCreated;
   final void Function(LatLng center, int zoomLevel) onCameraIdle;
   final VoidCallback onCameraMoveStarted;
+
   /// 마커(Poi) 탭 시 setMarkers에서 전달한 marker.id를 콜백으로 전달.
   /// null이면 탭 이벤트 무시.
   final ValueChanged<String>? onMarkerTap;
@@ -151,8 +165,9 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
           },
           onPlatformViewCreated: (viewId) {
             final controller = NativeKakaoMapController._(viewId);
-            _eventChannel = MethodChannel('timing_note/native_kakao_map_$viewId')
-              ..setMethodCallHandler(_handleNativeEvent);
+            _eventChannel = MethodChannel(
+              'timing_note/native_kakao_map_$viewId',
+            )..setMethodCallHandler(_handleNativeEvent);
             widget.onMapCreated(controller);
           },
         ),

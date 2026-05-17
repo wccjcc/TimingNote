@@ -1114,7 +1114,7 @@ class _EditRadialBackground extends StatelessWidget {
 class _EditStarField extends StatelessWidget {
   const _EditStarField();
   @override
-  Widget build(BuildContext context) => CustomPaint(painter: _EditStarPainter(), size: ui.Size.infinite);
+  Widget build(BuildContext context) => SizedBox.expand(child: CustomPaint(painter: _EditStarPainter()));
 }
 
 class _EditStarPainter extends CustomPainter {
