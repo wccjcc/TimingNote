@@ -44,7 +44,7 @@ class HomeRecommendationService {
     final label =
         (json['currentLocationLabel'] as String?)?.trim().isNotEmpty == true
         ? (json['currentLocationLabel'] as String).trim()
-        : '현재 위치';
+        : '?�재 ?�치';
 
     final items = rawItems
         .expand((e) => _parseGroupItems(e as Map<String, dynamic>))
@@ -93,10 +93,12 @@ class HomeRecommendationService {
           : '추천 할일';
 
       final resolvedPlace = (todoJson['resolvedPlaceLabel'] as String?)?.trim();
-      final place = (resolvedPlace?.isNotEmpty == true
-              ? resolvedPlace
-              : (placeName?.isNotEmpty == true ? placeName : null)) ??
+      final place =
+          (placeName?.isNotEmpty == true
+              ? placeName
+              : (resolvedPlace?.isNotEmpty == true ? resolvedPlace : null)) ??
           '주변 장소';
+
 
       return HomeRecommendationItem(
         groupId: groupId,
@@ -115,3 +117,4 @@ class HomeRecommendationService {
     return parsed;
   }
 }
+
