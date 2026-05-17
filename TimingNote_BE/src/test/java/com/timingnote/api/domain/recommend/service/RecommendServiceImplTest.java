@@ -85,9 +85,9 @@ class RecommendServiceImplTest {
                 .thenReturn(Mono.just(regionResponse("H", "광주광역시", "치평동", "")));
         when(todoCandidatePlaceRepository.findRecommendCandidates(anyLong(), anyDouble(), anyDouble(), anyInt(), anyInt()))
                 .thenReturn(List.of(
-                        candidate(101L, "A-할일", "ACQUIRE", "이마트", 10L, "이마트", 35.1909, 126.8251, 120),
-                        candidate(102L, "B-할일", "SOCIAL", "이마트", 10L, "이마트", 35.1909, 126.8251, 120),
-                        candidate(201L, "C-할일", "HEALTH", "병원", 20L, "장덕튼튼의원", 35.1921, 126.8238, 80)
+                        candidate(101L, "A-할일", "ACQUIRE", "GENERIC", "이마트", 10L, "이마트", 35.1909, 126.8251, 120),
+                        candidate(102L, "B-할일", "SOCIAL", "GENERIC", "이마트", 10L, "이마트", 35.1909, 126.8251, 120),
+                        candidate(201L, "C-할일", "HEALTH", "GENERIC", "병원", 20L, "장덕튼튼의원", 35.1921, 126.8238, 80)
                 ));
 
         // when
@@ -163,6 +163,7 @@ class RecommendServiceImplTest {
             Long todoId,
             String summaryText,
             String category,
+            String todoType,
             String resolvedPlaceLabel,
             Long placeId,
             String placeName,
@@ -184,6 +185,11 @@ class RecommendServiceImplTest {
             @Override
             public String getCategory() {
                 return category;
+            }
+
+            @Override
+            public String getTodoType() {
+                return todoType;
             }
 
             @Override

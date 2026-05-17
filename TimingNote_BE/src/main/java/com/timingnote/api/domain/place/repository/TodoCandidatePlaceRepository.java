@@ -79,7 +79,20 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
                     t.todo_type AS todo_type,
                     t.content AS summary_text,
                     t.category AS category,
-                    t.resolved_place_label AS resolved_place_label,
+                    CASE
+                        WHEN t.todo_type = 'ALIAS' THEN COALESCE(
+                            (
+                                SELECT up.alias_name
+                                FROM user_places up
+                                WHERE up.user_id = t.user_id
+                                  AND up.place_id = p.id
+                                ORDER BY up.id ASC
+                                LIMIT 1
+                            ),
+                            t.resolved_place_label
+                        )
+                        ELSE t.resolved_place_label
+                    END AS resolved_place_label,
                     p.id AS place_id,
                     p.name AS place_name,
                     ST_Y(p.location::geometry) AS latitude,
@@ -105,6 +118,7 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
                 r.todo_id AS todoId,
                 r.summary_text AS summaryText,
                 r.category AS category,
+                r.todo_type AS todoType,
                 r.resolved_place_label AS resolvedPlaceLabel,
                 r.place_id AS placeId,
                 r.place_name AS placeName,

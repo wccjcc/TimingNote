@@ -136,6 +136,7 @@ class HomeRecommendationNotifier extends Notifier<HomeRecommendationState> {
             rank: e.rank,
             todoCount: groupCounts[e.groupId] ?? 0,
             category: e.category,
+            todoType: e.todoType,
             title: e.title,
             place: e.place,
             distanceMeters: e.distanceMeters,

@@ -114,6 +114,7 @@ public class RecommendServiceImpl implements RecommendService {
                             .todoId(candidate.getTodoId())
                             .summaryText(candidate.getSummaryText())
                             .category(candidate.getCategory())
+                            .todoType(candidate.getTodoType())
                             .resolvedPlaceLabel(candidate.getResolvedPlaceLabel())
                             .build())
                     .toList();
