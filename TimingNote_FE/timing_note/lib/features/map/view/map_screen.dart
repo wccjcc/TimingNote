@@ -280,7 +280,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           longitude: lng,
           active: active,
           placeType: first.todo.todoType,
-          badgeText: group.length.toString(),
+          badgeText: group.length > 1 ? group.length.toString() : null,
         ),
       );
     });
