@@ -43,3 +43,9 @@ logging:
   level:
     com.timingnote: DEBUG
     org.springframework.web: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

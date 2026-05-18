@@ -7,10 +7,14 @@ import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Supplier;
 
 /**
@@ -22,18 +26,20 @@ import java.util.function.Supplier;
  *       search는 1km grid(multiplier 100), reverse geocode는 30m grid(multiplier 3000).
  *       정확도 손실은 거의 없고(grid 내 매장 정렬 차이 무시 가능) 인기 검색어 quota 절감 효과 큼.</li>
  *   <li><b>단일 캐시</b>: FE 검색창 경로와 내부 흐름(searchAndStoreAll)이 동일한
- *       {@link PlaceSearchItemResponse} 캐시를 공유한다 ({@code places:search:*}).
+ *       {@link PlaceSearchItemResponse} 캐시를 공유한다 ({@code places:v1:search:*}).
  *       categoryName까지 DTO에 포함시켜 raw KakaoDocument와 정보 손실 없음.</li>
- *   <li><b>TTL</b>: search 7일, reverse geocode 24시간. 카카오 데이터 stale 위험(1주일 ~0.4%) 대비
- *       hit 효율의 sweet spot.</li>
+ *   <li><b>Key versioning</b>: 캐시 value 구조나 grid 의미가 바뀔 때 Redis에 남은 예전 JSON을
+ *       새 코드가 읽지 않도록 {@code places:v1:*} namespace를 둔다.</li>
+ *   <li><b>TTL</b>: search/reverse geocode 7일 기준. TTL jitter를 ±10% 범위로 적용해
+ *       평균 TTL은 유지하면서 대량 키의 동시 만료를 분산한다.</li>
  *   <li><b>JSON 직렬화</b>: {@link StringRedisTemplate} + {@link ObjectMapper} 조합. Spring Cache
  *       추상화(@Cacheable) 대신 직접 호출 패턴을 택한 이유는 grid 키 가공·hit/miss 로깅·null 처리를
  *       명시적으로 다루기 위함.</li>
- *   <li><b>Negative caching</b>: reverse geocode 매칭 실패(null)도 24시간 캐시. sentinel 빈 문자열("")로
- *       저장. 좌표가 진짜 주소 없는 곳(해상/사막 등)이면 24시간 안엔 바뀔 일 없음.</li>
+ *   <li><b>Negative caching</b>: reverse geocode 매칭 실패(null)도 최대 7일 캐시. sentinel 빈 문자열("")로
+ *       저장. 좌표가 진짜 주소 없는 곳이면 짧은 기간 안에 결과가 바뀔 가능성이 낮다.</li>
  * </ul>
  *
- * <p>키 prefix는 {@code places:*}로 통일해 다른 도메인(알림 쿨다운, 세션 등)과 namespace 분리.
+ * <p>키 prefix는 {@code places:v1:*}로 통일해 다른 도메인(알림 쿨다운, 세션 등)과 namespace 분리.
  */
 @Slf4j
 @Component
@@ -42,10 +48,14 @@ public class PlaceSearchCache {
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final PlaceCacheMetrics metrics;
 
     // ── 키 prefix ─────────────────────────────────────────────────────
-    private static final String KEY_PREFIX_SEARCH = "places:search:";
-    private static final String KEY_PREFIX_GEO = "places:geo:";
+    private static final String CACHE_VERSION = "v1";
+    private static final String KEY_PREFIX_ROOT = "places:" + CACHE_VERSION + ":";
+    private static final String KEY_PREFIX_SEARCH = KEY_PREFIX_ROOT + "search:";
+    private static final String KEY_PREFIX_SEARCH_LOCK = KEY_PREFIX_ROOT + "lock:search:";
+    private static final String KEY_PREFIX_GEO = KEY_PREFIX_ROOT + "geo:";
     // reverse geocode 결과가 null(주소 매칭 실패)일 때 캐시에 저장하는 sentinel.
     // get 시 이 값을 만나면 호출자에게는 null을 반환해 negative caching 효과.
     private static final String NEGATIVE_SENTINEL = "";
@@ -63,6 +73,14 @@ public class PlaceSearchCache {
     //         하루 단위에서 일주일 단위로 늘려 quota 약 7배 절감.
     private static final Duration TTL_SEARCH = Duration.ofDays(7);
     private static final Duration TTL_GEO = Duration.ofDays(7);
+    private static final int TTL_JITTER_PERCENT = 10;
+    private static final Duration SEARCH_LOCK_TTL = Duration.ofSeconds(5);
+    private static final Duration SEARCH_LOCK_WAIT_INTERVAL = Duration.ofMillis(50);
+    private static final int SEARCH_LOCK_MAX_WAIT_ATTEMPTS = 10;
+    private static final DefaultRedisScript<Long> RELEASE_LOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class
+    );
 
     // ─────────────────────────────────────────────────────────────────
     // Keyword search — FE/내부 흐름 공용
@@ -87,32 +105,171 @@ public class PlaceSearchCache {
     ) {
         final String key = buildSearchKey(query, lat, lng);
 
-        String cached = redis.opsForValue().get(key);
-        if (cached != null) {
+        SearchCacheLookup cached = readSearchCache(key);
+        if (cached.hit()) {
+            return cached.result();
+        }
+        if (cached.redisFailed()) {
+            return loadSearchWithoutCache(key, loader);
+        }
+
+        return loadSearchWithStampedeLock(key, loader);
+    }
+
+    private List<PlaceSearchItemResponse> loadSearchWithStampedeLock(
+            String key,
+            Supplier<List<PlaceSearchItemResponse>> loader
+    ) {
+        String lockKey = buildSearchLockKey(key);
+        String token = UUID.randomUUID().toString();
+
+        Boolean lockAcquired = acquireSearchLock(lockKey, token);
+        if (lockAcquired == null) {
+            return loadSearchWithoutCache(key, loader);
+        }
+        if (lockAcquired) {
+            metrics.searchLockAcquired();
             try {
-                List<PlaceSearchItemResponse> result = objectMapper.readValue(
-                        cached, new TypeReference<List<PlaceSearchItemResponse>>() {});
-                log.info("[PLACE_CACHE][SEARCH][HIT] key='{}' results={}",
-                        key, result.size());
-                return result;
-            } catch (JsonProcessingException e) {
-                // 캐시 손상 — 무효화 후 재호출
-                log.warn("[PLACE_CACHE][SEARCH][CORRUPT] key='{}' err={}", key, e.getMessage());
-                redis.delete(key);
+                metrics.searchMiss();
+                return loadAndStoreSearch(key, loader);
+            } finally {
+                releaseSearchLock(lockKey, token);
             }
         }
 
+        metrics.searchLockWait();
+        for (int attempt = 0; attempt < SEARCH_LOCK_MAX_WAIT_ATTEMPTS; attempt++) {
+            sleepForSearchLock();
+            SearchCacheLookup cached = readSearchCache(key);
+            if (cached.hit()) {
+                return cached.result();
+            }
+            if (cached.redisFailed()) {
+                return loadSearchWithoutCache(key, loader);
+            }
+        }
+
+        metrics.searchLockFallback();
+        metrics.searchMiss();
+        return loadAndStoreSearch(key, loader);
+    }
+
+    private SearchCacheLookup readSearchCache(String key) {
+        String cached;
+        try {
+            cached = redis.opsForValue().get(key);
+        } catch (RuntimeException e) {
+            metrics.searchRedisError();
+            log.warn("[PLACE_CACHE][SEARCH][REDIS_GET_FAIL] key='{}' err={}",
+                    key, e.getMessage());
+            return SearchCacheLookup.failed();
+        }
+        if (cached == null) {
+            return SearchCacheLookup.miss();
+        }
+
+        try {
+            List<PlaceSearchItemResponse> result = objectMapper.readValue(
+                    cached, new TypeReference<List<PlaceSearchItemResponse>>() {});
+            metrics.searchHit();
+            log.info("[PLACE_CACHE][SEARCH][HIT] key='{}' results={}",
+                    key, result.size());
+            return SearchCacheLookup.hit(result);
+        } catch (JsonProcessingException e) {
+            metrics.searchCorrupt();
+            log.warn("[PLACE_CACHE][SEARCH][CORRUPT] key='{}' err={}", key, e.getMessage());
+            try {
+                redis.delete(key);
+            } catch (RuntimeException redisError) {
+                metrics.searchRedisError();
+                log.warn("[PLACE_CACHE][SEARCH][REDIS_DELETE_FAIL] key='{}' err={}",
+                        key, redisError.getMessage());
+            }
+            return SearchCacheLookup.miss();
+        }
+    }
+
+    private List<PlaceSearchItemResponse> loadAndStoreSearch(
+            String key,
+            Supplier<List<PlaceSearchItemResponse>> loader
+    ) {
         List<PlaceSearchItemResponse> fresh = loader.get();
         try {
             String json = objectMapper.writeValueAsString(fresh);
-            redis.opsForValue().set(key, json, TTL_SEARCH);
-            log.info("[PLACE_CACHE][SEARCH][MISS] key='{}' stored={} ttl={}h",
-                    key, fresh.size(), TTL_SEARCH.toHours());
+            Duration ttl = withJitter(TTL_SEARCH);
+            try {
+                redis.opsForValue().set(key, json, ttl);
+            } catch (RuntimeException e) {
+                metrics.searchRedisError();
+                log.warn("[PLACE_CACHE][SEARCH][REDIS_SET_FAIL] key='{}' err={}",
+                        key, e.getMessage());
+                return fresh;
+            }
+            log.info("[PLACE_CACHE][SEARCH][MISS] key='{}' stored={} ttlSeconds={}",
+                    key, fresh.size(), ttl.toSeconds());
         } catch (JsonProcessingException e) {
+            metrics.searchStoreFail();
             log.warn("[PLACE_CACHE][SEARCH][STORE_FAIL] key='{}' err={}", key, e.getMessage());
             // 저장 실패해도 결과는 반환 (캐시 fail-soft)
         }
         return fresh;
+    }
+
+    private List<PlaceSearchItemResponse> loadSearchWithoutCache(
+            String key,
+            Supplier<List<PlaceSearchItemResponse>> loader
+    ) {
+        log.warn("[PLACE_CACHE][SEARCH][BYPASS] key='{}' reason=redis_unavailable", key);
+        return loader.get();
+    }
+
+    private Boolean acquireSearchLock(String lockKey, String token) {
+        try {
+            return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(lockKey, token, SEARCH_LOCK_TTL));
+        } catch (RuntimeException e) {
+            metrics.searchRedisError();
+            log.warn("[PLACE_CACHE][SEARCH][LOCK_ACQUIRE_FAIL] key='{}' err={}",
+                    lockKey, e.getMessage());
+            return null;
+        }
+    }
+
+    private void releaseSearchLock(String lockKey, String token) {
+        try {
+            redis.execute(RELEASE_LOCK_SCRIPT, Collections.singletonList(lockKey), token);
+        } catch (RuntimeException e) {
+            metrics.searchRedisError();
+            log.warn("[PLACE_CACHE][SEARCH][LOCK_RELEASE_FAIL] key='{}' err={}",
+                    lockKey, e.getMessage());
+        }
+    }
+
+    private void sleepForSearchLock() {
+        try {
+            Thread.sleep(SEARCH_LOCK_WAIT_INTERVAL.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for search cache lock", e);
+        }
+    }
+
+    private record SearchCacheLookup(List<PlaceSearchItemResponse> result, boolean redisFailed) {
+
+        static SearchCacheLookup hit(List<PlaceSearchItemResponse> result) {
+            return new SearchCacheLookup(result, false);
+        }
+
+        static SearchCacheLookup miss() {
+            return new SearchCacheLookup(null, false);
+        }
+
+        static SearchCacheLookup failed() {
+            return new SearchCacheLookup(null, true);
+        }
+
+        boolean hit() {
+            return result != null;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -121,7 +278,7 @@ public class PlaceSearchCache {
 
     /**
      * 역지오코딩 캐시 조회 후 miss면 loader 실행 + 결과 저장.
-     * loader 결과가 null이면 sentinel("")로 24시간 negative caching.
+     * loader 결과가 null이면 sentinel("")로 negative caching.
      */
     public String getOrLoadReverseGeocode(
             double latitude,
@@ -130,21 +287,49 @@ public class PlaceSearchCache {
     ) {
         final String key = buildGeoKey(latitude, longitude);
 
-        String cached = redis.opsForValue().get(key);
+        String cached;
+        try {
+            cached = redis.opsForValue().get(key);
+        } catch (RuntimeException e) {
+            metrics.geoRedisError();
+            log.warn("[PLACE_CACHE][GEO][REDIS_GET_FAIL] key='{}' err={}",
+                    key, e.getMessage());
+            return loader.get();
+        }
         if (cached != null) {
             String value = NEGATIVE_SENTINEL.equals(cached) ? null : cached;
+            metrics.geoHit();
             log.info("[PLACE_CACHE][GEO][HIT] key='{}' matched={}",
                     key, value != null);
             return value;
         }
 
+        metrics.geoMiss();
         String fresh = loader.get();
         // null도 sentinel로 저장해서 매칭 실패 좌표 반복 호출 방지
         String toStore = (fresh == null) ? NEGATIVE_SENTINEL : fresh;
-        redis.opsForValue().set(key, toStore, TTL_GEO);
-        log.info("[PLACE_CACHE][GEO][MISS] key='{}' matched={} ttl={}h",
-                key, fresh != null, TTL_GEO.toHours());
+        try {
+            Duration ttl = withJitter(TTL_GEO);
+            redis.opsForValue().set(key, toStore, ttl);
+            log.info("[PLACE_CACHE][GEO][MISS] key='{}' matched={} ttlSeconds={}",
+                    key, fresh != null, ttl.toSeconds());
+        } catch (RuntimeException e) {
+            metrics.geoRedisError();
+            log.warn("[PLACE_CACHE][GEO][REDIS_SET_FAIL] key='{}' err={}",
+                    key, e.getMessage());
+            return fresh;
+        }
         return fresh;
+    }
+
+    private Duration withJitter(Duration baseTtl) {
+        long baseSeconds = baseTtl.toSeconds();
+        long jitterSeconds = baseSeconds * TTL_JITTER_PERCENT / 100;
+        if (jitterSeconds <= 0) {
+            return baseTtl;
+        }
+        long offsetSeconds = ThreadLocalRandom.current().nextLong(-jitterSeconds, jitterSeconds + 1);
+        return Duration.ofSeconds(baseSeconds + offsetSeconds);
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -164,6 +349,11 @@ public class PlaceSearchCache {
             loc = gridLat + ":" + gridLng;
         }
         return KEY_PREFIX_SEARCH + q + ":" + loc;
+    }
+
+    private String buildSearchLockKey(String searchKey) {
+        String searchKeySuffix = searchKey.substring(KEY_PREFIX_SEARCH.length());
+        return KEY_PREFIX_SEARCH_LOCK + searchKeySuffix;
     }
 
     private String buildGeoKey(double lat, double lng) {

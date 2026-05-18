@@ -26,6 +26,7 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
     private final KakaoLocalClient kakaoLocalClient;
     private final KakaoGeoClient kakaoGeoClient;
     private final PlaceSearchCache cache;
+    private final PlaceCacheMetrics metrics;
 
     @Override
     public List<PlaceSearchItemResponse> searchByKeyword(
@@ -55,6 +56,7 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
         final String x = lng == null ? null : lng.toString();
         final String y = lat == null ? null : lat.toString();
 
+        metrics.kakaoSearchLoad();
         KakaoLocalSearchResponse response = kakaoLocalClient
                 .searchByKeyword(query, x, y)
                 .block();
@@ -73,6 +75,7 @@ public class PlaceProxyServiceImpl implements PlaceProxyService {
     }
 
     private String callKakaoReverseGeocode(double latitude, double longitude) {
+        metrics.kakaoGeoLoad();
         KakaoReverseGeocodeResponse response = kakaoGeoClient
                 .reverseGeocode(String.valueOf(longitude), String.valueOf(latitude))
                 .block();
