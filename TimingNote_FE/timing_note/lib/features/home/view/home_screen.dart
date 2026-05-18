@@ -248,22 +248,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 500),
                   child: _BottomInputBar(
-                    controller: _textController,
-                    focusNode: _focusNode,
-                    inputType: _inputType,
-                    isLoading: inputState.isSubmitting,
-                    hasText: hasText,
-                    showActionMenu: _showActionMenu,
-                    isInputMode: _isInputMode,
-                    selectedUserPlace: inputState.selectedUserPlace,
-                    onClearPlace: () =>
-                        ref.read(todoInputProvider.notifier).clearUserPlace(),
-                    onTextChanged: _onTextChanged,
-                    onToggleMenu: () => setState(() => _showActionMenu = !_showActionMenu),
-                    onSelectType: _onSelectType,
-                    onSubmit: _onSubmit,
-                  ),
-                ),
+                  controller: _textController,
+                  focusNode: _focusNode,
+                  inputType: _inputType,
+                  isLoading: inputState.isSubmitting,
+                  hasText: hasText,
+                  showActionMenu: _showActionMenu,
+                  isInputMode: _isInputMode,
+                  selectedUserPlace: inputState.selectedUserPlace,
+                  onClearPlace: () =>
+                      ref.read(todoInputProvider.notifier).clearUserPlace(),
+                  onTextChanged: _onTextChanged,
+                  onToggleMenu: () => setState(() => _showActionMenu = !_showActionMenu),
+                  onSelectType: _onSelectType,
+                  onSubmit: _onSubmit,
+                  onTapInput: () {
+                    if (!_isInputMode) {
+                      setState(() => _isInputMode = true);
+                    }
+                  },
+                  ),                ),
               ),
             ),
           ],
@@ -395,6 +399,7 @@ class _BottomInputBar extends StatelessWidget {
     required this.onToggleMenu,
     required this.onSelectType,
     required this.onSubmit,
+    this.onTapInput,
   });
 
   final TextEditingController controller;
@@ -407,6 +412,7 @@ class _BottomInputBar extends StatelessWidget {
   final VoidCallback onToggleMenu;
   final ValueChanged<String> onSelectType;
   final VoidCallback onSubmit;
+  final VoidCallback? onTapInput;
 
   @override
   Widget build(BuildContext context) {
@@ -443,6 +449,7 @@ class _BottomInputBar extends StatelessWidget {
                       controller: controller,
                       focusNode: focusNode,
                       onChanged: onTextChanged,
+                      onTap: onTapInput,
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                       decoration: InputDecoration(
                         isDense: true,
