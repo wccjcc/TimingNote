@@ -532,6 +532,15 @@ class _AppState extends ConsumerState<App>
           ],
           supportedLocales: const [Locale('ko', 'KR'), Locale('en', 'US')],
           locale: const Locale('ko', 'KR'),
+          builder: (context, child) {
+            return GestureDetector(
+              onTap: () {
+                FocusManager.instance.primaryFocus?.unfocus();
+              },
+              behavior: HitTestBehavior.translucent,
+              child: child,
+            );
+          },
         );
       },
     );

@@ -53,6 +53,7 @@ public class PlaceServiceImpl implements PlaceService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final PlaceSearchCache placeSearchCache;
+    private final PlaceCacheMetrics metrics;
 
     private static final int    OPENING_HOURS_TTL_DAYS     = 30;
     private static final double GENERIC_GOOGLE_RADIUS_M    = 500.0;
@@ -86,7 +87,7 @@ public class PlaceServiceImpl implements PlaceService {
         // 반영해 가까운 매장이 우선 (실측 검증 완료). size는 카카오 기본 15(=max) 사용.
         //
         // Redis 캐시(1km grid, 7일 TTL) 경유 — 같은 grid·키워드 호출은 카카오 호출 0.
-        // FE 검색창 캐시(`places:search:*`)와 단일 캐시 공유 — DTO에 categoryName까지 포함시켜
+        // FE 검색창 캐시(`places:v1:search:*`)와 단일 캐시 공유 — DTO에 categoryName까지 포함시켜
         // 내부 흐름이 필요한 정보 모두 보존된다.
         final String x = toLon(longitude);
         final String y = toLat(latitude);
@@ -94,6 +95,7 @@ public class PlaceServiceImpl implements PlaceService {
                 placeText, latitude, longitude,
                 () -> {
                     try {
+                        metrics.kakaoSearchLoad();
                         KakaoLocalSearchResponse res = kakaoLocalClient
                                 .searchByKeyword(placeText, x, y).block();
                         if (res == null || res.getDocuments() == null) {
