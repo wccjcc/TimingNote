@@ -65,6 +65,8 @@ public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefre
             try {
                 PlaceService.SearchResult sr = placeService.searchAndStoreAll(placeLabel, lat, lon);
                 newPlaces = sr.storedPlaces();
+                log.info("[포괄장소 후보 재계산 실행] userId={} placeLabel='{}' storedPlaces={}",
+                        userId, placeLabel, newPlaces.size());
             } catch (Exception e) {
                 log.warn("[GenericRefresh] Kakao 검색 실패 — 스킵: placeLabel='{}' error={}",
                         placeLabel, e.getMessage());
