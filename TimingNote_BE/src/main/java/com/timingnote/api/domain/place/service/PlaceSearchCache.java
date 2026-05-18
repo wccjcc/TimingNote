@@ -10,8 +10,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -160,8 +164,8 @@ public class PlaceSearchCache {
             cached = redis.opsForValue().get(key);
         } catch (RuntimeException e) {
             metrics.searchRedisError();
-            log.warn("[PLACE_CACHE][SEARCH][REDIS_GET_FAIL] key='{}' err={}",
-                    key, e.getMessage());
+            log.warn("[PLACE_CACHE][SEARCH][REDIS_GET_FAIL] keyHash={} err={}",
+                    keyFingerprint(key), e.getMessage());
             return SearchCacheLookup.failed();
         }
         if (cached == null) {
@@ -172,18 +176,19 @@ public class PlaceSearchCache {
             List<PlaceSearchItemResponse> result = objectMapper.readValue(
                     cached, new TypeReference<List<PlaceSearchItemResponse>>() {});
             metrics.searchHit();
-            log.info("[PLACE_CACHE][SEARCH][HIT] key='{}' results={}",
-                    key, result.size());
+            log.debug("[PLACE_CACHE][SEARCH][HIT] keyHash={} results={}",
+                    keyFingerprint(key), result.size());
             return SearchCacheLookup.hit(result);
         } catch (JsonProcessingException e) {
             metrics.searchCorrupt();
-            log.warn("[PLACE_CACHE][SEARCH][CORRUPT] key='{}' err={}", key, e.getMessage());
+            log.warn("[PLACE_CACHE][SEARCH][CORRUPT] keyHash={} err={}",
+                    keyFingerprint(key), e.getMessage());
             try {
                 redis.delete(key);
             } catch (RuntimeException redisError) {
                 metrics.searchRedisError();
-                log.warn("[PLACE_CACHE][SEARCH][REDIS_DELETE_FAIL] key='{}' err={}",
-                        key, redisError.getMessage());
+                log.warn("[PLACE_CACHE][SEARCH][REDIS_DELETE_FAIL] keyHash={} err={}",
+                        keyFingerprint(key), redisError.getMessage());
             }
             return SearchCacheLookup.miss();
         }
@@ -201,15 +206,16 @@ public class PlaceSearchCache {
                 redis.opsForValue().set(key, json, ttl);
             } catch (RuntimeException e) {
                 metrics.searchRedisError();
-                log.warn("[PLACE_CACHE][SEARCH][REDIS_SET_FAIL] key='{}' err={}",
-                        key, e.getMessage());
+                log.warn("[PLACE_CACHE][SEARCH][REDIS_SET_FAIL] keyHash={} err={}",
+                        keyFingerprint(key), e.getMessage());
                 return fresh;
             }
-            log.info("[PLACE_CACHE][SEARCH][MISS] key='{}' stored={} ttlSeconds={}",
-                    key, fresh.size(), ttl.toSeconds());
+            log.debug("[PLACE_CACHE][SEARCH][MISS] keyHash={} stored={} ttlSeconds={}",
+                    keyFingerprint(key), fresh.size(), ttl.toSeconds());
         } catch (JsonProcessingException e) {
             metrics.searchStoreFail();
-            log.warn("[PLACE_CACHE][SEARCH][STORE_FAIL] key='{}' err={}", key, e.getMessage());
+            log.warn("[PLACE_CACHE][SEARCH][STORE_FAIL] keyHash={} err={}",
+                    keyFingerprint(key), e.getMessage());
             // 저장 실패해도 결과는 반환 (캐시 fail-soft)
         }
         return fresh;
@@ -219,7 +225,8 @@ public class PlaceSearchCache {
             String key,
             Supplier<List<PlaceSearchItemResponse>> loader
     ) {
-        log.warn("[PLACE_CACHE][SEARCH][BYPASS] key='{}' reason=redis_unavailable", key);
+        log.warn("[PLACE_CACHE][SEARCH][BYPASS] keyHash={} reason=redis_unavailable",
+                keyFingerprint(key));
         return loader.get();
     }
 
@@ -228,8 +235,8 @@ public class PlaceSearchCache {
             return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(lockKey, token, SEARCH_LOCK_TTL));
         } catch (RuntimeException e) {
             metrics.searchRedisError();
-            log.warn("[PLACE_CACHE][SEARCH][LOCK_ACQUIRE_FAIL] key='{}' err={}",
-                    lockKey, e.getMessage());
+            log.warn("[PLACE_CACHE][SEARCH][LOCK_ACQUIRE_FAIL] keyHash={} err={}",
+                    keyFingerprint(lockKey), e.getMessage());
             return null;
         }
     }
@@ -239,8 +246,8 @@ public class PlaceSearchCache {
             redis.execute(RELEASE_LOCK_SCRIPT, Collections.singletonList(lockKey), token);
         } catch (RuntimeException e) {
             metrics.searchRedisError();
-            log.warn("[PLACE_CACHE][SEARCH][LOCK_RELEASE_FAIL] key='{}' err={}",
-                    lockKey, e.getMessage());
+            log.warn("[PLACE_CACHE][SEARCH][LOCK_RELEASE_FAIL] keyHash={} err={}",
+                    keyFingerprint(lockKey), e.getMessage());
         }
     }
 
@@ -292,15 +299,15 @@ public class PlaceSearchCache {
             cached = redis.opsForValue().get(key);
         } catch (RuntimeException e) {
             metrics.geoRedisError();
-            log.warn("[PLACE_CACHE][GEO][REDIS_GET_FAIL] key='{}' err={}",
-                    key, e.getMessage());
+            log.warn("[PLACE_CACHE][GEO][REDIS_GET_FAIL] keyHash={} err={}",
+                    keyFingerprint(key), e.getMessage());
             return loader.get();
         }
         if (cached != null) {
             String value = NEGATIVE_SENTINEL.equals(cached) ? null : cached;
             metrics.geoHit();
-            log.info("[PLACE_CACHE][GEO][HIT] key='{}' matched={}",
-                    key, value != null);
+            log.debug("[PLACE_CACHE][GEO][HIT] keyHash={} matched={}",
+                    keyFingerprint(key), value != null);
             return value;
         }
 
@@ -311,12 +318,12 @@ public class PlaceSearchCache {
         try {
             Duration ttl = withJitter(TTL_GEO);
             redis.opsForValue().set(key, toStore, ttl);
-            log.info("[PLACE_CACHE][GEO][MISS] key='{}' matched={} ttlSeconds={}",
-                    key, fresh != null, ttl.toSeconds());
+            log.debug("[PLACE_CACHE][GEO][MISS] keyHash={} matched={} ttlSeconds={}",
+                    keyFingerprint(key), fresh != null, ttl.toSeconds());
         } catch (RuntimeException e) {
             metrics.geoRedisError();
-            log.warn("[PLACE_CACHE][GEO][REDIS_SET_FAIL] key='{}' err={}",
-                    key, e.getMessage());
+            log.warn("[PLACE_CACHE][GEO][REDIS_SET_FAIL] keyHash={} err={}",
+                    keyFingerprint(key), e.getMessage());
             return fresh;
         }
         return fresh;
@@ -330,6 +337,16 @@ public class PlaceSearchCache {
         }
         long offsetSeconds = ThreadLocalRandom.current().nextLong(-jitterSeconds, jitterSeconds + 1);
         return Duration.ofSeconds(baseSeconds + offsetSeconds);
+    }
+
+    private static String keyFingerprint(String key) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(key.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest unavailable", e);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
