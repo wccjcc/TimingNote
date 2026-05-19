@@ -28,7 +28,7 @@ public class GeofenceRecalculateServiceImpl implements GeofenceRecalculateServic
             throw new BusinessException(ErrorCode.INVALID_GEOFENCE_RECALCULATE_REQUEST);
         }
         try {
-            refreshService.refresh(userId, requestDto.getLatitude(), requestDto.getLongitude());
+            refreshService.refresh(userId, requestDto.getLatitude(), requestDto.getLongitude(), requestDto.getCourse());
             outboxService.enqueue(
                     userId,
                     requestDto.getLatitude(),
