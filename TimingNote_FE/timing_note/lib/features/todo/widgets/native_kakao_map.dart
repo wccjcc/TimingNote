@@ -154,29 +154,23 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
           child: UiKitView(
             viewType: _viewType,
             creationParamsCodec: const StandardMessageCodec(),
-          creationParams: {
-            'latitude': widget.center.latitude,
-            'longitude': widget.center.longitude,
-            'level': widget.initialLevel,
-          },
-          // 지도는 드래그/핀치 제스처를 네이티브 뷰가 바로 받아야 자연스럽습니다.
-          // - EagerGestureRecognizer: 한 손가락 드래그/탭을 부모(ListView 스크롤)와 경쟁 없이 즉시 네이티브로.
-          // - ScaleGestureRecognizer: 두 손가락 핀치 줌인/줌아웃을 인식해 네이티브로 전달.
-          //   PlatformView는 multi-touch를 별도 인식기로 등록해야 동작.
-          // 주의: Factory의 generic 타입이 같으면 Flutter가 dedup하면서 assertion 실패한다
-          //   ("multiple gesture recognizer factories for the same type"). 각각 구체 타입을 명시해
-          //   별도 키로 인식되도록 한다.
-          gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-            Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
-            Factory<ScaleGestureRecognizer>(() => ScaleGestureRecognizer()),
-          },
-          onPlatformViewCreated: (viewId) {
-            final controller = NativeKakaoMapController._(viewId);
-            _eventChannel = MethodChannel(
-              'timing_note/native_kakao_map_$viewId',
-            )..setMethodCallHandler(_handleNativeEvent);
-            widget.onMapCreated(controller);
-          },
+            creationParams: {
+              'latitude': widget.center.latitude,
+              'longitude': widget.center.longitude,
+              'level': widget.initialLevel,
+            },
+            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+              Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
+              Factory<ScaleGestureRecognizer>(() => ScaleGestureRecognizer()),
+            },
+            onPlatformViewCreated: (viewId) {
+              final controller = NativeKakaoMapController._(viewId);
+              _eventChannel = MethodChannel(
+                'timing_note/native_kakao_map_$viewId',
+              )..setMethodCallHandler(_handleNativeEvent);
+              widget.onMapCreated(controller);
+            },
+          ),
         ),
         // 엔진 준비 전 placeholder — IgnorePointer로 지도 제스처 영향 X.
         // ready 후엔 안 그려지므로 추가 비용 없음.
