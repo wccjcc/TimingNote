@@ -219,6 +219,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     return NativeKakaoMap(
       center: center,
       initialLevel: 15,
+      onTap: () => FocusScope.of(context).unfocus(),
       onMapCreated: (controller) {
         _mapController = controller;
         final mapState = ref.read(mapProvider);

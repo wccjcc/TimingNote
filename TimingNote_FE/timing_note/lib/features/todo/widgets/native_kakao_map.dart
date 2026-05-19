@@ -105,6 +105,7 @@ class NativeKakaoMap extends StatefulWidget {
     required this.onMapCreated,
     required this.onCameraIdle,
     required this.onCameraMoveStarted,
+    this.onTap,
     this.onMarkerTap,
     this.initialLevel = 15,
   });
@@ -114,6 +115,9 @@ class NativeKakaoMap extends StatefulWidget {
   final ValueChanged<NativeKakaoMapController> onMapCreated;
   final void Function(LatLng center, int zoomLevel) onCameraIdle;
   final VoidCallback onCameraMoveStarted;
+
+  /// 지도 빈 공간 탭 시 호출. (키보드 닫기 등 용도)
+  final VoidCallback? onTap;
 
   /// 마커(Poi) 탭 시 setMarkers에서 전달한 marker.id를 콜백으로 전달.
   /// null이면 탭 이벤트 무시.
@@ -144,9 +148,12 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        UiKitView(
-          viewType: _viewType,
-          creationParamsCodec: const StandardMessageCodec(),
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: widget.onTap,
+          child: UiKitView(
+            viewType: _viewType,
+            creationParamsCodec: const StandardMessageCodec(),
           creationParams: {
             'latitude': widget.center.latitude,
             'longitude': widget.center.longitude,
