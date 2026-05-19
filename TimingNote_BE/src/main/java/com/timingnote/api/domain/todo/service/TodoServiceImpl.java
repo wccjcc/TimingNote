@@ -15,6 +15,7 @@ import com.timingnote.api.domain.place.service.PlaceService;
 import com.timingnote.api.domain.image.service.ImageFinalizeService;
 import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
+import com.timingnote.api.domain.user.service.UserPlaceAliasMatcher;
 import com.timingnote.api.domain.todo.dto.request.TodoAlertUpdateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoCreateRequest;
 import com.timingnote.api.domain.todo.dto.request.TodoPlaceSetRequest;
@@ -42,7 +43,6 @@ import com.timingnote.api.domain.todo.enums.TodoType;
 import com.timingnote.api.domain.todo.search.service.TodoIndexer;
 import com.timingnote.api.infra.client.ai.AiClient;
 import com.timingnote.api.infra.client.ai.dto.AiStructureRequest;
-import com.timingnote.api.infra.client.ai.dto.UserPlaceAlias;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -76,6 +76,7 @@ public class TodoServiceImpl implements TodoService {
     private final GeofenceSlotRepository geofenceSlotRepository;
     private final PlaceRepository placeRepository;
     private final UserPlaceRepository userPlaceRepository;
+    private final UserPlaceAliasMatcher userPlaceAliasMatcher;
     private final AiClient aiClient;
     private final PlaceService placeService;
     private final ImageFinalizeService imageFinalizeService;
@@ -115,12 +116,14 @@ public class TodoServiceImpl implements TodoService {
                 .originalText(savedTodo.getContent())
                 .build());
 
+        Long resolvedUserPlaceId = resolveUserPlaceId(userId, request);
+
         // Geofence 재계산은 AI 분석 완료(후보 장소 저장) 후 triggerAiAnalysis 콜백에서 enqueue.
         // userPlaceId가 있으면 ALIAS 매칭 시 검색 쿼리 없이 ID로 직접 연결됨.
         triggerAiAnalysis(userId, savedTodo.getId(), savedTodo.getInputType(), savedTodo.getContent(),
                 request.getLatitude(), request.getLongitude(),
                 request.getCourse(), request.getOccurredAt(),
-                request.getUserPlaceId());
+                resolvedUserPlaceId);
 
         // PENDING 상태 그대로 색인(content 검색 가능). AI 콜백에서 placeLabel 등 보강 후 재색인.
         todoIndexer.scheduleAfterCommit(savedTodo.getId());
@@ -131,6 +134,16 @@ public class TodoServiceImpl implements TodoService {
                 .structureStatus(savedTodo.getStructureStatus())
                 .createdAt(savedTodo.getCreatedAt())
                 .build();
+    }
+
+    private Long resolveUserPlaceId(Long userId, TodoCreateRequest request) {
+        if (request.getUserPlaceId() != null) {
+            return request.getUserPlaceId();
+        }
+        return userPlaceAliasMatcher
+                .findBestMatch(request.getContent(), userPlaceRepository.findWithPlaceByUserId(userId))
+                .map(UserPlace::getId)
+                .orElse(null);
     }
 
     // ── 조회 ─────────────────────────────────────────────────────────────────
@@ -495,15 +508,10 @@ public class TodoServiceImpl implements TodoService {
                                    Double latitude, Double longitude,
                                    Double course, OffsetDateTime occurredAt,
                                    Long userPlaceId) {
-        List<UserPlaceAlias> aliases = userPlaceRepository.findWithPlaceByUserId(userId).stream()
-                .map(up -> UserPlaceAlias.builder().alias(up.getAliasName()).build())
-                .toList();
-
         AiStructureRequest aiRequest = AiStructureRequest.builder()
                 .todoId(todoId)
                 .inputType(inputType)
                 .originalText(content)
-                .userPlaceAliases(aliases)
                 .build();
 
         aiClient.structureMemo(aiRequest)

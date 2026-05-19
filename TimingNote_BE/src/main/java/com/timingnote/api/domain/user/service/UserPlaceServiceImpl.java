@@ -24,10 +24,10 @@ public class UserPlaceServiceImpl implements UserPlaceService {
 
     /**
      * 사용자당 등록 가능한 내 장소(ALIAS) 최대 개수.
-     * AI 프롬프트에 별칭 목록을 매번 주입하므로 토큰/매칭 정확도 측면에서 상한 필요.
+     * 원문 별칭 매칭 후보가 과도하게 늘어나지 않도록 상한을 둔다.
      * FE의 추가 버튼 disable 기준과 동일하게 유지해야 함.
      */
-    private static final int MAX_USER_PLACES_PER_USER = 10;
+    private static final int MAX_USER_PLACES_PER_USER = 5;
 
     private final UserPlaceRepository userPlaceRepository;
     private final UserRepository userRepository;
