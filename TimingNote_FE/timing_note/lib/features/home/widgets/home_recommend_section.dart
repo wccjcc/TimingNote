@@ -162,16 +162,16 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                       ),
                     const Spacer(),
                     SizedBox(
-                      width: 24,
-                      height: 24,
+                      width: 44,
+                      height: 44,
                       child: IconButton(
                         padding: EdgeInsets.zero,
-                        splashRadius: 16,
+                        splashRadius: 24,
                         onPressed: widget.isLoading ? null : widget.onRefresh,
                         icon: const Icon(
                           Icons.refresh_rounded,
                           color: SpaceColors.neonPurple,
-                          size: 16,
+                          size: 32,
                         ),
                       ),
                     ),
@@ -179,118 +179,127 @@ class _HomeRecommendSectionState extends State<HomeRecommendSection>
                 ),
               ),
               const SizedBox(height: 8),
-              SizedBox(
-                height: 320,
-                child: Center(
-                  child: SizedBox(
-                    width: 320,
-                    height: 320,
-                    child: Stack(
-                      children: [
-                        const Positioned(
-                          left: 88,
-                          top: 88,
-                          child: _OrbitRing(radius: 72),
-                        ),
-                        const Positioned(
-                          left: 52,
-                          top: 52,
-                          child: _OrbitRing(radius: 108),
-                        ),
-                        const Positioned(
-                          left: 22,
-                          top: 22,
-                          child: _OrbitRing(radius: 138),
-                        ),
-                        Positioned(
-                          left: 22,
-                          top: 22,
-                          child: _RadarSweep(progress: progress, radius: 138),
-                        ),
-                        Positioned(
-                          left: 117,
-                          top: 117,
-                          child: _CenterPlanet(
-                            progress: progress,
-                            isError: hasError,
-                            isLoading: isInitialLoading,
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            ignoring: _activeGroupId == null,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onTap: () => setState(() => _activeGroupId = null),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = constraints.maxWidth;
+                  final center = size / 2;
+                  
+                  return SizedBox(
+                    height: size,
+                    child: Center(
+                      child: SizedBox(
+                        width: size,
+                        height: size,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned(
+                              left: center - 72,
+                              top: center - 72,
+                              child: const _OrbitRing(radius: 72),
                             ),
-                          ),
+                            Positioned(
+                              left: center - 108,
+                              top: center - 108,
+                              child: const _OrbitRing(radius: 108),
+                            ),
+                            Positioned(
+                              left: center - 138,
+                              top: center - 138,
+                              child: const _OrbitRing(radius: 138),
+                            ),
+                            Positioned(
+                              left: center - 138,
+                              top: center - 138,
+                              child: _RadarSweep(progress: progress, radius: 138),
+                            ),
+                            Positioned(
+                              left: center - 43,
+                              top: center - 43,
+                              child: _CenterPlanet(
+                                progress: progress,
+                                isError: hasError,
+                                isLoading: isInitialLoading,
+                              ),
+                            ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                ignoring: _activeGroupId == null,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onTap: () => setState(() => _activeGroupId = null),
+                                ),
+                              ),
+                            ),
+                            if (!isInitialLoading) ...[
+                              ...List.generate(nodeItems.length, (i) {
+                                final item = nodeItems[i];
+                                if (_activeGroupId == item.groupId) {
+                                  return const SizedBox.shrink();
+                                }
+                                final layout = nodeLayouts[item.groupId];
+                                return _NodeStub(
+                                  key: ValueKey('node-${item.groupId}'),
+                                  isRemoving: _removingIds.contains(item.todoId) &&
+                                      item.todoCount <= 1,
+                                  isActive: false,
+                                  angle: layout?.angle ?? 0,
+                                  radius: layout?.radius ?? 72,
+                                  centerX: center,
+                                  centerY: center,
+                                  color: _CategoryPalette.colorForCategory(item.category),
+                                  image:
+                                      'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
+                                  placeLabel: item.place,
+                                  distanceLabel: _formatDistance(item.distanceMeters),
+                                  badgeCount: item.todoCount,
+                                  floatPhase: (progress * math.pi * 2) + (i * 0.9),
+                                  onTap: () => _onTapNode(item.groupId),
+                                );
+                              }),
+                              if (_activeGroupId != null &&
+                                  nodeItems.any((e) => e.groupId == _activeGroupId))
+                                (() {
+                                  final i = nodeItems.indexWhere(
+                                    (e) => e.groupId == _activeGroupId,
+                                  );
+                                  final item = nodeItems[i];
+                                  final layout = nodeLayouts[item.groupId];
+                                  return _NodeStub(
+                                    key: ValueKey('active-node-${item.groupId}'),
+                                    isRemoving: _removingIds.contains(item.todoId) &&
+                                        item.todoCount <= 1,
+                                    isActive: true,
+                                    angle: layout?.angle ?? 0,
+                                    radius: layout?.radius ?? 72,
+                                    centerX: center,
+                                    centerY: center,
+                                    color: _CategoryPalette.colorForCategory(item.category),
+                                    image:
+                                        'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
+                                    placeLabel: item.place,
+                                    distanceLabel: _formatDistance(item.distanceMeters),
+                                    badgeCount: item.todoCount,
+                                    floatPhase: (progress * math.pi * 2) + (i * 0.9),
+                                    onTap: () => _onTapNode(item.groupId),
+                                  );
+                                })(),
+                            ],
+                            if (_items.isEmpty && !isInitialLoading) _EmptyHint(topPosition: center + 54),
+                            if (isInitialLoading)
+                              _LoadingHint(text: '추천 할일 생각중이다냥..', topPosition: center + 54),
+                            if (hasError)
+                              _LoadingHint(
+                                text: '추천에 실패했다냥..',
+                                borderColor: SpaceColors.error,
+                                topPosition: center + 54,
+                              ),
+                          ],
                         ),
-                        if (!isInitialLoading) ...[
-                          ...List.generate(nodeItems.length, (i) {
-                            final item = nodeItems[i];
-                            if (_activeGroupId == item.groupId) {
-                              return const SizedBox.shrink();
-                            }
-                            final layout = nodeLayouts[item.groupId];
-                            return _NodeStub(
-                              key: ValueKey('node-${item.groupId}'),
-                              isRemoving: _removingIds.contains(item.todoId) &&
-                                  item.todoCount <= 1,
-                              isActive: false,
-                              angle: layout?.angle ?? 0,
-                              radius: layout?.radius ?? 72,
-                              centerX: 160,
-                              centerY: 160,
-                              color: _CategoryPalette.colorForCategory(item.category),
-                              image:
-                                  'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
-                              placeLabel: item.place,
-                              distanceLabel: _formatDistance(item.distanceMeters),
-                              badgeCount: item.todoCount,
-                              floatPhase: (progress * math.pi * 2) + (i * 0.9),
-                              onTap: () => _onTapNode(item.groupId),
-                            );
-                          }),
-                          if (_activeGroupId != null &&
-                              nodeItems.any((e) => e.groupId == _activeGroupId))
-                            (() {
-                              final i = nodeItems.indexWhere(
-                                (e) => e.groupId == _activeGroupId,
-                              );
-                              final item = nodeItems[i];
-                              final layout = nodeLayouts[item.groupId];
-                              return _NodeStub(
-                                key: ValueKey('active-node-${item.groupId}'),
-                                isRemoving: _removingIds.contains(item.todoId) &&
-                                    item.todoCount <= 1,
-                                isActive: true,
-                                angle: layout?.angle ?? 0,
-                                radius: layout?.radius ?? 72,
-                                centerX: 160,
-                                centerY: 160,
-                                color: _CategoryPalette.colorForCategory(item.category),
-                                image:
-                                    'assets/images/paw_node_${_CategoryPalette.hexForCategory(item.category)}.png',
-                                placeLabel: item.place,
-                                distanceLabel: _formatDistance(item.distanceMeters),
-                                badgeCount: item.todoCount,
-                                floatPhase: (progress * math.pi * 2) + (i * 0.9),
-                                onTap: () => _onTapNode(item.groupId),
-                              );
-                            })(),
-                        ],
-                        if (_items.isEmpty && !isInitialLoading) const _EmptyHint(),
-                        if (isInitialLoading)
-                          const _LoadingHint(text: '추천 할일 생각중이다냥..'),
-                        if (hasError)
-                          const _LoadingHint(
-                            text: '추천에 실패했다냥..',
-                            borderColor: SpaceColors.error,
-                          ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
               if (!isInitialLoading &&
                   _activeGroupId != null &&
@@ -658,7 +667,7 @@ class _CardStub extends StatelessWidget {
             color: isActive
                 ? categoryColor.withValues(alpha: 0.20)
                 : SpaceColors.space800.withValues(alpha: 0.64),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: isActive
                   ? categoryColor.withValues(alpha: 0.9)
@@ -721,8 +730,12 @@ class _CardStub extends StatelessWidget {
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            '${item.place} (${_formatDistance(item.distanceMeters)})',
-                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                            '${item.place} · ${_formatDistance(item.distanceMeters)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontFamily: 'Galmuri11',
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -758,11 +771,12 @@ class _CardStub extends StatelessWidget {
 }
 
 class _EmptyHint extends StatelessWidget {
-  const _EmptyHint();
+  const _EmptyHint({required this.topPosition});
+  final double topPosition;
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      top: 196,
+      top: topPosition,
       left: 0,
       right: 0,
       child: Center(
@@ -955,14 +969,16 @@ class _CategoryPalette {
 class _LoadingHint extends StatelessWidget {
   const _LoadingHint({
     required this.text,
+    required this.topPosition,
     this.borderColor = const Color(0xFFA78BFA),
   });
   final String text;
+  final double topPosition;
   final Color borderColor;
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      top: 196,
+      top: topPosition,
       left: 0,
       right: 0,
       child: Center(
