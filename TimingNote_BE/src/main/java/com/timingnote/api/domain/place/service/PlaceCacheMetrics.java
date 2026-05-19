@@ -2,98 +2,80 @@ package com.timingnote.api.domain.place.service;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+/**
+ * 장소 캐시(Redis) 및 카카오 API 호출 관련 메트릭을 수집하는 컴포넌트.
+ * Micrometer의 Counter를 사용하여 Prometheus 등에서 조회할 수 있도록 한다.
+ */
 @Component
 public class PlaceCacheMetrics {
 
-    private final Counter searchHit;
-    private final Counter searchMiss;
-    private final Counter searchCorrupt;
-    private final Counter searchStoreFail;
-    private final Counter searchRedisError;
-    private final Counter searchLockAcquired;
-    private final Counter searchLockWait;
-    private final Counter searchLockFallback;
-    private final Counter kakaoSearchLoad;
+    private final MeterRegistry registry;
 
-    private final Counter geoHit;
-    private final Counter geoMiss;
-    private final Counter geoRedisError;
-    private final Counter kakaoGeoLoad;
-
-    public PlaceCacheMetrics(MeterRegistry registry) {
-        this.searchHit = counter(registry, "place.cache.search.hit", "Keyword search cache hit count");
-        this.searchMiss = counter(registry, "place.cache.search.miss", "Keyword search cache miss count");
-        this.searchCorrupt = counter(registry, "place.cache.search.corrupt", "Keyword search cache JSON corrupt count");
-        this.searchStoreFail = counter(registry, "place.cache.search.store.fail", "Keyword search cache JSON store failure count");
-        this.searchRedisError = counter(registry, "place.cache.search.redis.error", "Keyword search Redis operation error count");
-        this.searchLockAcquired = counter(registry, "place.cache.search.lock.acquired", "Keyword search stampede lock acquired count");
-        this.searchLockWait = counter(registry, "place.cache.search.lock.wait", "Keyword search stampede lock wait count");
-        this.searchLockFallback = counter(registry, "place.cache.search.lock.fallback", "Keyword search stampede lock fallback load count");
-        this.kakaoSearchLoad = counter(registry, "place.kakao.search.load", "Kakao keyword search load count");
-
-        this.geoHit = counter(registry, "place.cache.geo.hit", "Reverse geocode cache hit count");
-        this.geoMiss = counter(registry, "place.cache.geo.miss", "Reverse geocode cache miss count");
-        this.geoRedisError = counter(registry, "place.cache.geo.redis.error", "Reverse geocode Redis operation error count");
-        this.kakaoGeoLoad = counter(registry, "place.kakao.geo.load", "Kakao reverse geocode load count");
+    public PlaceCacheMetrics(ObjectProvider<MeterRegistry> registryProvider) {
+        this.registry = registryProvider.getIfAvailable();
     }
 
     public void searchHit() {
-        searchHit.increment();
+        increment("place.cache.search.hit", "Keyword search cache hit count");
     }
 
     public void searchMiss() {
-        searchMiss.increment();
+        increment("place.cache.search.miss", "Keyword search cache miss count");
     }
 
     public void searchCorrupt() {
-        searchCorrupt.increment();
+        increment("place.cache.search.corrupt", "Keyword search cache JSON corrupt count");
     }
 
     public void searchStoreFail() {
-        searchStoreFail.increment();
+        increment("place.cache.search.store.fail", "Keyword search cache JSON store failure count");
     }
 
     public void searchRedisError() {
-        searchRedisError.increment();
+        increment("place.cache.search.redis.error", "Keyword search Redis operation error count");
     }
 
     public void searchLockAcquired() {
-        searchLockAcquired.increment();
+        increment("place.cache.search.lock.acquired", "Keyword search stampede lock acquired count");
     }
 
     public void searchLockWait() {
-        searchLockWait.increment();
+        increment("place.cache.search.lock.wait", "Keyword search stampede lock wait count");
     }
 
     public void searchLockFallback() {
-        searchLockFallback.increment();
+        increment("place.cache.search.lock.fallback", "Keyword search stampede lock fallback load count");
     }
 
     public void kakaoSearchLoad() {
-        kakaoSearchLoad.increment();
+        increment("place.kakao.search.load", "Kakao keyword search load count");
     }
 
     public void geoHit() {
-        geoHit.increment();
+        increment("place.cache.geo.hit", "Reverse geocode cache hit count");
     }
 
     public void geoMiss() {
-        geoMiss.increment();
+        increment("place.cache.geo.miss", "Reverse geocode cache miss count");
     }
 
     public void geoRedisError() {
-        geoRedisError.increment();
+        increment("place.cache.geo.redis.error", "Reverse geocode Redis operation error count");
     }
 
     public void kakaoGeoLoad() {
-        kakaoGeoLoad.increment();
+        increment("place.kakao.geo.load", "Kakao reverse geocode load count");
     }
 
-    private Counter counter(MeterRegistry registry, String name, String description) {
-        return Counter.builder(name)
-                .description(description)
-                .register(registry);
+    private void increment(String name, String description) {
+        if (registry != null) {
+            Counter.builder(name)
+                    .description(description)
+                    .register(registry)
+                    .increment();
+        }
     }
 }
