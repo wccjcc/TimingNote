@@ -7,12 +7,14 @@ import com.timingnote.api.domain.place.repository.PlaceRepository;
 import com.timingnote.api.infra.client.google.GooglePlacesClient;
 import com.timingnote.api.infra.client.kakao.KakaoLocalClient;
 import com.timingnote.api.infra.client.kakao.dto.KakaoLocalSearchResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import reactor.core.publisher.Mono;
 
@@ -22,6 +24,7 @@ import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +54,9 @@ class PlaceServiceImplTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MeterRegistry> registryProvider = mock(ObjectProvider.class);
+        when(registryProvider.getIfAvailable()).thenReturn(registry);
         service = new PlaceServiceImpl(
                 kakaoLocalClient,
                 googlePlacesClient,
@@ -59,7 +65,7 @@ class PlaceServiceImplTest {
                 new ObjectMapper(),
                 eventPublisher,
                 placeSearchCache,
-                new PlaceCacheMetrics(registry)
+                new PlaceCacheMetrics(registryProvider)
         );
     }
 

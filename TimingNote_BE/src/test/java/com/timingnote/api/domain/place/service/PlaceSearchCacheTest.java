@@ -2,6 +2,7 @@ package com.timingnote.api.domain.place.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -22,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,7 +54,10 @@ class PlaceSearchCacheTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        cache = new PlaceSearchCache(redis, new ObjectMapper(), new PlaceCacheMetrics(registry));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MeterRegistry> registryProvider = mock(ObjectProvider.class);
+        when(registryProvider.getIfAvailable()).thenReturn(registry);
+        cache = new PlaceSearchCache(redis, new ObjectMapper(), new PlaceCacheMetrics(registryProvider));
         when(redis.opsForValue()).thenReturn(valueOperations);
     }
 

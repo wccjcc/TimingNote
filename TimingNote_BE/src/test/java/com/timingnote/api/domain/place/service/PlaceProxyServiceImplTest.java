@@ -4,12 +4,14 @@ import com.timingnote.api.domain.place.dto.response.PlaceSearchItemResponse;
 import com.timingnote.api.infra.client.kakao.KakaoGeoClient;
 import com.timingnote.api.infra.client.kakao.KakaoLocalClient;
 import com.timingnote.api.infra.client.kakao.dto.KakaoLocalSearchResponse;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
@@ -18,6 +20,7 @@ import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,11 +41,14 @@ class PlaceProxyServiceImplTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MeterRegistry> registryProvider = mock(ObjectProvider.class);
+        when(registryProvider.getIfAvailable()).thenReturn(registry);
         service = new PlaceProxyServiceImpl(
                 kakaoLocalClient,
                 kakaoGeoClient,
                 cache,
-                new PlaceCacheMetrics(registry)
+                new PlaceCacheMetrics(registryProvider)
         );
     }
 
