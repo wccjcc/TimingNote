@@ -18,7 +18,7 @@ import '../model/user_place.dart';
 import '../service/user_place_service.dart';
 import '../widget/alias_input_sheet.dart';
 
-const int kMyPlacesLimit = 10;
+const int kMyPlacesLimit = 5;
 
 class MyPlacesScreen extends ConsumerStatefulWidget {
   const MyPlacesScreen({super.key});
