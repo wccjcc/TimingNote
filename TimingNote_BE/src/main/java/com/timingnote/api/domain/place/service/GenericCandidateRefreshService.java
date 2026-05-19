@@ -10,5 +10,5 @@ public interface GenericCandidateRefreshService {
      * 기존 후보는 expiresAt = now 로 만료 처리하고, 새 후보를 expiresAt = null 로 삽입한다.
      * 좌표가 없으면 Kakao 검색을 수행할 수 없으므로 즉시 리턴한다.
      */
-    void refresh(Long userId, BigDecimal latitude, BigDecimal longitude);
+    void refresh(Long userId, BigDecimal latitude, BigDecimal longitude, BigDecimal course);
 }
