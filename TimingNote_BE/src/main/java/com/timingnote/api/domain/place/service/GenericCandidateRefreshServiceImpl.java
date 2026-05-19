@@ -20,8 +20,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefreshService {
 
-    private static final int FORWARD_RADIUS_M = 2_000;
-    private static final int FORWARD_HALF_ANGLE_DEG = 45;
+    private static final int FORWARD_RADIUS_M = 2_500;
+    private static final int FORWARD_HALF_ANGLE_DEG = 90;
     private static final int MIN_FORWARD_CANDIDATE_COUNT = 2;
 
     private final TodoRepository todoRepository;
@@ -115,10 +115,12 @@ public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefre
             BigDecimal course
     ) {
         if (course == null) {
+            log.info("[FORWARD_GATE] course=null decision=refresh");
             return true;
         }
         double courseDeg = course.doubleValue();
         if (courseDeg < 0.0 || courseDeg >= 360.0) {
+            log.info("[FORWARD_GATE] course={} decision=refresh reason=invalid_course", courseDeg);
             return true;
         }
 
@@ -144,6 +146,12 @@ public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefre
                         courseDeg
                 ))
                 .count();
+
+        log.info("[FORWARD_GATE] course={} forwardCount={} threshold={} decision={}",
+                courseDeg,
+                forwardCount,
+                MIN_FORWARD_CANDIDATE_COUNT,
+                forwardCount < MIN_FORWARD_CANDIDATE_COUNT ? "refresh" : "skip");
 
         return forwardCount < MIN_FORWARD_CANDIDATE_COUNT;
     }
