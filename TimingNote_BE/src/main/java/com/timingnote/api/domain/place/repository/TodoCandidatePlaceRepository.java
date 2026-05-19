@@ -21,6 +21,18 @@ public interface TodoCandidatePlaceRepository extends JpaRepository<TodoCandidat
             """)
     List<TodoCandidatePlace> findAllWithPlaceByTodoId(@Param("todoId") Long todoId);
 
+    @Query("""
+            SELECT tcp
+            FROM TodoCandidatePlace tcp
+            JOIN FETCH tcp.place p
+            WHERE tcp.todo.id IN :todoIds
+              AND (tcp.expiresAt IS NULL OR tcp.expiresAt > :now)
+            """)
+    List<TodoCandidatePlace> findActiveWithPlaceByTodoIdIn(
+            @Param("todoIds") List<Long> todoIds,
+            @Param("now") OffsetDateTime now
+    );
+
     @Modifying
     @Query("DELETE FROM TodoCandidatePlace tcp WHERE tcp.todo.id = :todoId")
     void deleteAllByTodo_Id(@Param("todoId") Long todoId);
