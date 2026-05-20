@@ -17,7 +17,7 @@ class LatLng {
 /// 후보 장소/지도 탭 화면의 todo 마커 데이터.
 ///
 /// 활성(`active: true`)은 강조 색으로, 비활성은 디머된 색으로 표시된다.
-/// `placeType`을 지정하면 Swift 측이 타입별 색(SPECIFIC 보라/ALIAS 노랑/GENERIC cyan)으로
+/// `placeType`을 지정하면 네이티브 측이 타입별 색(SPECIFIC 보라/ALIAS 노랑/GENERIC cyan)으로
 /// 핀을 그린다. null이면 기존 default 색(초록/회색) 그대로.
 /// `badgeText`를 지정하면 핀 위에 항상 보이는 작은 숫자/텍스트 배지를 그린다.
 /// `compact`는 상세 화면 미니 지도처럼 좁은 영역에서 쓰는 작은 핀이다.
@@ -63,9 +63,9 @@ class CandidateMarker {
   };
 }
 
-/// iOS 네이티브 KakaoMapsSDK 지도 컨트롤러입니다.
+/// 네이티브 KakaoMapsSDK 지도 컨트롤러입니다.
 ///
-/// Flutter는 네이티브 UIView를 직접 조작할 수 없기 때문에 MethodChannel로
+/// Flutter는 네이티브 지도 View를 직접 조작할 수 없기 때문에 MethodChannel로
 /// "지도를 특정 좌표로 이동" 같은 명령만 전달합니다.
 class NativeKakaoMapController {
   NativeKakaoMapController._(int viewId)
@@ -136,7 +136,9 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
 
   @override
   Widget build(BuildContext context) {
-    if (defaultTargetPlatform != TargetPlatform.iOS) {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.iOS &&
+            defaultTargetPlatform != TargetPlatform.android)) {
       return const ColoredBox(
         color: Color(0xFF1A1A2E),
         child: Center(
@@ -145,32 +147,23 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
       );
     }
 
+    final creationParams = {
+      'latitude': widget.center.latitude,
+      'longitude': widget.center.longitude,
+      'level': widget.initialLevel,
+    };
+    final gestureRecognizers = <Factory<OneSequenceGestureRecognizer>>{
+      Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
+      Factory<ScaleGestureRecognizer>(() => ScaleGestureRecognizer()),
+    };
+
     return Stack(
       fit: StackFit.expand,
       children: [
         GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: widget.onTap,
-          child: UiKitView(
-            viewType: _viewType,
-            creationParamsCodec: const StandardMessageCodec(),
-            creationParams: {
-              'latitude': widget.center.latitude,
-              'longitude': widget.center.longitude,
-              'level': widget.initialLevel,
-            },
-            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-              Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
-              Factory<ScaleGestureRecognizer>(() => ScaleGestureRecognizer()),
-            },
-            onPlatformViewCreated: (viewId) {
-              final controller = NativeKakaoMapController._(viewId);
-              _eventChannel = MethodChannel(
-                'timing_note/native_kakao_map_$viewId',
-              )..setMethodCallHandler(_handleNativeEvent);
-              widget.onMapCreated(controller);
-            },
-          ),
+          child: _buildPlatformView(creationParams, gestureRecognizers),
         ),
         // 엔진 준비 전 placeholder — IgnorePointer로 지도 제스처 영향 X.
         // ready 후엔 안 그려지므로 추가 비용 없음.
@@ -191,6 +184,37 @@ class _NativeKakaoMapState extends State<NativeKakaoMap> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildPlatformView(
+    Map<String, Object> creationParams,
+    Set<Factory<OneSequenceGestureRecognizer>> gestureRecognizers,
+  ) {
+    void handleCreated(int viewId) {
+      final controller = NativeKakaoMapController._(viewId);
+      _eventChannel = MethodChannel(
+        'timing_note/native_kakao_map_$viewId',
+      )..setMethodCallHandler(_handleNativeEvent);
+      widget.onMapCreated(controller);
+    }
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidView(
+        viewType: _viewType,
+        creationParamsCodec: const StandardMessageCodec(),
+        creationParams: creationParams,
+        gestureRecognizers: gestureRecognizers,
+        onPlatformViewCreated: handleCreated,
+      );
+    }
+
+    return UiKitView(
+      viewType: _viewType,
+      creationParamsCodec: const StandardMessageCodec(),
+      creationParams: creationParams,
+      gestureRecognizers: gestureRecognizers,
+      onPlatformViewCreated: handleCreated,
     );
   }
 

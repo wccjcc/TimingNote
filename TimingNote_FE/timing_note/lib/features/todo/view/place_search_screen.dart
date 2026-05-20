@@ -10,9 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/location/location_service.dart';
 import '../../../core/location/location_permission_service.dart';
 import '../../../core/network/api_error_message.dart';
+import '../../../core/permission/permission_health_provider.dart';
+import '../../../shared/theme/colors.dart';
+import '../../../shared/widgets/my_location_fab.dart';
 import '../../../shared/widgets/space_toast.dart';
 import '../../mypage/model/user_place.dart';
 import '../../mypage/service/user_place_service.dart';
+import '../../map/viewmodel/map_viewmodel.dart';
 import '../model/selected_kakao_place.dart';
 import '../service/place_search_service.dart';
 import '../widgets/native_kakao_map.dart';
@@ -60,6 +64,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
   LatLng? _lastReverseGeocoded; // 마지막으로 역지오코딩한 좌표
   String? _currentAddress;
   bool _isReverseGeocoding = false;
+  bool _autoPermissionSheetShown = false;
 
   // 사용자 GPS 위치 (BE setPlace의 userLatitude/userLongitude로 전달, 권한 없으면 null)
   // _center와 분리해서 저장 — _center는 핀 드래그로 바뀌지만 사용자 위치는 고정
@@ -68,6 +73,19 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
 
   // 선택된 장소 (검색 결과 선택 시 채워짐, 지도 핀 드래그 시 null)
   KakaoPlaceItem? _selectedFromSearch;
+
+  LatLng? get _userLatLng => (_userLatitude != null && _userLongitude != null)
+      ? LatLng(_userLatitude!, _userLongitude!)
+      : null;
+
+  Future<void> _panToMyLocation() async {
+    final gps = _userLatLng;
+    if (gps == null) {
+      MyLocationFab.showLocationUnavailableSheet(context);
+      return;
+    }
+    _mapController?.panTo(gps);
+  }
 
   final _customNameController = TextEditingController();
   Timer? _rgTimer; // 역지오코딩 디바운스 타이머
@@ -294,7 +312,9 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
 
     setState(() => _isCreatingAlias = true);
     try {
-      final created = await ref.read(userPlaceServiceProvider).createUserPlace(
+      final created = await ref
+          .read(userPlaceServiceProvider)
+          .createUserPlace(
             aliasName: aliasName,
             kakaoPlaceId: kakaoPlaceId,
             placeName: placeName,
@@ -332,7 +352,8 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
     if (aliasName.runes.length > _aliasMaxLength) return false;
     if (_existingAliases.any(
       (e) => e.trim().toLowerCase() == aliasName.toLowerCase(),
-    )) return false;
+    ))
+      return false;
     return true;
   }
 
@@ -343,9 +364,7 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
     }
     final normalized = raw.trim().toLowerCase();
     if (normalized.isNotEmpty &&
-        _existingAliases.any(
-          (e) => e.trim().toLowerCase() == normalized,
-        )) {
+        _existingAliases.any((e) => e.trim().toLowerCase() == normalized)) {
       return '이미 사용 중인 이름이에요';
     }
     return null;
@@ -390,6 +409,9 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final permissionHealth = ref.watch(permissionHealthProvider);
+    _showPermissionSheetIfNeeded(permissionHealth);
+
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
     // P4: 등록 중에는 뒤로가기 차단 — 창 닫혀도 background에서 createUserPlace가 진행되어
@@ -407,99 +429,109 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       child: Scaffold(
         backgroundColor: _kBgDark,
         resizeToAvoidBottomInset: false,
-      body: Stack(
-        children: [
-          // ── 1. 카카오 지도 (전체 화면) ─────────────────────────────
-          Positioned.fill(
-            child: kIsWeb
-                ? Container(
-                    color: const Color(0xFF1A1A2E),
-                    child: const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.map_outlined,
-                            color: Colors.white24,
-                            size: 56,
-                          ),
-                          SizedBox(height: 12),
-                          Text(
-                            '지도 미리보기는 모바일 앱에서 확인 가능합니다',
-                            style: TextStyle(
-                              color: Colors.white38,
-                              fontSize: 13,
+        body: Stack(
+          children: [
+            // ── 1. 카카오 지도 (전체 화면) ─────────────────────────────
+            Positioned.fill(
+              child: kIsWeb
+                  ? Container(
+                      color: const Color(0xFF1A1A2E),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.map_outlined,
+                              color: Colors.white24,
+                              size: 56,
                             ),
-                          ),
-                        ],
+                            SizedBox(height: 12),
+                            Text(
+                              '지도 미리보기는 모바일 앱에서 확인 가능합니다',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                    )
+                  : NativeKakaoMap(
+                      onMapCreated: (controller) {
+                        _mapController = controller;
+                        if (_pendingPanTo != null) {
+                          controller.panTo(_pendingPanTo!);
+                          _pendingPanTo = null;
+                        }
+                      },
+                      center: _center,
+                      initialLevel: 15,
+                      onCameraIdle: _onCameraIdle,
+                      onCameraMoveStarted: _onCameraMoveStart,
                     ),
-                  )
-                : NativeKakaoMap(
-                    onMapCreated: (controller) {
-                      _mapController = controller;
-                      if (_pendingPanTo != null) {
-                        controller.panTo(_pendingPanTo!);
-                        _pendingPanTo = null;
-                      }
-                    },
-                    center: _center,
-                    initialLevel: 15,
-                    onCameraIdle: _onCameraIdle,
-                    onCameraMoveStarted: _onCameraMoveStart,
-                  ),
-          ),
-
-          // ── 2. 중앙 핀 오버레이 ────────────────────────────────────
-          const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.location_on, color: _kPurpleAccent, size: 44),
-                SizedBox(height: 2),
-                _PinShadow(),
-              ],
             ),
-          ),
 
-          // ── 3. SafeArea 콘텐츠 ─────────────────────────────────────
-          SafeArea(
-            bottom: false,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: _TopBar(
-                onBack: () => context.pop(),
-                onSearchTap: () => _openSearchSheet(),
-                onUserPlaceTap: widget.mode == PlaceSearchMode.alias
-                    ? null
-                    : () => _openUserPlaceSheet(),
+            // ── 2. 중앙 핀 오버레이 ────────────────────────────────────
+            const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.location_on, color: _kPurpleAccent, size: 44),
+                  SizedBox(height: 2),
+                  _PinShadow(),
+                ],
               ),
             ),
-          ),
 
-          // Scaffold 크기는 고정한 채, 키보드가 올라올 때 입력 패널만 위로 피한다.
-          // 패널 내부 패딩을 늘리면 배경이 키보드 바로 위까지 채워져 빈 틈이 생기지 않는다.
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _BottomPanel(
-              address: _currentAddress,
-              isLoading: _isReverseGeocoding,
-              nameController: _customNameController,
-              keyboardInset: keyboardInset,
-              mode: widget.mode,
-              aliasError: widget.mode == PlaceSearchMode.alias
-                  ? _aliasError
-                  : null,
-              aliasMaxLength: _aliasMaxLength,
-              onSave: _resolveOnSave(),
-              saveLabel: _resolveSaveLabel(),
+            // ── 3. SafeArea 콘텐츠 ─────────────────────────────────────
+            SafeArea(
+              bottom: false,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: _TopBar(
+                  onBack: () => context.pop(),
+                  onSearchTap: () => _openSearchSheet(),
+                  onUserPlaceTap: widget.mode == PlaceSearchMode.alias
+                      ? null
+                      : () => _openUserPlaceSheet(),
+                ),
+              ),
             ),
-          ),
-        ],
+
+            // 웹 UI 테스트를 위해 상시 노출
+            Positioned(
+              right: 16,
+              bottom: keyboardInset + 220,
+              child: MyLocationFab(
+                gps: _userLatLng,
+                onTap: () => unawaited(_panToMyLocation()),
+              ),
+            ),
+
+            // Scaffold 크기는 고정한 채, 키보드가 올라올 때 입력 패널만 위로 피한다.
+            // 패널 내부 패딩을 늘리면 배경이 키보드 바로 위까지 채워져 빈 틈이 생기지 않는다.
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomPanel(
+                address: _currentAddress,
+                isLoading: _isReverseGeocoding,
+                nameController: _customNameController,
+                keyboardInset: keyboardInset,
+                mode: widget.mode,
+                aliasError: widget.mode == PlaceSearchMode.alias
+                    ? _aliasError
+                    : null,
+                aliasMaxLength: _aliasMaxLength,
+                onSave: _resolveOnSave(),
+                saveLabel: _resolveSaveLabel(),
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -523,8 +555,8 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
                 context.pop(
                   SelectedGenericKeyword(
                     keyword: keyword,
-                    userLatitude: _userLatitude,
-                    userLongitude: _userLongitude,
+                    userLatitude: _center.latitude,
+                    userLongitude: _center.longitude,
                   ),
                 );
               }
@@ -532,6 +564,20 @@ class _PlaceSearchScreenState extends ConsumerState<PlaceSearchScreen> {
       ),
     ).then((item) {
       if (item != null) _onSearchResultSelected(item);
+    });
+  }
+
+  void _showPermissionSheetIfNeeded(
+    AsyncValue<PermissionHealth> permissionHealth,
+  ) {
+    final health = permissionHealth.valueOrNull;
+    if (health == null || !health.hasWarning || _autoPermissionSheetShown) {
+      return;
+    }
+    _autoPermissionSheetShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      MyLocationFab.showLocationUnavailableSheet(context);
     });
   }
 }
@@ -720,10 +766,7 @@ class _BottomPanel extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               aliasError!,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFFEF4444),
-              ),
+              style: const TextStyle(fontSize: 11, color: Color(0xFFEF4444)),
             ),
           ],
           const SizedBox(height: 16),
@@ -771,6 +814,7 @@ class _SearchSheet extends StatefulWidget {
   final double currentLat;
   final double currentLng;
   final PlaceSearchService placeSearchService;
+
   /// 검색 결과 상단의 "포괄 장소로 등록" 버튼 콜백.
   /// null이면 버튼 미노출 (ALIAS 등록 모드 등 SPECIFIC/GENERIC이 무의미한 경로에서 숨김).
   final ValueChanged<String>? onPickGenericKeyword;

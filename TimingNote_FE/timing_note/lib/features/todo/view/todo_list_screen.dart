@@ -12,6 +12,7 @@ import '../../../../shared/widgets/animated_list_entry.dart';
 import '../../../../shared/widgets/app_error_view.dart';
 import '../../../../shared/widgets/app_loading_view.dart';
 import '../../../../shared/widgets/cosmic_background.dart';
+import '../../../../shared/widgets/permission_health_banner.dart';
 import '../../../../shared/widgets/status_badge.dart';
 import '../../../../shared/widgets/tap_bounce.dart';
 import '../../search/model/todo_search_item.dart';
@@ -61,10 +62,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _tabController = TabController(
-      length: _kCategoryTabs.length,
-      vsync: this,
-    );
+    _tabController = TabController(length: _kCategoryTabs.length, vsync: this);
     _tabController.addListener(_onTabChanged);
   }
 
@@ -95,12 +93,13 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
     if (_tabController.indexIsChanging) return;
     setState(() {}); // UI 갱신 (칩 선택 상태 반영)
     final tab = _kCategoryTabs[_tabController.index].value;
-    ref.read(todoListProvider.notifier).setFilters(
-          tab: tab,
-          clearTab: tab == null,
-        );
+    ref
+        .read(todoListProvider.notifier)
+        .setFilters(tab: tab, clearTab: tab == null);
     // 검색 모드면 새 카테고리 컨텍스트로 자동 재검색
-    ref.read(searchProvider.notifier).setContext(
+    ref
+        .read(searchProvider.notifier)
+        .setContext(
           category: tab,
           placeType: ref.read(searchProvider).placeType,
         );
@@ -126,6 +125,11 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   child: _buildHeader(
                     state.items.length,
                     state.placeTypeFilter,
+                  ),
+                ),
+                const SliverToBoxAdapter(
+                  child: PermissionHealthInlineNotice(
+                    margin: EdgeInsets.fromLTRB(20, 0, 20, 12),
                   ),
                 ),
                 SliverToBoxAdapter(child: _buildSearchBar(searchState)),
@@ -240,7 +244,7 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
               ),
               const SizedBox(height: 4),
               const Text(
-                '> 할 일 목록',
+                '할 일 목록',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 24,
@@ -260,12 +264,13 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
           _PlaceTypeFilterMenu(
             activePlaceType: activePlaceType,
             onChanged: (value) {
-              ref.read(todoListProvider.notifier).setFilters(
-                    placeType: value,
-                    clearPlaceType: value == null,
-                  );
+              ref
+                  .read(todoListProvider.notifier)
+                  .setFilters(placeType: value, clearPlaceType: value == null);
               // 검색 모드면 새 placeType 컨텍스트로 자동 재검색
-              ref.read(searchProvider.notifier).setContext(
+              ref
+                  .read(searchProvider.notifier)
+                  .setContext(
                     category: ref.read(searchProvider).category,
                     placeType: value,
                   );
@@ -300,7 +305,10 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: isSelected
                       ? const Color(0x26A78BFA)
@@ -329,7 +337,9 @@ class _TodoListScreenState extends ConsumerState<TodoListScreen>
                   child: Text(
                     tab.label == '전체' ? '전체 할 일' : tab.label,
                     style: TextStyle(
-                      color: isSelected ? Colors.white : const Color(0x87A78BFA),
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0x87A78BFA),
                       fontSize: 11,
                       fontFamily: 'Galmuri11',
                       shadows: isSelected
@@ -483,6 +493,7 @@ class _TodoSpaceTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleStatus;
   final VoidCallback onToggleAlert;
+
   /// 마지막으로 알고 있는 사용자 위치 — null이면 거리 표기를 생략하고 라벨만 보여준다.
   final GpsSnapshot? currentGps;
   final bool showCategory;
@@ -498,23 +509,29 @@ class _TodoSpaceTile extends StatelessWidget {
     return TapBounce(
       onTap: onTap,
       child: Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: isDone ? Colors.transparent : const Color(0x991A1A2E),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDone ? Colors.white10 : const Color(0xFF33334D),
-          width: 2,
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: isDone ? Colors.transparent : const Color(0x991A1A2E),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isDone ? Colors.white10 : const Color(0xFF33334D),
+            width: 2,
+          ),
+          boxShadow: isDone
+              ? null
+              : const [
+                  BoxShadow(
+                    color: Colors.black45,
+                    blurRadius: 24,
+                    offset: Offset(0, 8),
+                  ),
+                ],
         ),
-        boxShadow: isDone ? null : const [
-          BoxShadow(color: Colors.black45, blurRadius: 24, offset: Offset(0, 8)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Opacity(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+            child: Opacity(
               opacity: isDone ? 0.6 : 1.0,
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -530,15 +547,24 @@ class _TodoSpaceTile extends StatelessWidget {
                           color: SpaceColors.space950,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: isDone ? Colors.green : SpaceColors.neonPurple.withOpacity(0.5),
+                            color: isDone
+                                ? Colors.green
+                                : SpaceColors.neonPurple.withOpacity(0.5),
                             width: 2,
                           ),
                           boxShadow: const [
-                            BoxShadow(color: SpaceColors.space900, offset: Offset(0, 3)),
+                            BoxShadow(
+                              color: SpaceColors.space900,
+                              offset: Offset(0, 3),
+                            ),
                           ],
                         ),
                         child: isDone
-                            ? const Icon(Icons.check, size: 18, color: Colors.green)
+                            ? const Icon(
+                                Icons.check,
+                                size: 18,
+                                color: Colors.green,
+                              )
                             : null,
                       ),
                     ),
@@ -552,7 +578,12 @@ class _TodoSpaceTile extends StatelessWidget {
                             runSpacing: 4,
                             children: [
                               if (showCategory)
-                                StatusBadge(label: TodoCategory.labels[categoryKey] ?? categoryKey, color: badgeColor),
+                                StatusBadge(
+                                  label:
+                                      TodoCategory.labels[categoryKey] ??
+                                      categoryKey,
+                                  color: badgeColor,
+                                ),
                               StatusBadge(
                                 label: TodoType.labelOf(item.todoType),
                                 color: todoTypeColor(item.todoType),
@@ -566,7 +597,9 @@ class _TodoSpaceTile extends StatelessWidget {
                               color: isDone ? Colors.white38 : Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
-                              decoration: isDone ? TextDecoration.lineThrough : null,
+                              decoration: isDone
+                                  ? TextDecoration.lineThrough
+                                  : null,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -575,7 +608,11 @@ class _TodoSpaceTile extends StatelessWidget {
                           if (_buildPlaceLine() != null)
                             Row(
                               children: [
-                                Icon(Icons.location_on, size: 12, color: badgeColor.withOpacity(0.8)),
+                                Icon(
+                                  Icons.location_on,
+                                  size: 12,
+                                  color: badgeColor.withOpacity(0.8),
+                                ),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
@@ -635,12 +672,14 @@ class _TodoSpaceTile extends StatelessWidget {
     final gps = currentGps;
 
     final distance = (item.hasPlaceCoords && gps != null)
-        ? formatDistance(haversineMeters(
-            gps.latitude,
-            gps.longitude,
-            item.placeLatitude!,
-            item.placeLongitude!,
-          ))
+        ? formatDistance(
+            haversineMeters(
+              gps.latitude,
+              gps.longitude,
+              item.placeLatitude!,
+              item.placeLongitude!,
+            ),
+          )
         : null;
 
     if (label == null && distance == null) return null;
@@ -659,7 +698,9 @@ class _TodoSpaceTile extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: isDone ? [Colors.transparent, Colors.transparent] : [SpaceColors.white20, SpaceColors.white10],
+          colors: isDone
+              ? [Colors.transparent, Colors.transparent]
+              : [SpaceColors.white20, SpaceColors.white10],
         ),
       ),
       child: ClipRRect(
@@ -765,10 +806,7 @@ class _PlaceTypeFilterMenu extends StatelessWidget {
                   ? SpaceColors.neonPurple.withValues(alpha: 0.10)
                   : null,
               // 텍스트가 메뉴 외곽에 답답하게 붙지 않도록 padding 확장
-              padding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 14,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               minimumSize: const Size(180, 0),
             ),
             trailingIcon: selected
@@ -946,7 +984,8 @@ extension _TodoListScreenSearch on _TodoListScreenState {
               onTap: () => _openDetail(item.id),
             );
           },
-          childCount: searchState.items.length +
+          childCount:
+              searchState.items.length +
               1 +
               (searchState.isLoadingMore ? 1 : 0),
         ),
@@ -999,8 +1038,11 @@ class _SearchResultTile extends StatelessWidget {
                   if (isDone)
                     const Padding(
                       padding: EdgeInsets.only(top: 2, right: 8),
-                      child: Icon(Icons.check_circle_outline,
-                          size: 18, color: Colors.green),
+                      child: Icon(
+                        Icons.check_circle_outline,
+                        size: 18,
+                        color: Colors.green,
+                      ),
                     ),
                   Expanded(
                     child: Column(
@@ -1010,7 +1052,8 @@ class _SearchResultTile extends StatelessWidget {
                           Padding(
                             padding: const EdgeInsets.only(bottom: 6),
                             child: StatusBadge(
-                              label: TodoCategory.labels[categoryKey] ??
+                              label:
+                                  TodoCategory.labels[categoryKey] ??
                                   categoryKey,
                               color: badgeColor,
                             ),
@@ -1022,8 +1065,9 @@ class _SearchResultTile extends StatelessWidget {
                             color: isDone ? Colors.white54 : Colors.white,
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            decoration:
-                                isDone ? TextDecoration.lineThrough : null,
+                            decoration: isDone
+                                ? TextDecoration.lineThrough
+                                : null,
                             height: 1.4,
                           ),
                           maxLines: 2,
@@ -1035,13 +1079,16 @@ class _SearchResultTile extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 6),
                             child: Row(
                               children: [
-                                Icon(Icons.location_on,
-                                    size: 12,
-                                    color: badgeColor.withOpacity(0.8)),
+                                Icon(
+                                  Icons.location_on,
+                                  size: 12,
+                                  color: badgeColor.withOpacity(0.8),
+                                ),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: _HighlightText(
-                                    html: placeLabelHl ??
+                                    html:
+                                        placeLabelHl ??
                                         item.resolvedPlaceLabel!,
                                     baseStyle: TextStyle(
                                       color: badgeColor,
@@ -1060,8 +1107,11 @@ class _SearchResultTile extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 4),
                             child: Row(
                               children: [
-                                const Icon(Icons.travel_explore,
-                                    size: 11, color: Colors.white38),
+                                const Icon(
+                                  Icons.travel_explore,
+                                  size: 11,
+                                  color: Colors.white38,
+                                ),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: _HighlightText(
@@ -1081,8 +1131,11 @@ class _SearchResultTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right,
-                      color: Colors.white24, size: 18),
+                  const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white24,
+                    size: 18,
+                  ),
                 ],
               ),
             ),
@@ -1136,15 +1189,17 @@ class _HighlightText extends StatelessWidget {
         emphasis = !emphasis;
         continue;
       }
-      spans.add(TextSpan(
-        text: part,
-        style: emphasis
-            ? baseStyle.copyWith(
-                color: SpaceColors.neonYellow,
-                fontWeight: FontWeight.w800,
-              )
-            : null,
-      ));
+      spans.add(
+        TextSpan(
+          text: part,
+          style: emphasis
+              ? baseStyle.copyWith(
+                  color: SpaceColors.neonYellow,
+                  fontWeight: FontWeight.w800,
+                )
+              : null,
+        ),
+      );
       emphasis = !emphasis;
     }
 

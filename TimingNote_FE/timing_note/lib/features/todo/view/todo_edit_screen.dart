@@ -87,31 +87,79 @@ class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(icon: const Icon(Icons.close, color: Colors.white, size: 24), onPressed: () => context.pop()),
-          const Text('할 일 수정', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11')),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white, size: 24),
+            onPressed: () => context.pop(),
+          ),
+          const Text(
+            '할 일 수정',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Galmuri11',
+            ),
+          ),
           state.isSaving
-              ? const SizedBox(width: 48, child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: _kPurpleAccent)))
-              : TextButton(onPressed: state.canSave ? () => ref.read(todoEditProvider(widget.todoId).notifier).save() : null, child: Text('완료', style: TextStyle(color: state.canSave ? _kPurpleAccent : Colors.white24, fontWeight: FontWeight.bold))),
+              ? const SizedBox(
+                  width: 48,
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: _kPurpleAccent,
+                    ),
+                  ),
+                )
+              : TextButton(
+                  onPressed: state.canSave
+                      ? () => ref
+                            .read(todoEditProvider(widget.todoId).notifier)
+                            .save()
+                      : null,
+                  child: Text(
+                    '완료',
+                    style: TextStyle(
+                      color: state.canSave ? _kPurpleAccent : Colors.white24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
         ],
       ),
     );
   }
 
   Widget _buildBody(TodoEditState state) {
-    if (state.isLoading) return const Center(child: CircularProgressIndicator(color: _kPurpleAccent));
+    if (state.isLoading)
+      return const Center(
+        child: CircularProgressIndicator(color: _kPurpleAccent),
+      );
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
       children: [
         if (state.error != null) _ErrorBanner(message: state.error!),
         const _SectionTitle(title: '내용'),
-        _GlassInputCard(child: TextField(controller: _contentController, maxLines: 4, style: const TextStyle(color: Colors.white, fontSize: 16), decoration: const InputDecoration(hintText: '무엇을 해야 하나요?', hintStyle: TextStyle(color: Colors.white24), border: InputBorder.none), onChanged: (v) => ref.read(todoEditProvider(widget.todoId).notifier).setContent(v))),
+        _GlassInputCard(
+          child: TextField(
+            controller: _contentController,
+            maxLines: 4,
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+            decoration: const InputDecoration(
+              hintText: '무엇을 해야 하나요?',
+              hintStyle: TextStyle(color: Colors.white24),
+              border: InputBorder.none,
+            ),
+            onChanged: (v) => ref
+                .read(todoEditProvider(widget.todoId).notifier)
+                .setContent(v),
+          ),
+        ),
         const SizedBox(height: 24),
         const _SectionTitle(title: '카테고리'),
         _CategoryDropdown(
           value: state.category ?? TodoCategory.etc,
-          onChanged: (v) => ref
-              .read(todoEditProvider(widget.todoId).notifier)
-              .setCategory(v),
+          onChanged: (v) =>
+              ref.read(todoEditProvider(widget.todoId).notifier).setCategory(v),
         ),
         const SizedBox(height: 24),
         const _SectionTitle(title: '장소'),
@@ -162,13 +210,17 @@ class _TodoEditScreenState extends ConsumerState<TodoEditScreen> {
       ),
     );
   }
-
 }
 
 class TimeConditionEditSheet extends StatefulWidget {
-  const TimeConditionEditSheet({super.key, required this.onSubmit, this.initial});
+  const TimeConditionEditSheet({
+    super.key,
+    required this.onSubmit,
+    this.initial,
+  });
 
   final ValueChanged<TimeConditionRequest> onSubmit;
+
   /// non-null이면 수정 모드 — 필드 prefill + 버튼·타이틀 라벨 변경.
   final TimeConditionRequest? initial;
 
@@ -186,7 +238,15 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
   late int _endHour;
   late int _endMinute;
   late final Set<String> _selectedDays;
-  static const _dayLabels = {'MON': '월', 'TUE': '화', 'WED': '수', 'THU': '목', 'FRI': '금', 'SAT': '토', 'SUN': '일'};
+  static const _dayLabels = {
+    'MON': '월',
+    'TUE': '화',
+    'WED': '수',
+    'THU': '목',
+    'FRI': '금',
+    'SAT': '토',
+    'SUN': '일',
+  };
 
   // 타입별 시간 정책:
   // - DATE: 시간 사용 안 함 (토글 없음, 시간 영역 숨김)
@@ -227,10 +287,14 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
           init.startDate != null &&
           init.endDate != null) {
         final s = DateTime.tryParse(init.startDate!) ?? now;
-        final e = DateTime.tryParse(init.endDate!) ?? s.add(const Duration(days: 1));
+        final e =
+            DateTime.tryParse(init.endDate!) ?? s.add(const Duration(days: 1));
         _selectedDateRange = DateTimeRange(start: s, end: e);
       } else {
-        _selectedDateRange = DateTimeRange(start: now, end: now.add(const Duration(days: 1)));
+        _selectedDateRange = DateTimeRange(
+          start: now,
+          end: now.add(const Duration(days: 1)),
+        );
       }
       final hasTime = init.startTime != null && init.endTime != null;
       _timeEnabled = hasTime;
@@ -255,7 +319,10 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
       // 추가 모드: 기본값
       _type = ConditionType.datetime;
       _selectedDate = now;
-      _selectedDateRange = DateTimeRange(start: now, end: now.add(const Duration(days: 1)));
+      _selectedDateRange = DateTimeRange(
+        start: now,
+        end: now.add(const Duration(days: 1)),
+      );
       _timeEnabled = true;
       _startHour = now.hour;
       _startMinute = (now.minute ~/ 5) * 5;
@@ -269,21 +336,51 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-      decoration: const BoxDecoration(color: _kSurfaceDark, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      decoration: const BoxDecoration(
+        color: _kSurfaceDark,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(2)))),
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white10,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
           const SizedBox(height: 24),
           Text(
             widget.initial == null ? '시간 조건 추가' : '시간 조건 수정',
-            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Galmuri11'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Galmuri11',
+            ),
           ),
           const SizedBox(height: 20),
-          SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [_buildTypeChip('날짜', ConditionType.datetime), _buildTypeChip('기간', ConditionType.dateRange), _buildTypeChip('매주', ConditionType.week), _buildTypeChip('시간대', ConditionType.timeRange)])),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildTypeChip('날짜', ConditionType.datetime),
+                _buildTypeChip('기간', ConditionType.dateRange),
+                _buildTypeChip('매주', ConditionType.week),
+                _buildTypeChip('시간대', ConditionType.timeRange),
+              ],
+            ),
+          ),
           const SizedBox(height: 32),
-          if (_type == ConditionType.week) _buildDaySelector() else if (_type != ConditionType.timeRange) _buildDateSelector(),
+          if (_type == ConditionType.week)
+            _buildDaySelector()
+          else if (_type != ConditionType.timeRange)
+            _buildDateSelector(),
           const SizedBox(height: 24),
           if (_showTimeToggle) _buildTimeToggle(),
           if (_showTimeSection) ...[
@@ -317,14 +414,19 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: _kPurpleAccent,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 elevation: 8,
                 shadowColor: _kPurpleAccent.withOpacity(0.5),
               ),
               onPressed: _submit,
               child: Text(
                 widget.initial == null ? '추가하기' : '수정 적용하기',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -337,8 +439,20 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text('시간 설정 (선택)', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w500)),
-        Switch(value: _timeEnabled, onChanged: (v) => setState(() => _timeEnabled = v), activeColor: _kPurpleAccent, activeTrackColor: _kPurpleAccent.withOpacity(0.3)),
+        const Text(
+          '시간 설정 (선택)',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Switch(
+          value: _timeEnabled,
+          onChanged: (v) => setState(() => _timeEnabled = v),
+          activeColor: _kPurpleAccent,
+          activeTrackColor: _kPurpleAccent.withOpacity(0.3),
+        ),
       ],
     );
   }
@@ -379,52 +493,122 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
 
   Widget _buildDateSelector() {
     final isRange = _type == ConditionType.dateRange;
-    final dateText = isRange ? '${_selectedDateRange!.start.month}/${_selectedDateRange!.start.day} ~ ${_selectedDateRange!.end.month}/${_selectedDateRange!.end.day}' : '${_selectedDate.year}년 ${_selectedDate.month}월 ${_selectedDate.day}일';
+    final dateText = isRange
+        ? '${_selectedDateRange!.start.month}/${_selectedDateRange!.start.day} ~ ${_selectedDateRange!.end.month}/${_selectedDateRange!.end.day}'
+        : '${_selectedDate.year}년 ${_selectedDate.month}월 ${_selectedDate.day}일';
     // 과거 날짜는 알림이 의미 없으므로 오늘 이전 선택 불가. 시·분 영향 없이 자정 기준으로 정규화.
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final lastDate = today.add(const Duration(days: 365));
-    return InkWell(onTap: () async {
-      if (isRange) {
-        // Material의 showDateRangePicker는 fullscreen Scaffold라 다이얼로그 톤이 깨진다.
-        // table_calendar 기반 자체 모달을 띄워 단일 날짜 picker와 일관된 모달 UX 유지.
-        final range = await showSpringDialog<DateTimeRange>(
-          context: context,
-          builder: (_) => _RangeCalendarDialog(
-            initial: _selectedDateRange,
-            firstDate: today,
-            lastDate: lastDate,
+    return InkWell(
+      onTap: () async {
+        if (isRange) {
+          // Material의 showDateRangePicker는 fullscreen Scaffold라 다이얼로그 톤이 깨진다.
+          // table_calendar 기반 자체 모달을 띄워 단일 날짜 picker와 일관된 모달 UX 유지.
+          final range = await showSpringDialog<DateTimeRange>(
+            context: context,
+            builder: (_) => _RangeCalendarDialog(
+              initial: _selectedDateRange,
+              firstDate: today,
+              lastDate: lastDate,
+            ),
+          );
+          if (range != null) setState(() => _selectedDateRange = range);
+        } else {
+          // 단일 날짜도 자체 캘린더 모달로 통일 — Material showDatePicker는 다이얼로그긴 하지만
+          // 디자인 일관성과 한글/보라 톤 완전 통제를 위해 직접 그린다.
+          final date = await showSpringDialog<DateTime>(
+            context: context,
+            builder: (_) => _SingleCalendarDialog(
+              initial: _selectedDate,
+              firstDate: today,
+              lastDate: lastDate,
+            ),
+          );
+          if (date != null) setState(() => _selectedDate = date);
+        }
+      },
+      child: _GlassInputCard(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                isRange ? Icons.date_range : Icons.calendar_month,
+                color: _kPurpleAccent,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                dateText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              const Icon(Icons.chevron_right, color: Colors.white24),
+            ],
           ),
-        );
-        if (range != null) setState(() => _selectedDateRange = range);
-      } else {
-        // 단일 날짜도 자체 캘린더 모달로 통일 — Material showDatePicker는 다이얼로그긴 하지만
-        // 디자인 일관성과 한글/보라 톤 완전 통제를 위해 직접 그린다.
-        final date = await showSpringDialog<DateTime>(
-          context: context,
-          builder: (_) => _SingleCalendarDialog(
-            initial: _selectedDate,
-            firstDate: today,
-            lastDate: lastDate,
-          ),
-        );
-        if (date != null) setState(() => _selectedDate = date);
-      }
-    }, child: _GlassInputCard(child: Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Row(children: [Icon(isRange ? Icons.date_range : Icons.calendar_month, color: _kPurpleAccent, size: 20), const SizedBox(width: 12), Text(dateText, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)), const Spacer(), const Icon(Icons.chevron_right, color: Colors.white24)]))));
+        ),
+      ),
+    );
   }
 
   Widget _buildDaySelector() {
-    return Wrap(spacing: 10, runSpacing: 10, children: _dayLabels.entries.map((e) {
-      final isSelected = _selectedDays.contains(e.key);
-      return GestureDetector(onTap: () => setState(() => isSelected ? _selectedDays.remove(e.key) : _selectedDays.add(e.key)), child: AnimatedContainer(duration: const Duration(milliseconds: 200), width: 44, height: 44, decoration: BoxDecoration(color: isSelected ? _kPurpleAccent : Colors.white10, shape: BoxShape.circle, border: Border.all(color: isSelected ? _kPurpleAccent : Colors.white10), boxShadow: isSelected ? [BoxShadow(color: _kPurpleAccent.withOpacity(0.4), blurRadius: 10)] : null), child: Center(child: Text(e.value, style: TextStyle(color: isSelected ? Colors.white : Colors.white38, fontWeight: FontWeight.bold)))));
-    }).toList());
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: _dayLabels.entries.map((e) {
+        final isSelected = _selectedDays.contains(e.key);
+        return GestureDetector(
+          onTap: () => setState(
+            () => isSelected
+                ? _selectedDays.remove(e.key)
+                : _selectedDays.add(e.key),
+          ),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: isSelected ? _kPurpleAccent : Colors.white10,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected ? _kPurpleAccent : Colors.white10,
+              ),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: _kPurpleAccent.withOpacity(0.4),
+                        blurRadius: 10,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Center(
+              child: Text(
+                e.value,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white38,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   /// 시작 시간 섹션 — hour 0~23, minute 0~55(5분).
   /// 단 시작 hour가 23일 때는 분 max=50으로 제한 — 5분 단위 wheel 특성상 23:55 시작이면 종료를
   /// 5분 간격으로 표현 못 함(24:00은 정책상 금지). 즉 23:50까지만 시작 가능.
   Widget _buildStartTimeSection() {
-    final startMinuteMax = _startHour == 23 ? 11 : 12; // 23시면 0~50 (11개), 그 외 0~55 (12개)
+    final startMinuteMax = _startHour == 23
+        ? 11
+        : 12; // 23시면 0~50 (11개), 그 외 0~55 (12개)
     final startMinuteIdx = (_startMinute ~/ 5).clamp(0, startMinuteMax - 1);
     return _buildTimeSectionFrame(
       title: '시작 시간',
@@ -514,48 +698,72 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
     required ValueChanged<int> onHourChanged,
     required ValueChanged<int> onMinuteChanged,
   }) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title, style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 12),
-      Container(
-        height: 100,
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-        ),
-        child: Stack(alignment: Alignment.center, children: [
-          Container(
-            height: 36,
-            width: double.infinity,
-            // 가로 배치로 박스 자체가 좁아져 좌우 여유를 줄여(20 → 12) wheel과 highlight band가
-            // 자연스럽게 맞물리도록 한다.
-            margin: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: _kPurpleAccent.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white38,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
           ),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _buildWheel(
-              count: hourCount,
-              initialValue: hourInitial,
-              labelFrom: hourLabelFrom,
-              onChanged: (idx) => onHourChanged(hourValueFrom(idx)),
-              suffix: '시',
-            ),
-            const Text(':', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            _buildWheel(
-              count: minuteCount,
-              initialValue: minuteInitial,
-              labelFrom: (idx) => (minuteValueFrom(idx)).toString().padLeft(2, '0'),
-              onChanged: (idx) => onMinuteChanged(minuteValueFrom(idx)),
-              suffix: '분',
-            ),
-          ])
-        ]),
-      ),
-    ]);
+        ),
+        const SizedBox(height: 12),
+        Container(
+          height: 100,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.05)),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                height: 36,
+                width: double.infinity,
+                // 가로 배치로 박스 자체가 좁아져 좌우 여유를 줄여(20 → 12) wheel과 highlight band가
+                // 자연스럽게 맞물리도록 한다.
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: _kPurpleAccent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildWheel(
+                    count: hourCount,
+                    initialValue: hourInitial,
+                    labelFrom: hourLabelFrom,
+                    onChanged: (idx) => onHourChanged(hourValueFrom(idx)),
+                    suffix: '시',
+                  ),
+                  const Text(
+                    ':',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  _buildWheel(
+                    count: minuteCount,
+                    initialValue: minuteInitial,
+                    labelFrom: (idx) =>
+                        (minuteValueFrom(idx)).toString().padLeft(2, '0'),
+                    onChanged: (idx) => onMinuteChanged(minuteValueFrom(idx)),
+                    suffix: '분',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   /// 일반 wheel 위젯. `labelFrom`으로 index → 표시 라벨 매핑.
@@ -568,10 +776,20 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
   }) {
     // count가 1 이하면 wheel scroll이 무의미 — 단일 행 표시. (시작이 23:55 이상인 극단 케이스)
     if (count <= 0) {
-      return SizedBox(width: 56, height: 100, child: Center(
-        child: Text('${labelFrom(0)}$suffix',
-            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
-      ));
+      return SizedBox(
+        width: 56,
+        height: 100,
+        child: Center(
+          child: Text(
+            '${labelFrom(0)}$suffix',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
     }
     return SizedBox(
       width: 56,
@@ -590,8 +808,14 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
         childDelegate: ListWheelChildBuilderDelegate(
           childCount: count,
           builder: (context, index) => Center(
-            child: Text('${labelFrom(index)}$suffix',
-                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
+            child: Text(
+              '${labelFrom(index)}$suffix',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
         ),
       ),
@@ -599,15 +823,37 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
   }
 
   void _submit() {
-    String? startTimeStr; String? endTimeStr;
+    String? startTimeStr;
+    String? endTimeStr;
     if (_timeEnabled) {
-      startTimeStr = '${_startHour.toString().padLeft(2, '0')}:${_startMinute.toString().padLeft(2, '0')}';
-      endTimeStr = '${_endHour.toString().padLeft(2, '0')}:${_endMinute.toString().padLeft(2, '0')}';
+      startTimeStr =
+          '${_startHour.toString().padLeft(2, '0')}:${_startMinute.toString().padLeft(2, '0')}';
+      endTimeStr =
+          '${_endHour.toString().padLeft(2, '0')}:${_endMinute.toString().padLeft(2, '0')}';
     }
     if (_type == ConditionType.dateRange && _selectedDateRange != null) {
-      widget.onSubmit(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDateRange!.start.year}-${_selectedDateRange!.start.month.toString().padLeft(2, '0')}-${_selectedDateRange!.start.day.toString().padLeft(2, '0')}', endDate: '${_selectedDateRange!.end.year}-${_selectedDateRange!.end.month.toString().padLeft(2, '0')}-${_selectedDateRange!.end.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr));
+      widget.onSubmit(
+        TimeConditionRequest(
+          conditionType: _type,
+          startDate:
+              '${_selectedDateRange!.start.year}-${_selectedDateRange!.start.month.toString().padLeft(2, '0')}-${_selectedDateRange!.start.day.toString().padLeft(2, '0')}',
+          endDate:
+              '${_selectedDateRange!.end.year}-${_selectedDateRange!.end.month.toString().padLeft(2, '0')}-${_selectedDateRange!.end.day.toString().padLeft(2, '0')}',
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+        ),
+      );
     } else {
-      widget.onSubmit(TimeConditionRequest(conditionType: _type, startDate: '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}', startTime: startTimeStr, endTime: endTimeStr, daysOfWeek: _selectedDays.toList()));
+      widget.onSubmit(
+        TimeConditionRequest(
+          conditionType: _type,
+          startDate:
+              '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
+          startTime: startTimeStr,
+          endTime: endTimeStr,
+          daysOfWeek: _selectedDays.toList(),
+        ),
+      );
     }
     Navigator.pop(context);
   }
@@ -616,26 +862,38 @@ class _TimeConditionEditSheetState extends State<TimeConditionEditSheet> {
 class _GlassInputCard extends StatelessWidget {
   const _GlassInputCard({required this.child, this.padding});
   final Widget child;
+
   /// null이면 default(horizontal 16, vertical 4). 시간 조건처럼 내부에서 자체 패딩이
   /// 필요한 케이스는 EdgeInsets.zero로 외곽만 박스 처리.
   final EdgeInsetsGeometry? padding;
   @override
   Widget build(BuildContext context) => Container(
-        padding: padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.1)),
-        ),
-        child: child,
-      );
+    padding: padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.05),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: Colors.white.withOpacity(0.1)),
+    ),
+    child: child,
+  );
 }
 
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title});
   final String title;
   @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(left: 4, bottom: 8), child: Text(title, style: const TextStyle(color: Colors.white38, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)));
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 4, bottom: 8),
+    child: Text(
+      title,
+      style: const TextStyle(
+        color: Colors.white38,
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 1,
+      ),
+    ),
+  );
 }
 
 /// 시간 조건 박스 — 다른 섹션(내용/카테고리/장소/링크)과 동일한 _GlassInputCard 외곽으로 감싼다.
@@ -695,7 +953,12 @@ class _TimeConditionBox extends ConsumerWidget {
     );
   }
 
-  void _openEditSheet(BuildContext context, WidgetRef ref, int index, TimeConditionRequest initial) {
+  void _openEditSheet(
+    BuildContext context,
+    WidgetRef ref,
+    int index,
+    TimeConditionRequest initial,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -812,9 +1075,7 @@ class _AddTimeConditionButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: Colors.cyanAccent.withOpacity(0.06),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: Colors.cyanAccent.withOpacity(0.25),
-            ),
+            border: Border.all(color: Colors.cyanAccent.withOpacity(0.25)),
           ),
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -872,45 +1133,52 @@ class _CategoryDropdown extends StatelessWidget {
               .asMap()
               .entries
               .map((entry) {
-            final i = entry.key;
-            final e = entry.value;
-            final selected = e.key == value;
-            // 메뉴 열릴 때마다 항목들이 위에서 차례로 펴짐 (45ms 간격, 4개라 빠르게).
-            // MenuAnchor가 메뉴 표시 때 새 OverlayPortal을 띄우므로 각 항목 State가
-            // 재생성되며 initState에서 stagger 발동.
-            return AnimatedListEntry(
-              index: i,
-              delayPerItem: const Duration(milliseconds: 45),
-              duration: const Duration(milliseconds: 220),
-              offsetY: 10,
-              child: SizedBox(
-              width: menuWidth,
-              child: MenuItemButton(
-                onPressed: () => onChanged(e.key),
-                style: MenuItemButton.styleFrom(
-                  foregroundColor: selected ? _kPurpleAccent : Colors.white,
-                  backgroundColor: selected
-                      ? _kPurpleAccent.withOpacity(0.10)
-                      : null,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 14,
+                final i = entry.key;
+                final e = entry.value;
+                final selected = e.key == value;
+                // 메뉴 열릴 때마다 항목들이 위에서 차례로 펴짐 (45ms 간격, 4개라 빠르게).
+                // MenuAnchor가 메뉴 표시 때 새 OverlayPortal을 띄우므로 각 항목 State가
+                // 재생성되며 initState에서 stagger 발동.
+                return AnimatedListEntry(
+                  index: i,
+                  delayPerItem: const Duration(milliseconds: 45),
+                  duration: const Duration(milliseconds: 220),
+                  offsetY: 10,
+                  child: SizedBox(
+                    width: menuWidth,
+                    child: MenuItemButton(
+                      onPressed: () => onChanged(e.key),
+                      style: MenuItemButton.styleFrom(
+                        foregroundColor: selected
+                            ? _kPurpleAccent
+                            : Colors.white,
+                        backgroundColor: selected
+                            ? _kPurpleAccent.withOpacity(0.10)
+                            : null,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                      ),
+                      trailingIcon: selected
+                          ? const Icon(
+                              Icons.check,
+                              size: 16,
+                              color: _kPurpleAccent,
+                            )
+                          : null,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          e.value,
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                trailingIcon: selected
-                    ? const Icon(Icons.check, size: 16, color: _kPurpleAccent)
-                    : null,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    e.value,
-                    style: const TextStyle(fontSize: 15),
-                  ),
-                ),
-              ),
-              ),
-            );
-          }).toList(),
+                );
+              })
+              .toList(),
           builder: (context, controller, child) {
             return GestureDetector(
               onTap: () =>
@@ -994,21 +1262,30 @@ class _ImageSection extends ConsumerWidget {
                     child: const Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.add_a_photo_outlined, color: Colors.white38, size: 28),
+                        Icon(
+                          Icons.add_a_photo_outlined,
+                          color: Colors.white38,
+                          size: 28,
+                        ),
                         SizedBox(height: 6),
-                        Text('사진 추가', style: TextStyle(color: Colors.white24, fontSize: 11)),
+                        Text(
+                          '사진 추가',
+                          style: TextStyle(color: Colors.white24, fontSize: 11),
+                        ),
                       ],
                     ),
                   ),
                 ),
               // 기존 이미지 목록
-              ...urls.map((url) => _ImageTile(
-                url: url,
-                previewBytes: previewMap[url],
-                onDelete: () => ref
-                    .read(todoEditProvider(todoId).notifier)
-                    .removeImageUrl(url),
-              )),
+              ...urls.map(
+                (url) => _ImageTile(
+                  url: url,
+                  previewBytes: previewMap[url],
+                  onDelete: () => ref
+                      .read(todoEditProvider(todoId).notifier)
+                      .removeImageUrl(url),
+                ),
+              ),
             ],
           ),
         ),
@@ -1035,12 +1312,15 @@ class _ImageSection extends ConsumerWidget {
     if (picked == null || !context.mounted) return;
 
     await ref.read(todoEditProvider(todoId).notifier).uploadPickedImage(picked);
-
   }
 }
 
 class _ImageTile extends StatelessWidget {
-  const _ImageTile({required this.url, required this.onDelete, this.previewBytes});
+  const _ImageTile({
+    required this.url,
+    required this.onDelete,
+    this.previewBytes,
+  });
   final String url;
   final VoidCallback onDelete;
   final Uint8List? previewBytes;
@@ -1073,7 +1353,10 @@ class _ImageTile extends StatelessWidget {
                         color: Colors.white.withOpacity(0.05),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
+                      child: const Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white24,
+                      ),
                     ),
                   ),
           ),
@@ -1102,38 +1385,85 @@ class _ErrorBanner extends StatelessWidget {
   const _ErrorBanner({required this.message});
   final String message;
   @override
-  Widget build(BuildContext context) => Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.redAccent.withOpacity(0.3))), child: Row(children: [const Icon(Icons.error_outline, color: Colors.redAccent, size: 20), const SizedBox(width: 8), Expanded(child: Text(message, style: const TextStyle(color: Colors.redAccent, fontSize: 13)))]));
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.redAccent.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+    ),
+    child: Row(
+      children: [
+        const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _EditRadialBackground extends StatelessWidget {
   const _EditRadialBackground();
   @override
-  Widget build(BuildContext context) => Container(decoration: const BoxDecoration(gradient: RadialGradient(center: Alignment.bottomLeft, radius: 1.5, colors: [_kBgDeep, _kBgDark])));
+  Widget build(BuildContext context) => Container(
+    decoration: const BoxDecoration(
+      gradient: RadialGradient(
+        center: Alignment.bottomLeft,
+        radius: 1.5,
+        colors: [_kBgDeep, _kBgDark],
+      ),
+    ),
+  );
 }
 
 class _EditStarField extends StatelessWidget {
   const _EditStarField();
   @override
-  Widget build(BuildContext context) => SizedBox.expand(child: CustomPaint(painter: _EditStarPainter()));
+  Widget build(BuildContext context) =>
+      SizedBox.expand(child: CustomPaint(painter: _EditStarPainter()));
 }
 
 class _EditStarPainter extends CustomPainter {
   static final _rng = math.Random(202);
-  static final List<_Star> _stars = List.generate(30, (_) => _Star(x: _rng.nextDouble(), y: _rng.nextDouble(), radius: _rng.nextDouble() * 1.2 + 0.3, opacity: _rng.nextDouble() * 0.2 + 0.1));
+  static final List<_Star> _stars = List.generate(
+    30,
+    (_) => _Star(
+      x: _rng.nextDouble(),
+      y: _rng.nextDouble(),
+      radius: _rng.nextDouble() * 1.2 + 0.3,
+      opacity: _rng.nextDouble() * 0.2 + 0.1,
+    ),
+  );
   @override
   void paint(ui.Canvas canvas, ui.Size size) {
     final paint = Paint();
     for (final star in _stars) {
       paint.color = Colors.white.withOpacity(star.opacity);
-      canvas.drawCircle(Offset(star.x * size.width, star.y * size.height), star.radius, paint);
+      canvas.drawCircle(
+        Offset(star.x * size.width, star.y * size.height),
+        star.radius,
+        paint,
+      );
     }
   }
+
   @override
   bool shouldRepaint(CustomPainter old) => false;
 }
 
 class _Star {
-  const _Star({required this.x, required this.y, required this.radius, required this.opacity});
+  const _Star({
+    required this.x,
+    required this.y,
+    required this.radius,
+    required this.opacity,
+  });
   final double x, y, radius, opacity;
 }
 
@@ -1184,7 +1514,10 @@ class _PlaceTile extends ConsumerWidget {
                     const SizedBox(height: 2),
                     Text(
                       place!.roadAddress!,
-                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 12,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1199,8 +1532,14 @@ class _PlaceTile extends ConsumerWidget {
     );
   }
 
-  Future<void> _openPlaceSearch(BuildContext context, WidgetRef ref, String? currentLabel) async {
-    final keyword = currentLabel != null && currentLabel != '장소 미정' ? currentLabel : '';
+  Future<void> _openPlaceSearch(
+    BuildContext context,
+    WidgetRef ref,
+    String? currentLabel,
+  ) async {
+    final keyword = currentLabel != null && currentLabel != '장소 미정'
+        ? currentLabel
+        : '';
     final uri = keyword.isNotEmpty
         ? '/place-search?keyword=${Uri.encodeComponent(keyword)}'
         : '/place-search';
@@ -1215,7 +1554,11 @@ class _PlaceTile extends ConsumerWidget {
       case SelectedExternalPlace external:
         await notifier.setExternalPlace(place: external);
       case SelectedGenericKeyword keyword:
-        await notifier.setGenericKeyword(keyword: keyword.keyword);
+        await notifier.setGenericKeyword(
+          keyword: keyword.keyword,
+          latitude: keyword.userLatitude,
+          longitude: keyword.userLongitude,
+        );
     }
   }
 }
@@ -1328,8 +1671,14 @@ class _RangeCalendarDialogState extends State<_RangeCalendarDialog> {
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
-                leftChevronIcon: Icon(Icons.chevron_left, color: _kPurpleAccent),
-                rightChevronIcon: Icon(Icons.chevron_right, color: _kPurpleAccent),
+                leftChevronIcon: Icon(
+                  Icons.chevron_left,
+                  color: _kPurpleAccent,
+                ),
+                rightChevronIcon: Icon(
+                  Icons.chevron_right,
+                  color: _kPurpleAccent,
+                ),
               ),
               daysOfWeekStyle: const DaysOfWeekStyle(
                 weekdayStyle: TextStyle(color: Colors.white60, fontSize: 12),
@@ -1382,8 +1731,8 @@ class _RangeCalendarDialogState extends State<_RangeCalendarDialog> {
                 _rangeStart == null
                     ? '시작 날짜를 먼저 선택하세요'
                     : (_rangeEnd == null
-                        ? '종료 날짜를 선택하거나 시작 날짜만으로 적용할 수 있어요'
-                        : '${_rangeStart!.month}월 ${_rangeStart!.day}일 ~ ${_rangeEnd!.month}월 ${_rangeEnd!.day}일'),
+                          ? '종료 날짜를 선택하거나 시작 날짜만으로 적용할 수 있어요'
+                          : '${_rangeStart!.month}월 ${_rangeStart!.day}일 ~ ${_rangeEnd!.month}월 ${_rangeEnd!.day}일'),
                 style: const TextStyle(color: Colors.white60, fontSize: 12),
               ),
             ),
@@ -1519,8 +1868,14 @@ class _SingleCalendarDialogState extends State<_SingleCalendarDialog> {
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
-                leftChevronIcon: Icon(Icons.chevron_left, color: _kPurpleAccent),
-                rightChevronIcon: Icon(Icons.chevron_right, color: _kPurpleAccent),
+                leftChevronIcon: Icon(
+                  Icons.chevron_left,
+                  color: _kPurpleAccent,
+                ),
+                rightChevronIcon: Icon(
+                  Icons.chevron_right,
+                  color: _kPurpleAccent,
+                ),
               ),
               daysOfWeekStyle: const DaysOfWeekStyle(
                 weekdayStyle: TextStyle(color: Colors.white60, fontSize: 12),
