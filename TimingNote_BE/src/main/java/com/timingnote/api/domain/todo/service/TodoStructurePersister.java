@@ -204,20 +204,17 @@ public class TodoStructurePersister {
             return linkAliasPlace(todo, aliasMatch.get(), "placeText");
         }
 
-        // 5. 좌표 없음 → 카카오 호출 불가
-        if (latitude == null || longitude == null) {
-            log.info("[Place] 좌표 없음 → GENERAL (todoId={}, placeText='{}')", todo.getId(), placeText);
-            return new PlaceLinkResult(AiPlaceType.GENERAL, null);
-        }
+        boolean hasCoordinates = hasCoordinates(latitude, longitude);
 
-        // 6. 카카오 검색 + Place DB 누적 (radius/sort/size 미지정 — 좌표만 전달)
+        // 5. 카카오 검색 + Place DB 누적
+        // 좌표가 없으면 no-loc 검색으로 장소 타입/특정 장소를 판별하고, 후보 저장은 타입별로 제한한다.
         PlaceService.SearchResult searchResult = placeService.searchAndStoreAll(placeText, latitude, longitude);
         if (searchResult.isEmpty()) {
             log.info("[Place] 카카오 결과 0건 → GENERAL (todoId={}, placeText='{}')", todo.getId(), placeText);
             return new PlaceLinkResult(AiPlaceType.GENERAL, null);
         }
 
-        // 7. PlaceTypeResolver 분류 — 일반명사 사전 + 결과 수
+        // 6. PlaceTypeResolver 분류 — 일반명사 사전 + 결과 수
         PlaceTypeResolver.Result resolved = placeTypeResolver.resolve(placeText, searchResult.searchItems());
         if (resolved.placeType() == null) {
             log.info("[Place] resolver MEMO → GENERAL (todoId={}, placeText='{}')",
@@ -225,7 +222,7 @@ public class TodoStructurePersister {
             return new PlaceLinkResult(AiPlaceType.GENERAL, null);
         }
 
-        // 8. 분기 저장 — resolver가 돌려준 items를 storedPlaces에서 lookup
+        // 7. 분기 저장 — resolver가 돌려준 items를 storedPlaces에서 lookup
         List<Place> matchedPlaces = matchStoredPlaces(searchResult, resolved.items());
         if (matchedPlaces.isEmpty()) {
             log.warn("[Place] items가 storedPlaces에 없음 — 저장 실패? (todoId={})", todo.getId());
@@ -244,8 +241,17 @@ public class TodoStructurePersister {
         }
 
         // GENERIC — 모든 후보를 후보 풀에 저장
+        if (!hasCoordinates) {
+            log.info("[Place] GENERIC 좌표 없음 → 후보 저장 스킵 (todoId={}, placeText='{}')",
+                    todo.getId(), placeText);
+            return new PlaceLinkResult(AiPlaceType.GENERIC, placeText);
+        }
         saveCandidatePlaces(todo, matchedPlaces, latitude, longitude);
         return new PlaceLinkResult(AiPlaceType.GENERIC, placeText);
+    }
+
+    private boolean hasCoordinates(Double latitude, Double longitude) {
+        return latitude != null && longitude != null;
     }
 
     /**
@@ -279,22 +285,25 @@ public class TodoStructurePersister {
         return new PlaceLinkResult(AiPlaceType.ALIAS, userPlace.getAliasName());
     }
 
-    /** GENERIC 후보 장소 목록을 todo_candidate_places 에 배치 저장 */
+    /** 후보 장소 목록을 todo_candidate_places 에 배치 저장 */
     private void saveCandidatePlaces(Todo todo, List<Place> candidates, Double latitude, Double longitude) {
+        boolean hasCoordinates = hasCoordinates(latitude, longitude);
         OffsetDateTime now = OffsetDateTime.now();
         List<TodoCandidatePlace> records = candidates.stream()
                 .map(place -> TodoCandidatePlace.builder()
                         .todo(todo)
                         .place(place)
-                        .distanceM((int) Math.round(
-                                GeoUtils.distanceMeters(latitude, longitude,
-                                        place.getLatitude(), place.getLongitude())))
+                        .distanceM(hasCoordinates
+                                ? (int) Math.round(GeoUtils.distanceMeters(latitude, longitude,
+                                        place.getLatitude(), place.getLongitude()))
+                                : 0)
                         .isMonitoringTarget(true)
                         .calculatedAt(now)
                         .build())
                 .toList();
         todoCandidatePlaceRepository.saveAll(records);
-        log.info("[Place] GENERIC 후보 {}개 저장 (todoId={})", records.size(), todo.getId());
+        log.info("[Place] 후보 {}개 저장 (todoId={}, hasCoordinates={})",
+                records.size(), todo.getId(), hasCoordinates);
     }
 
     /** Todo 의 todoType, category, resolvedPlaceLabel, structureStatus 를 갱신 */
