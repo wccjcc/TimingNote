@@ -25,14 +25,19 @@ import '../viewmodel/todo_detail_viewmodel.dart';
 import '../widgets/native_kakao_map.dart';
 import 'todo_edit_screen.dart' show TimeConditionEditSheet;
 
-class TodoDetailScreen extends ConsumerWidget {
+class TodoDetailScreen extends ConsumerStatefulWidget {
   const TodoDetailScreen({super.key, required this.todoId});
 
   final int todoId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(todoDetailProvider(todoId));
+  ConsumerState<TodoDetailScreen> createState() => _TodoDetailScreenState();
+}
+
+class _TodoDetailScreenState extends ConsumerState<TodoDetailScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(todoDetailProvider(widget.todoId));
 
     return Scaffold(
       body: CosmicBackground(
@@ -70,7 +75,8 @@ class TodoDetailScreen extends ConsumerWidget {
           const SizedBox(height: 16),
           NeonButton(
             label: '다시 시도',
-            onTap: () => ref.read(todoDetailProvider(todoId).notifier).load(),
+            onTap: () =>
+                ref.read(todoDetailProvider(widget.todoId).notifier).load(),
           ),
         ],
       ),
@@ -94,7 +100,7 @@ class TodoDetailScreen extends ConsumerWidget {
         Expanded(
           child: RefreshIndicator(
             onRefresh: () =>
-                ref.read(todoDetailProvider(todoId).notifier).load(),
+                ref.read(todoDetailProvider(widget.todoId).notifier).load(),
             color: SpaceColors.neonPurple,
             backgroundColor: SpaceColors.space900,
             child: ListView(
@@ -216,6 +222,7 @@ class TodoDetailScreen extends ConsumerWidget {
                   if (detail.primaryPlace!.latitude != null &&
                       detail.primaryPlace!.longitude != null) ...[
                     _PrimaryPlaceMap(
+                      todoId: detail.id,
                       place: detail.primaryPlace!,
                       placeType: detail.todoType,
                       primaryCandidate: _findPrimaryCandidate(detail),
@@ -270,7 +277,7 @@ class TodoDetailScreen extends ConsumerWidget {
             children: [
               IconButton(
                 icon: const Icon(Icons.edit_outlined, color: Colors.white),
-                onPressed: () => context.push('/todos/$todoId/edit'),
+                onPressed: () => context.push('/todos/${widget.todoId}/edit'),
               ),
               IconButton(
                 icon: const Icon(
@@ -330,7 +337,9 @@ class TodoDetailScreen extends ConsumerWidget {
     );
 
     if (confirmed != true || !context.mounted) return;
-    final ok = await ref.read(todoDetailProvider(todoId).notifier).deleteTodo();
+    final ok = await ref
+        .read(todoDetailProvider(widget.todoId).notifier)
+        .deleteTodo();
     if (ok && context.mounted) context.pop();
   }
 
@@ -569,8 +578,9 @@ class TodoDetailScreen extends ConsumerWidget {
             icon: detail.alertEnabled
                 ? Icons.notifications
                 : Icons.notifications_off,
-            onTap: () =>
-                ref.read(todoDetailProvider(todoId).notifier).toggleAlert(),
+            onTap: () => ref
+                .read(todoDetailProvider(widget.todoId).notifier)
+                .toggleAlert(),
             active: detail.alertEnabled,
           ),
           const SizedBox(width: 16),
@@ -578,8 +588,9 @@ class TodoDetailScreen extends ConsumerWidget {
             child: NeonButton(
               label: detail.isDone ? '다시 시작' : '작업 완료',
               icon: detail.isDone ? Icons.replay : Icons.check_circle_outline,
-              onTap: () =>
-                  ref.read(todoDetailProvider(todoId).notifier).toggleStatus(),
+              onTap: () => ref
+                  .read(todoDetailProvider(widget.todoId).notifier)
+                  .toggleStatus(),
               isPrimary: !detail.isDone,
             ),
           ),
@@ -615,8 +626,9 @@ class TodoDetailScreen extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => TimeConditionEditSheet(
-        onSubmit: (tc) =>
-            ref.read(todoDetailProvider(todoId).notifier).addTimeCondition(tc),
+        onSubmit: (tc) => ref
+            .read(todoDetailProvider(widget.todoId).notifier)
+            .addTimeCondition(tc),
       ),
     );
   }
@@ -635,7 +647,7 @@ class TodoDetailScreen extends ConsumerWidget {
       builder: (_) => TimeConditionEditSheet(
         initial: TimeConditionRequest.fromCondition(tc),
         onSubmit: (newTc) => ref
-            .read(todoDetailProvider(todoId).notifier)
+            .read(todoDetailProvider(widget.todoId).notifier)
             .updateTimeCondition(index, newTc),
       ),
     );
@@ -674,7 +686,7 @@ class TodoDetailScreen extends ConsumerWidget {
     );
     if (confirmed == true) {
       await ref
-          .read(todoDetailProvider(todoId).notifier)
+          .read(todoDetailProvider(widget.todoId).notifier)
           .removeTimeCondition(index);
     }
   }
@@ -693,14 +705,18 @@ class TodoDetailScreen extends ConsumerWidget {
     final result = await context.push<SelectedPlace>(uri);
     if (result == null || !context.mounted) return;
 
-    final notifier = ref.read(todoDetailProvider(todoId).notifier);
+    final notifier = ref.read(todoDetailProvider(widget.todoId).notifier);
     switch (result) {
       case SelectedAliasPlace alias:
         await notifier.setAliasPlace(userPlaceId: alias.userPlaceId);
       case SelectedExternalPlace external:
         await notifier.setExternalPlace(place: external);
       case SelectedGenericKeyword keyword:
-        await notifier.setGenericKeyword(keyword: keyword.keyword);
+        await notifier.setGenericKeyword(
+          keyword: keyword.keyword,
+          latitude: keyword.userLatitude,
+          longitude: keyword.userLongitude,
+        );
     }
   }
 
@@ -718,7 +734,7 @@ class TodoDetailScreen extends ConsumerWidget {
     );
     if (updated == null || !context.mounted) return;
     await ref
-        .read(todoDetailProvider(todoId).notifier)
+        .read(todoDetailProvider(widget.todoId).notifier)
         .updateContent(content: updated);
   }
 }
@@ -1027,22 +1043,24 @@ class _CircleActionButton extends StatelessWidget {
 ///
 /// 단일 장소라 마커 탭 정보 띠는 노출하지 않는다 (정보 카드와 중복).
 /// 마커 색상은 GENERIC과 동일 규칙: primaryCandidate.activeSlot=true면 활성(초록), 아니면 회색.
-class _PrimaryPlaceMap extends StatefulWidget {
+class _PrimaryPlaceMap extends ConsumerStatefulWidget {
   const _PrimaryPlaceMap({
+    required this.todoId,
     required this.place,
     required this.placeType,
     this.primaryCandidate,
   });
 
+  final int todoId;
   final TodoPlace place;
   final String placeType;
   final TodoCandidate? primaryCandidate;
 
   @override
-  State<_PrimaryPlaceMap> createState() => _PrimaryPlaceMapState();
+  ConsumerState<_PrimaryPlaceMap> createState() => _PrimaryPlaceMapState();
 }
 
-class _PrimaryPlaceMapState extends State<_PrimaryPlaceMap> {
+class _PrimaryPlaceMapState extends ConsumerState<_PrimaryPlaceMap> {
   NativeKakaoMapController? _mapController;
 
   void _applyMarker() {
@@ -1072,6 +1090,7 @@ class _PrimaryPlaceMapState extends State<_PrimaryPlaceMap> {
   @override
   Widget build(BuildContext context) {
     final center = LatLng(widget.place.latitude!, widget.place.longitude!);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: SizedBox(

@@ -29,6 +29,7 @@ class TodoInputState {
   final String inputType;
   final double? latitude;
   final double? longitude;
+
   /// 사용자가 명시 선택한 내 장소. submit 시 userPlaceId로 BE에 전달.
   final UserPlace? selectedUserPlace;
   final InputSubmitPhase phase;
@@ -60,7 +61,9 @@ class TodoInputState {
       inputType: inputType ?? this.inputType,
       latitude: clearLocation ? null : (latitude ?? this.latitude),
       longitude: clearLocation ? null : (longitude ?? this.longitude),
-      selectedUserPlace: clearUserPlace ? null : (selectedUserPlace ?? this.selectedUserPlace),
+      selectedUserPlace: clearUserPlace
+          ? null
+          : (selectedUserPlace ?? this.selectedUserPlace),
       phase: phase ?? this.phase,
       createdTodoId: createdTodoId ?? this.createdTodoId,
       structureStatus: structureStatus ?? this.structureStatus,
@@ -91,7 +94,8 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
 
   void clearLocation() => state = state.copyWith(clearLocation: true);
 
-  void setUserPlace(UserPlace place) => state = state.copyWith(selectedUserPlace: place);
+  void setUserPlace(UserPlace place) =>
+      state = state.copyWith(selectedUserPlace: place);
 
   void clearUserPlace() => state = state.copyWith(clearUserPlace: true);
 
@@ -100,19 +104,23 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
   Future<void> submit() async {
     if (!state.canSubmit) return;
 
-    state = state.copyWith(phase: InputSubmitPhase.submitting, clearError: true);
+    state = state.copyWith(
+      phase: InputSubmitPhase.submitting,
+      clearError: true,
+    );
 
     try {
       // [TIMING] 임시 측정 — 등록 응답 지연 원인 진단용. 결과 확인 후 제거 또는 영구화 결정.
       final tSubmit = DateTime.now();
-      // 등록 직전 GPS — forceFresh=false (2026-05-13).
-      // 캐시·디바이스 lastKnownPosition 우선 사용 → 응답 즉시화. 차량 이동 케이스도 OS가
-      // 백그라운드로 좌표 유지하므로 stale 거의 없음. 등록 직후 유의미한 이동 신호 발생 시
-      // GenericCandidateRefreshService가 후보 풀 재계산해 stale 잔류분도 자동 보정.
-      final gps = await tryGetGpsSnapshot(ref, forceFresh: false);
+      // 등록 직전 GPS — forceFresh=true (2026-05-19 수정).
+      // 배터리 효율보다 AI 분석을 위한 위치 정확도가 우선순위가 높으므로
+      // 최신 GPS 스냅샷을 강제로 요청한다.
+      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
       final tGps = DateTime.now();
-      debugPrint('[TIMING] GPS step: ${tGps.difference(tSubmit).inMilliseconds}ms '
-          '(forceFresh=false, gps=${gps != null ? "ok" : "null"})');
+      debugPrint(
+        '[TIMING] GPS step: ${tGps.difference(tSubmit).inMilliseconds}ms '
+        '(forceFresh=false, gps=${gps != null ? "ok" : "null"})',
+      );
 
       final mergedContent = _mergeAliasIntoContent(
         state.content.trim(),
@@ -128,8 +136,12 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
         userPlaceId: state.selectedUserPlace?.id,
       );
       final tBe = DateTime.now();
-      debugPrint('[TIMING] BE create: ${tBe.difference(tGps).inMilliseconds}ms');
-      debugPrint('[TIMING] TOTAL:     ${tBe.difference(tSubmit).inMilliseconds}ms');
+      debugPrint(
+        '[TIMING] BE create: ${tBe.difference(tGps).inMilliseconds}ms',
+      );
+      debugPrint(
+        '[TIMING] TOTAL:     ${tBe.difference(tSubmit).inMilliseconds}ms',
+      );
 
       // PENDING 여부와 무관하게 즉시 done 처리.
       // AI 구조화 대기 스피너는 할 일 목록 카드에서 표시한다.
@@ -143,7 +155,10 @@ class TodoInputNotifier extends AutoDisposeNotifier<TodoInputState> {
       ref.invalidate(todoListProvider);
       ref.invalidate(homeRecommendationProvider);
     } catch (e) {
-      state = state.copyWith(phase: InputSubmitPhase.error, error: e.toString());
+      state = state.copyWith(
+        phase: InputSubmitPhase.error,
+        error: e.toString(),
+      );
     }
   }
 
@@ -178,5 +193,5 @@ String _mergeAliasIntoContent(String content, String? aliasName) {
 // ── Provider ─────────────────────────────────────────────────────
 final todoInputProvider =
     NotifierProvider.autoDispose<TodoInputNotifier, TodoInputState>(
-  TodoInputNotifier.new,
-);
+      TodoInputNotifier.new,
+    );

@@ -114,8 +114,10 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
             controller: _contentController,
             focusNode: _focusNode,
             autofocus: true,
-            maxLines: 6,
+            maxLines: null,
             minLines: 3,
+            maxLength: 200,
+            keyboardType: TextInputType.multiline,
             decoration: InputDecoration(
               prefix: state.selectedUserPlace != null
                   ? Padding(
@@ -132,6 +134,7 @@ class _TodoInputScreenState extends ConsumerState<TodoInputScreen> {
                   : null,
               hintText: '할 일을 자연어로 입력하세요.\n예) 다음 주 월요일 오전에 홈플러스에서 우유 사기',
               border: const OutlineInputBorder(),
+              counterText: '', // 우측 하단 카운터 숨김 (커스텀 처리 권장)
             ),
             onChanged: (v) =>
                 ref.read(todoInputProvider.notifier).setContent(v),

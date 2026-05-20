@@ -23,6 +23,7 @@ class TodoDetailState {
   final TodoDetail? detail;
   final bool isLoading;
   final String? error;
+
   /// 상세 로드/액션 시 확보한 사용자 위치. 거리 표시(현재위치 ↔ 장소)에 사용.
   /// 권한 거부 / GPS 실패 시 null.
   final GpsSnapshot? currentGps;
@@ -299,7 +300,9 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
     await _updateTimeConditions(list);
   }
 
-  Future<void> _updateTimeConditions(List<TimeConditionRequest> conditions) async {
+  Future<void> _updateTimeConditions(
+    List<TimeConditionRequest> conditions,
+  ) async {
     if (_inflight) return;
     _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
@@ -345,17 +348,24 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
 
   /// 키워드로 포괄 장소 등록 — `place_search_screen`의 "포괄 장소로 등록" 버튼에서 호출.
   /// BE PATCH /api/v1/todos/{id}에 placeText만 보내면 BE가 카카오 재검색 + 후보 풀 재구성 + GENERIC 전환.
-  Future<void> setGenericKeyword({required String keyword}) async {
+  Future<void> setGenericKeyword({
+    required String keyword,
+    double? latitude,
+    double? longitude,
+  }) async {
     if (_inflight) return;
     _inflight = true;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
-      final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+      final hasExplicitReference = latitude != null && longitude != null;
+      final gps = hasExplicitReference
+          ? null
+          : await tryGetGpsSnapshot(ref, forceFresh: true);
       final updated = await _service.update(
         _todoId,
         placeText: keyword,
-        latitude: gps?.latitude,
-        longitude: gps?.longitude,
+        latitude: latitude ?? gps?.latitude,
+        longitude: longitude ?? gps?.longitude,
         course: gps?.course,
         occurredAt: gps?.occurredAt,
       );
@@ -390,5 +400,5 @@ class TodoDetailNotifier extends FamilyNotifier<TodoDetailState, int> {
 // ── Provider (todoId별 독립 인스턴스) ─────────────────────────────
 final todoDetailProvider =
     NotifierProvider.family<TodoDetailNotifier, TodoDetailState, int>(
-  TodoDetailNotifier.new,
-);
+      TodoDetailNotifier.new,
+    );
