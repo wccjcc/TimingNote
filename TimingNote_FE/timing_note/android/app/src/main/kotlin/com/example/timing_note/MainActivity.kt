@@ -4,9 +4,17 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
 import com.example.timing_note.geofence.GeofenceBridgeConstants
 import com.example.timing_note.geofence.GeofenceEventStore
 import com.example.timing_note.geofence.NativeGeofenceManager
+import com.example.timing_note.map.TimingNoteNativeKakaoMapFactory
+import com.example.timing_note.notification.PushActionBridgeConstants
+import com.example.timing_note.notification.PushActionStore
+import com.example.timing_note.notification.TimingNoteAppState
+import com.kakao.vectormap.KakaoMapSdk
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -21,11 +29,36 @@ class MainActivity : FlutterActivity() {
     private var geofenceManager: NativeGeofenceManager? = null
     private var eventSink: EventChannel.EventSink? = null
     private var runtimeReceiver: BroadcastReceiver? = null
+    private var pushActionChannel: MethodChannel? = null
+    private var pushActionReceiver: BroadcastReceiver? = null
+    private var pendingLaunchPushActionJson: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        capturePushActionIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        TimingNoteAppState.isForeground = true
+    }
+
+    override fun onStop() {
+        TimingNoteAppState.isForeground = false
+        super.onStop()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        initializeKakaoMapSdk()
+
         geofenceManager = NativeGeofenceManager(applicationContext)
+
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            "timing_note/native_kakao_map",
+            TimingNoteNativeKakaoMapFactory(flutterEngine.dartExecutor.binaryMessenger),
+        )
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -49,13 +82,59 @@ class MainActivity : FlutterActivity() {
             },
         )
 
+        pushActionChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            PushActionBridgeConstants.CHANNEL,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "drainPendingActions" -> {
+                        flushPendingPushActionPayloads()
+                        result.success(null)
+                    }
+
+                    else -> result.notImplemented()
+                }
+            }
+        }
+
         registerRuntimeReceiver()
+        registerPushActionRuntimeReceiver()
+    }
+
+    private fun initializeKakaoMapSdk() {
+        val appKey = resolveKakaoNativeAppKey()
+        if (appKey.isBlank()) {
+            return
+        }
+        KakaoMapSdk.init(applicationContext, appKey)
+    }
+
+    private fun resolveKakaoNativeAppKey(): String {
+        return try {
+            val flags = PackageManager.GET_META_DATA
+            val applicationInfo = packageManager.getApplicationInfo(packageName, flags)
+            applicationInfo.metaData?.getString("com.kakao.sdk.AppKey") ?: ""
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         runtimeReceiver?.let { unregisterReceiver(it) }
+        pushActionReceiver?.let { unregisterReceiver(it) }
         runtimeReceiver = null
+        pushActionReceiver = null
+        pushActionChannel?.setMethodCallHandler(null)
+        pushActionChannel = null
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        capturePushActionIntent(intent)
+        flushPendingPushActionPayloads()
     }
 
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -93,8 +172,68 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        registerReceiver(receiver, IntentFilter(GeofenceBridgeConstants.ACTION_GEOFENCE_EVENT))
+        val filter = IntentFilter(GeofenceBridgeConstants.ACTION_GEOFENCE_EVENT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(receiver, filter)
+        }
         runtimeReceiver = receiver
+    }
+
+    private fun registerPushActionRuntimeReceiver() {
+        if (pushActionReceiver != null) return
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val raw = intent?.getStringExtra(PushActionBridgeConstants.EXTRA_ACTION_JSON) ?: return
+                val eventId = org.json.JSONObject(raw).optString("eventId")
+                pushActionChannel?.invokeMethod(
+                    "onPushAction",
+                    PushActionStore.jsonToMap(raw),
+                    object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            if (eventId.isNotEmpty()) {
+                                PushActionStore.removeByEventId(applicationContext, eventId)
+                            }
+                        }
+
+                        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) = Unit
+
+                        override fun notImplemented() = Unit
+                    },
+                )
+            }
+        }
+
+        val filter = IntentFilter(PushActionBridgeConstants.ACTION_PUSH_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(receiver, filter)
+        }
+        pushActionReceiver = receiver
+    }
+
+    private fun capturePushActionIntent(intent: Intent?) {
+        val raw = intent?.getStringExtra(PushActionBridgeConstants.EXTRA_ACTION_JSON) ?: return
+        pendingLaunchPushActionJson = raw
+        intent.removeExtra(PushActionBridgeConstants.EXTRA_ACTION_JSON)
+    }
+
+    private fun flushPendingPushActionPayloads() {
+        val channel = pushActionChannel ?: return
+
+        pendingLaunchPushActionJson?.let { raw ->
+            channel.invokeMethod("onPushAction", PushActionStore.jsonToMap(raw))
+            pendingLaunchPushActionJson = null
+        }
+
+        for (raw in PushActionStore.loadAndClear(applicationContext)) {
+            channel.invokeMethod("onPushAction", PushActionStore.jsonToMap(raw))
+        }
     }
 
     /**
