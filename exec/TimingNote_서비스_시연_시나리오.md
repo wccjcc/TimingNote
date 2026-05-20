@@ -31,27 +31,7 @@
 - 내 장소: `집` 1개 이상 등록
 - 할 일 목록: 포괄/특정/내 장소 유형이 모두 보이도록 3개 이상 등록
 
-## 3. 화면 캡처 목록
-
-| 번호 | 화면 | 캡처 |
-| --- | --- | --- |
-| 1 | 홈 시작 상태 | <img src="./assets/demo/01_home_ready.png" width="180" alt="홈 시작 상태"> |
-| 2 | 설정 권한 확인 | <img src="./assets/demo/02_settings_permissions.png" width="180" alt="설정 권한 확인"> |
-| 3 | 홈 입력창 | <img src="./assets/demo/03_home_input.png" width="180" alt="홈 입력창"> |
-| 4 | 할 일 목록 | <img src="./assets/demo/04_todo_list_ready.png" width="180" alt="할 일 목록"> |
-| 5 | 목록 필터 | <img src="./assets/demo/05_todo_list_filter.png" width="180" alt="목록 필터"> |
-| 6 | 목록 검색 | <img src="./assets/demo/06_todo_list_search.png" width="180" alt="목록 검색"> |
-| 7 | 특정 장소 상세 | <img src="./assets/demo/07_detail_specific_detecting.png" width="180" alt="특정 장소 상세"> |
-| 8 | 포괄 장소 후보 | <img src="./assets/demo/08_detail_generic_candidates.png" width="180" alt="포괄 장소 후보"> |
-| 9 | 포괄 장소 등록 검색 | <img src="./assets/demo/09_place_search_generic_registration.png" width="180" alt="포괄 장소 등록 검색"> |
-| 10 | 할 일 수정 | <img src="./assets/demo/10_todo_edit_place_time.png" width="180" alt="할 일 수정"> |
-| 11 | 지도 위치 저장 | <img src="./assets/demo/11_map_location_save.png" width="180" alt="지도 위치 저장"> |
-| 12 | 내 장소 목록 | <img src="./assets/demo/12_my_places_list.png" width="180" alt="내 장소 목록"> |
-| 13 | 내 장소 할 일 상세 | <img src="./assets/demo/13_detail_my_place.png" width="180" alt="내 장소 할 일 상세"> |
-| 14 | 지도 전체 화면 | <img src="./assets/demo/14_map_overview.png" width="180" alt="지도 전체 화면"> |
-| 15 | 지도 마커 상세 | <img src="./assets/demo/15_map_marker_sheet.png" width="180" alt="지도 마커 상세"> |
-
-## 4. 전체 시연 순서
+## 3. 전체 시연 순서
 
 | 순서 | 화면 | 실행 | 핵심 설명 |
 | --- | --- | --- | --- |
@@ -68,11 +48,12 @@
 | 10 | 홈 | 내 장소를 포함한 할 일 입력 | `집` 같은 별칭이 할 일 장소로 연결됨을 확인 |
 | 11 | 상세/지도 | 내 장소 상세와 지도 탭 확인 | 최종적으로 지도 마커와 감지 대상 확인 |
 
-## 5. 상세 시연 시나리오
+## 4. 상세 시연 시나리오
 
-### 5.1 홈에서 현재 위치 기반 추천 확인
+### 4.1 홈에서 현재 위치 기반 추천 확인
 
-**사용 이미지**: `01_home_ready.png`
+**홈 시작 상태**
+- <img src="./assets/demo/01_home_ready.png" width="180" alt="홈 시작 상태">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -89,9 +70,10 @@
 - 하단 입력창: 자연어 할 일 입력
 - 하단 탭: 홈, 지도, 할 일, 설정 이동
 
-### 5.2 설정에서 권한과 반경 확인
+### 4.2 설정에서 권한과 반경 확인
 
-**사용 이미지**: `02_settings_permissions.png`
+**설정 권한 확인**
+- <img src="./assets/demo/02_settings_permissions.png" width="180" alt="설정 권한 확인">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -108,9 +90,10 @@
 - 내 장소 관리 진입
 - 앱 버전 확인
 
-### 5.3 홈 입력창에 할 일 입력
+### 4.3 홈 입력창에 할 일 입력
 
-**사용 이미지**: `03_home_input.png`
+**홈 입력창**
+- <img src="./assets/demo/03_home_input.png" width="180" alt="홈 입력창">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -135,10 +118,12 @@
 - 백엔드는 장소 타입을 검증하고 후보 장소를 저장한다.
 - 사용자는 이후 상세/수정 화면에서 자동 구조화 결과를 보정할 수 있다.
 
-### 5.4 할 일 목록에서 등록 결과 확인
+### 4.4 할 일 목록에서 등록 결과 확인
 
-**사용 이미지**: `04_todo_list_ready.png`, `05_todo_list_filter.png`
-
+**할 일 목록**
+- <img src="./assets/demo/04_todo_list_ready.png" width="180" alt="할 일 목록">
+**목록 필터**
+- <img src="./assets/demo/05_todo_list_filter.png" width="180" alt="목록 필터">
 | 항목 | 내용 |
 | --- | --- |
 | 진입 | 하단 `할 일` 탭 클릭 |
@@ -154,9 +139,9 @@
 - 체크박스: 할 일 완료 처리
 - 카드 터치: 상세 화면 이동
 
-## 6. 장소 타입별 상세 시연
+## 5. 장소 타입별 상세 시연
 
-### 6.1 공통: 상세 화면에서 감지 상태 확인
+### 5.1 공통: 상세 화면에서 감지 상태 확인
 
 목록 카드 하나를 클릭해 상세 화면으로 들어간다.
 상세 화면에서는 다음을 확인한다.
@@ -169,9 +154,10 @@
 - `감지중`: 현재 geofence 감지 대상으로 등록된 장소 수
 - `작업 완료`: 할 일 완료 처리
 
-### 6.2 분기 1: 포괄 장소인 경우
+### 5.2 분기 1: 포괄 장소인 경우
 
-**사용 이미지**: `08_detail_generic_candidates.png`
+**포괄 장소 후보**
+- <img src="./assets/demo/08_detail_generic_candidates.png" width="180" alt="포괄 장소 후보">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -179,7 +165,7 @@
 | 확인 요소 | `포괄 장소` 배지, 후보 장소 수, `감지중` 수, 후보 장소 목록 |
 | 시연 멘트 | "포괄 장소는 특정 지점 하나가 아니라 검색어에 맞는 여러 후보 장소를 대상으로 합니다. 그래서 가까운 후보가 여러 개 있으면 감지 대상도 여러 개가 될 수 있습니다." |
 
-#### 6.2.1 후보 장소 중 하나를 특정 장소로 지정
+#### 5.2.1 후보 장소 중 하나를 특정 장소로 지정
 
 | 실행 | 클릭 위치 | 결과 |
 | --- | --- | --- |
@@ -192,9 +178,10 @@
 - 사용자가 "다이소 아무 곳이나"가 아니라 "이 다이소 지점"으로 확정할 때 사용한다.
 - 자동 추천 후보가 맞지 않으면 사용자가 직접 특정 지점으로 보정할 수 있다.
 
-#### 6.2.2 지도 페이지에서 검색 후 장소 등록
+#### 5.2.2 지도 페이지에서 검색 후 장소 등록
 
-**사용 이미지**: `11_map_location_save.png`
+**지도 위치 저장**
+- <img src="./assets/demo/11_map_location_save.png" width="180" alt="지도 위치 저장">
 
 | 실행 | 클릭 위치 | 결과 |
 | --- | --- | --- |
@@ -208,9 +195,10 @@
 - 검색 결과가 애매하거나 실제 장소 위치를 직접 지정해야 할 때 사용한다.
 - 지도에서 저장한 좌표는 이후 후보 장소/내 장소/감지 대상에 재사용된다.
 
-### 6.3 분기 2: 특정 장소인 경우
+### 5.3 분기 2: 특정 장소인 경우
 
-**사용 이미지**: `07_detail_specific_detecting.png`
+**특정 장소 상세**
+- <img src="./assets/demo/07_detail_specific_detecting.png" width="180" alt="특정 장소 상세">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -218,10 +206,12 @@
 | 확인 요소 | 특정 장소 배지, 실행 장소, 시간 조건, 지도, `감지중` 표시 |
 | 시연 멘트 | "특정 장소는 이 지점 하나를 기준으로 감지합니다. 예를 들어 장덕도서관처럼 정확한 장소가 정해진 할 일은 특정 장소로 저장됩니다." |
 
-#### 6.3.1 특정 장소를 포괄 장소로 변경
+#### 5.3.1 특정 장소를 포괄 장소로 변경
 
-**사용 이미지**: `09_place_search_generic_registration.png`, `10_todo_edit_place_time.png`
-
+**포괄 장소 등록 검색**
+- <img src="./assets/demo/09_place_search_generic_registration.png" width="180" alt="포괄 장소 등록 검색">
+**할 일 수정**
+- <img src="./assets/demo/10_todo_edit_place_time.png" width="180" alt="할 일 수정">
 | 실행 | 클릭 위치 | 결과 |
 | --- | --- | --- |
 | 수정 진입 | 상세 우측 상단 연필 아이콘 | 할 일 수정 화면 이동 |
@@ -235,9 +225,10 @@
 - 특정 장소가 너무 좁게 잡혔을 때 포괄 장소로 되돌릴 수 있다.
 - 예를 들어 "도서관 아무 곳이나"가 목적이라면 특정 지점보다 포괄 장소가 더 적합하다.
 
-## 7. 목록에서 검색 수행
+## 6. 목록에서 검색 수행
 
-**사용 이미지**: `06_todo_list_search.png`
+**목록 검색**
+- <img src="./assets/demo/06_todo_list_search.png" width="180" alt="목록 검색">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -254,9 +245,12 @@
 - 완료/진행 중 상태 구분
 - 검색 결과 카드에서 상세 이동
 
-## 8. 설정에서 내 장소 등록
+## 7. 설정에서 내 장소 등록
 
-**사용 이미지**: `12_my_places_list.png`, `11_map_location_save.png`
+**내 장소 목록**
+- <img src="./assets/demo/12_my_places_list.png" width="180" alt="내 장소 목록">
+**지도 위치 저장**
+- <img src="./assets/demo/11_map_location_save.png" width="180" alt="지도 위치 저장">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -282,9 +276,12 @@
 - 등록 가능한 장소 수 확인
 - 등록된 주소 확인
 
-## 9. 홈에서 내 장소 기반 할 일 등록
+## 8. 홈에서 내 장소 기반 할 일 등록
 
-**사용 이미지**: `03_home_input.png`, `13_detail_my_place.png`
+**홈 입력창**
+- <img src="./assets/demo/03_home_input.png" width="180" alt="홈 입력창">
+**내 장소 할 일 상세**
+- <img src="./assets/demo/13_detail_my_place.png" width="180" alt="내 장소 할 일 상세">
 
 | 항목 | 내용 |
 | --- | --- |
@@ -300,9 +297,12 @@
 - 시간 조건이 함께 추출되면 실행 시간 영역에 표시되는지 확인한다.
 - 내 장소도 지도/감지 대상과 연결된다는 점을 설명한다.
 
-## 10. 지도 탭에서 전체 장소 확인
+## 9. 지도 탭에서 전체 장소 확인
 
-**사용 이미지**: `14_map_overview.png`, `15_map_marker_sheet.png`
+**지도 전체 화면**
+- <img src="./assets/demo/14_map_overview.png" width="180" alt="지도 전체 화면">
+**지도 마커 상세**
+- <img src="./assets/demo/15_map_marker_sheet.png" width="180" alt="지도 마커 상세">
 
 | 항목 | 내용 |
 | --- | --- |
