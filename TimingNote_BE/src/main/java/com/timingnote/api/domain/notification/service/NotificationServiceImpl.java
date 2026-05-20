@@ -110,6 +110,7 @@ public class NotificationServiceImpl implements NotificationService {
         );
         boolean sent = pushNotificationSender.send(
                 fcmToken.getFcmToken(),
+                fcmToken.getPlatform(),
                 PUSH_TYPE_GEOFENCE,
                 title,
                 body,
