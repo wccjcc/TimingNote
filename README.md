@@ -41,15 +41,33 @@ TimingNote는 이 문제를 `AI 자연어 구조화`, `장소 타입 판별`, `�
 
 ## Core Flow
 
-```mermaid
-flowchart LR
-    A["자연어 할 일 입력"] --> B["AI 서버<br/>카테고리·장소어·시간 표현 추출"]
-    B --> C["Backend<br/>내 장소/카카오 검색/장소 타입 판정"]
-    C --> D["PostgreSQL + PostGIS<br/>Todo·장소·후보 저장"]
-    C --> E["Redis<br/>Kakao 검색 결과 공유 캐시"]
-    D --> F["현재 위치 기반 추천"]
-    D --> G["Geofence 슬롯 재계산"]
-    G --> H["FCM 위치 알림"]
+```text
+┌──────────────────────┐
+│  Flutter App          │
+│  자연어 할 일 입력     │
+└───────────┬──────────┘
+            │
+            ▼
+┌──────────────────────┐
+│  FastAPI AI Server    │
+│  카테고리·장소어·시간 추출 │
+└───────────┬──────────┘
+            │
+            ▼
+┌──────────────────────────────┐
+│  Spring Boot Backend          │
+│  내 장소 대조 · Kakao 검색 · 장소 타입 판정 │
+└───────┬──────────────────┬───┘
+        │                  │
+        ▼                  ▼
+┌──────────────────┐   ┌──────────────────┐
+│ PostgreSQL/PostGIS│   │ Redis Cache       │
+│ Todo·장소·후보 저장 │   │ Kakao 검색 결과 공유 │
+└───────┬──────────┘   └──────────────────┘
+        │
+        ├──> 홈 추천: 현재 위치에서 가능한 할 일 노출
+        │
+        └──> Geofence 슬롯 재계산 -> FCM 위치 알림
 ```
 
 ### 1. 자연어 입력
@@ -142,21 +160,16 @@ FE에서 Kakao REST API를 직접 호출하지 않고 백엔드 프록시를 경
 
 AI 호출은 외부 네트워크 의존성이므로 Todo 생성 트랜잭션과 분리했습니다.
 
-```mermaid
-sequenceDiagram
-    participant App as Flutter App
-    participant BE as Spring Boot
-    participant AI as FastAPI AI
-    participant DB as PostgreSQL
-
-    App->>BE: Todo 생성 요청
-    BE->>DB: Todo PENDING 저장
-    BE-->>App: 즉시 응답
-    BE->>AI: 자연어 구조화 요청
-    AI-->>BE: 구조화 결과
-    BE->>DB: TodoStructure, Place, Candidate 저장
-    BE->>DB: Todo READY 전환
-```
+| 순서 | 처리 주체 | 동작 | 결과 |
+| --- | --- | --- | --- |
+| 1 | Flutter App | 자연어 Todo 생성 요청 | 사용자는 폼 없이 문장으로 입력 |
+| 2 | Spring Boot | Todo를 `PENDING` 상태로 먼저 저장 | AI 응답을 기다리지 않고 원본 Todo 보존 |
+| 3 | Spring Boot | 앱에 즉시 응답 | 입력 지연 최소화 |
+| 4 | Spring Boot -> FastAPI AI | 자연어 구조화 요청 | 카테고리, 장소어, 시간 조건 추출 |
+| 5 | FastAPI AI -> Spring Boot | 구조화 결과 반환 | 백엔드가 후속 검증 수행 |
+| 6 | Spring Boot | 내 장소/Kakao 검색/장소 타입 판정 | `ALIAS`, `SPECIFIC`, `GENERIC` 결정 |
+| 7 | Spring Boot -> PostgreSQL | TodoStructure, Place, Candidate 저장 | 추천/지도/알림에서 사용할 데이터 완성 |
+| 8 | Spring Boot | Todo를 `READY` 상태로 전환 | 사용자에게 구조화 완료 상태 제공 |
 
 AI 실패 시에는 Todo 자체를 잃지 않고 `FAILED` 상태로 남겨 사용자가 수동으로 보정할 수 있습니다.
 
