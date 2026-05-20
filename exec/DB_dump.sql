@@ -269,3 +269,125 @@ CREATE INDEX idx_user_places_user_id
 
 CREATE INDEX idx_todo_inputs_todo_id
     ON todo_inputs (todo_id);
+
+
+CREATE TABLE user_fcm_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    fcm_token VARCHAR(255) NOT NULL,
+    platform VARCHAR(20) NOT NULL,
+    is_active BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE user_fcm_tokens
+    ADD CONSTRAINT fk_user_fcm_tokens_user
+        FOREIGN KEY (user_id) REFERENCES users (id);
+
+ALTER TABLE user_fcm_tokens
+    ADD CONSTRAINT uq_user_fcm_tokens_fcm_token UNIQUE (fcm_token);
+
+CREATE INDEX idx_user_fcm_tokens_user_id
+    ON user_fcm_tokens (user_id);
+
+CREATE INDEX idx_user_fcm_tokens_user_active
+    ON user_fcm_tokens (user_id, is_active);
+
+ALTER TABLE places
+    ADD COLUMN IF NOT EXISTS category_group_code VARCHAR(10) NULL,
+    ADD COLUMN IF NOT EXISTS category_group_name VARCHAR(50) NULL,
+    DROP COLUMN IF EXISTS time_zone_id,
+    DROP COLUMN IF EXISTS utc_offset_minutes;
+
+DROP TABLE IF EXISTS notification_actions;
+
+CREATE TABLE IF NOT EXISTS geofence_slots (
+    id BIGSERIAL NOT NULL,
+    user_id BIGINT NOT NULL,
+    place_id BIGINT NOT NULL,
+    todo_id BIGINT NOT NULL,
+    caculated_at TIMESTAMPTZ NOT NULL,
+    is_active BOOLEAN NOT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS geofence_recalculate_outbox (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    latitude NUMERIC(10, 7) NULL,
+    longitude NUMERIC(10, 7) NULL,
+    course NUMERIC(7, 3) NULL,
+    status VARCHAR(20) NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retry_count INTEGER NOT NULL DEFAULT 5,
+    next_retry_at TIMESTAMPTZ NOT NULL,
+    last_error TEXT NULL,
+    published_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_geofence_outbox_status_next_retry
+    ON geofence_recalculate_outbox (status, next_retry_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_geofence_outbox_user_id
+    ON geofence_recalculate_outbox (user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_geofence_slots_user_todo_place
+    ON geofence_slots (user_id, todo_id, place_id);
+
+
+-- external_place_id를 nullable로 변경
+-- 집, 회사 등 지도 마커로 등록하는 사용자 정의 장소는 Kakao place ID가 없음
+ALTER TABLE places
+    ALTER COLUMN external_place_id DROP NOT NULL;
+
+-- 기존 UNIQUE 제약 제거 후 조건부 인덱스로 교체
+-- external_place_id가 존재할 때만 중복 방지 (NULL끼리는 허용)
+ALTER TABLE places
+    DROP CONSTRAINT IF EXISTS places_external_place_id_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_places_external_place_id
+    ON places (external_place_id)
+    WHERE external_place_id IS NOT NULL;
+
+-- V7: 성능 최적화를 위한 인덱스 추가
+--
+-- [1] todos 복합 인덱스: findTodoPage (user_id + status 동시 필터)
+--     기존 단일 인덱스(idx_todos_user_id, idx_todos_status)는 유지하되
+--     복합 조건 쿼리의 탐색 효율 개선을 위해 추가.
+CREATE INDEX IF NOT EXISTS idx_todos_user_id_status
+    ON todos (user_id, status);
+
+-- [2] places 공간 인덱스: PostGIS ST_Distance / ST_DWithin 최적화
+--     places.location = GEOGRAPHY(Point, 4326) 이지만 공간 인덱스가 없으면
+--     findMonitoringCandidateDistancesByUserId의 ST_Distance 계산이 Full Table Scan.
+CREATE INDEX IF NOT EXISTS idx_places_location
+    ON places USING GIST (location);
+
+-- [3] geofence_slots 사용자 조회 인덱스: findByUserId 최적화
+--     GeofenceSlotManagerImpl.recalculateSlots()에서 매 재계산마다 호출.
+CREATE INDEX IF NOT EXISTS idx_geofence_slots_user_id
+    ON geofence_slots (user_id);
+
+-- [4] todo_candidate_places 모니터링 후보 Partial Index
+--     findMonitoringCandidatesByUserId: is_monitoring_target = true 인 행만 탐색.
+--     Partial Index로 false 행 제외 → 인덱스 크기 절감 + 탐색 효율 향상.
+CREATE INDEX IF NOT EXISTS idx_tcp_monitoring_target_expires
+    ON todo_candidate_places (is_monitoring_target, expires_at)
+    WHERE is_monitoring_target = true;
+
+-- V8: user_places (user_id, alias_name) UNIQUE 제약 추가
+--
+-- 한 사용자가 같은 별칭으로 두 개 이상의 장소를 등록할 수 없도록 강제.
+-- 서비스 레이어에서 사전 검증(USER_PLACE_NAME_DUPLICATED)을 수행하지만,
+-- 동시성 race 상황(같은 별칭 동시 POST)에서 데이터 무결성을 지키는 안전망.
+--
+-- 주의: 운영 DB에 이미 중복 별칭이 존재하면 ALTER가 실패한다.
+-- 적용 전 다음 쿼리로 확인:
+--   SELECT user_id, alias_name, COUNT(*) FROM user_places
+--   GROUP BY user_id, alias_name HAVING COUNT(*) > 1;
+ALTER TABLE user_places
+    ADD CONSTRAINT uq_user_places_user_id_alias_name
+    UNIQUE (user_id, alias_name);
