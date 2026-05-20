@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/permission/permission_health_provider.dart';
 import '../../../shared/theme/colors.dart';
 import '../../../shared/theme/typography.dart';
 import '../../../shared/util/navigation_guard.dart';
+import '../../../shared/widgets/my_location_fab.dart';
 import '../../todo/model/todo.dart';
 import '../../todo/util/todo_type_style.dart';
 import '../../todo/widgets/native_kakao_map.dart';
@@ -41,6 +43,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
   final PageController _pageController = PageController(viewportFraction: 0.92);
   String? _lastSelectedMarkerId;
   bool _didCenterOnInitialGps = false;
+  bool _autoPermissionSheetShown = false;
+
+  bool get _supportsNativeMap =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
 
   /// 미니 카드 더블 탭으로 같은 상세 화면이 두 번 push되는 것을 방지.
   void _openDetail(int todoId) {
@@ -60,6 +68,9 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
   @override
   Widget build(BuildContext context) {
+    final permissionHealth = ref.watch(permissionHealthProvider);
+    _showPermissionSheetIfNeeded(permissionHealth);
+
     // 마커 갱신 — todo/filter가 바뀔 때만 native에 동기한다.
     // selectedMarkerId 변경으로 setMarkers를 다시 호출하면 iOS Poi가 재생성되어
     // 마커 탭 직후 표시 상태가 흔들릴 수 있다.
@@ -173,7 +184,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           bottom: state.selectedMarkerId != null
               ? _kPeekSheetFabOffset
               : _kMyLocationFabGap,
-          child: _MyLocationFab(gps: state.currentGps, onTap: _panToMyLocation),
+          child: MyLocationFab(gps: state.currentGps, onTap: _panToMyLocation),
         ),
         if (state.selectedMarkerId != null &&
             state.selectedGroupTodos.isNotEmpty)
@@ -194,9 +205,9 @@ class _MapScreenState extends ConsumerState<MapScreen>
     );
   }
 
-  // ── 지도 — iOS만 실제 KakaoMap, 그 외(web/android)는 안내 placeholder ─
+  // ── 지도 — iOS/Android 앱은 실제 KakaoMap, 그 외(web/desktop)는 안내 placeholder ─
   Widget _buildMap(MapState state) {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+    if (!_supportsNativeMap) {
       return const ColoredBox(
         color: SpaceColors.space800,
         child: Center(
@@ -206,7 +217,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
               Icon(Icons.map_outlined, color: Colors.white24, size: 64),
               SizedBox(height: 16),
               Text(
-                '지도는 iOS 앱에서 확인할 수 있어요',
+                '지도는 모바일 앱에서 확인할 수 있어요',
                 style: TextStyle(color: Colors.white38, fontSize: 14),
               ),
             ],
@@ -301,10 +312,24 @@ class _MapScreenState extends ConsumerState<MapScreen>
   void _panToMyLocation() {
     final gps = ref.read(mapProvider).currentGps;
     if (gps == null) {
-      // GPS 권한 거부/실패 시 안내 — 간단히 toast 정도. Phase 1에선 silently 무시.
+      MyLocationFab.showLocationUnavailableSheet(context);
       return;
     }
     _mapController?.panTo(LatLng(gps.latitude, gps.longitude));
+  }
+
+  void _showPermissionSheetIfNeeded(
+    AsyncValue<PermissionHealth> permissionHealth,
+  ) {
+    final health = permissionHealth.valueOrNull;
+    if (health == null || !health.hasWarning || _autoPermissionSheetShown) {
+      return;
+    }
+    _autoPermissionSheetShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      MyLocationFab.showLocationUnavailableSheet(context);
+    });
   }
 }
 
@@ -542,54 +567,6 @@ class _TypeChip extends StatelessWidget {
                 ),
               ],
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── 내 위치 FAB ───────────────────────────────────────────────────────
-class _MyLocationFab extends StatelessWidget {
-  const _MyLocationFab({required this.gps, required this.onTap});
-
-  // gps가 null이면 권한 없음/실패 → 버튼은 노출하되 회색 + 비활성.
-  final Object? gps;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = gps != null;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(28),
-        child: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: SpaceColors.space900,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: enabled
-                  ? SpaceColors.neonPurple.withOpacity(0.6)
-                  : SpaceColors.white10,
-            ),
-            boxShadow: enabled
-                ? [
-                    BoxShadow(
-                      color: SpaceColors.neonPurple.withOpacity(0.3),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Icon(
-            Icons.my_location,
-            color: enabled ? SpaceColors.neonPurple : SpaceColors.white20,
-            size: 20,
           ),
         ),
       ),

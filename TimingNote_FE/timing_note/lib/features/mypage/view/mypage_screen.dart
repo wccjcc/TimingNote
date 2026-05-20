@@ -350,7 +350,7 @@ class _MyPageScreenState extends ConsumerState<MyPageScreen>
         ),
         SizedBox(height: 10),
         Text(
-          '> 설정 화면',
+          '설정 화면',
           style: TextStyle(
             fontFamily: SpaceTypography.pixelFontFamily,
             color: SpaceColors.white,
@@ -527,7 +527,7 @@ class _SettingGroup extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '> $title',
+                title,
                 style: const TextStyle(
                   fontFamily: SpaceTypography.pixelFontFamily,
                   color: Color(0x80D8B4FE),
