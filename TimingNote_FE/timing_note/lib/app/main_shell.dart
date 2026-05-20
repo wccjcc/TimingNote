@@ -1,10 +1,20 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class MainShell extends StatelessWidget {
+import '../core/permission/permission_health_provider.dart';
+
+class MainShell extends ConsumerStatefulWidget {
   const MainShell({super.key, required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
+
+  @override
+  ConsumerState<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends ConsumerState<MainShell>
+    with WidgetsBindingObserver {
   static const _homeActiveIconAssetPath = 'assets/images/home_icon_active.png';
   static const _homeInactiveIconAssetPath =
       'assets/images/home_icon_inactive.png';
@@ -22,24 +32,42 @@ class MainShell extends StatelessWidget {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(permissionBannerDismissedProvider.notifier).state = false;
+      ref.invalidate(permissionHealthProvider);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      body: navigationShell,
+      body: widget.navigationShell,
       bottomNavigationBar: Container(
         height: 90,
         decoration: const BoxDecoration(
           color: Color(0xF20F0F1A),
-          border: Border(
-            top: BorderSide(color: Color(0x1AFFFFFF), width: 1),
-          ),
+          border: Border(top: BorderSide(color: Color(0x1AFFFFFF), width: 1)),
         ),
         padding: const EdgeInsets.only(top: 16, left: 43.77, right: 43.79),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: List.generate(_tabs.length, (index) {
-            final isActive = navigationShell.currentIndex == index;
+            final isActive = widget.navigationShell.currentIndex == index;
             return _BottomNavItem(
               info: _tabs[index],
               isActive: isActive,
@@ -52,9 +80,13 @@ class MainShell extends StatelessWidget {
   }
 
   void _onTap(int index) {
-    navigationShell.goBranch(
+    if (index != widget.navigationShell.currentIndex) {
+      ref.read(permissionBannerDismissedProvider.notifier).state = false;
+      ref.invalidate(permissionHealthProvider);
+    }
+    widget.navigationShell.goBranch(
       index,
-      initialLocation: index == navigationShell.currentIndex,
+      initialLocation: index == widget.navigationShell.currentIndex,
     );
   }
 }

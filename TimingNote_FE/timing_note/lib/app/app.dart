@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/geofence/geofence_runtime.dart';
 import '../core/location/location_permission_service.dart';
+import '../core/location/location_provider.dart';
 import '../core/location/location_service.dart';
 import '../core/notification/fcm_token_service.dart';
 import '../core/notification/notification_permission_service.dart';
@@ -37,8 +38,6 @@ class App extends ConsumerStatefulWidget {
 class _AppState extends ConsumerState<App>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static final Logger _logger = Logger();
-  static const String _locationPermissionPromptRequestedKey =
-      'location_permission_prompt_requested';
 
   late final Future<void> _bootstrapFuture;
   final PushActionBridge _pushActionBridge = PushActionBridge();
@@ -48,6 +47,11 @@ class _AppState extends ConsumerState<App>
   OverlayEntry? _activeForegroundToastEntry;
   AnimationController? _foregroundToastAnimationController;
   bool _initialPushTapHandled = false;
+  DateTime? _lastForegroundRecalculationAt;
+
+  static const Duration _foregroundRecalculationMinInterval = Duration(
+    minutes: 5,
+  );
 
   @override
   void initState() {
@@ -55,25 +59,23 @@ class _AppState extends ConsumerState<App>
     WidgetsBinding.instance.addObserver(this);
 
     _bootstrapFuture = Future<void>.microtask(() async {
-      // main.dart에서 1차 등록을 수행하지만, hot restart/lifecycle 타이밍에 따라
-      // App 초기화가 인증값 없이 API를 치지 않도록 앱 루트에서도 한 번 더 보장합니다.
+      // AppInitializer에서 대부분 완료되지만, 런타임 중 Provider 상태 유지를 위해 재확인합니다.
       await ref.read(appBootstrapServiceProvider).run();
 
       try {
-        // FCM 토큰 초기화는 앱 시작 시점에 1회 수행합니다.
-        await ref.read(fcmTokenServiceProvider).initialize();
+        // FCM 토큰 초기화 및 알림 관련 설정 (네이티브 전용)
+        if (!kIsWeb) {
+          await ref.read(fcmTokenServiceProvider).initialize();
+          await _initFcmTapDeepLinkRouting();
+          await _initForegroundPushToast();
 
-        // 푸시 알림 탭 딥링크 라우팅 초기화
-        await _initFcmTapDeepLinkRouting();
-        await _initForegroundPushToast();
-
-        // iOS 액션 버튼 브리지 초기화
-        await _pushActionBridge.initialize();
-        _pushActionSubscription = _pushActionBridge.events.listen(
-          _handlePushActionEvent,
-        );
+          _pushActionSubscription = _pushActionBridge.events.listen(
+            _handlePushActionEvent,
+          );
+          await _pushActionBridge.initialize();
+        }
       } catch (e) {
-        debugPrint('Bootstrap skipped: $e');
+        debugPrint('[App] Background bootstrap skipped: $e');
       }
     });
   }
@@ -125,11 +127,11 @@ class _AppState extends ConsumerState<App>
 
     switch (state) {
       case AppLifecycleState.resumed:
-        await _requestUndeterminedPermissionsOnResume();
         // foreground 복귀 시:
         // 1) 런타임이 꺼져있다면 다시 시작
         // 2) 슬롯 강제 동기화 1회로 background 동안의 상태 차이를 복구
         await runtime.start();
+        await _requestForegroundRecalculationIfPossible();
         await runtime.syncSlots();
         break;
 
@@ -144,44 +146,32 @@ class _AppState extends ConsumerState<App>
     }
   }
 
-  Future<void> _requestUndeterminedPermissionsOnResume() async {
-    if (kIsWeb) {
+  /// foreground 복귀 시 현재 좌표로 GENERIC 후보와 geofence slot을 갱신합니다.
+  Future<void> _requestForegroundRecalculationIfPossible() async {
+    final now = DateTime.now();
+    final lastRequestedAt = _lastForegroundRecalculationAt;
+    if (lastRequestedAt != null &&
+        now.difference(lastRequestedAt) < _foregroundRecalculationMinInterval) {
       return;
     }
 
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      final alreadyPrompted =
-          preferences.getBool(_locationPermissionPromptRequestedKey) ?? false;
-      final locationPermissionService = ref.read(
-        locationPermissionServiceProvider,
-      );
-      final whenInUseStatus = await locationPermissionService.checkWhenInUse();
-      if (!alreadyPrompted && whenInUseStatus.isDenied) {
-        await locationPermissionService.requestWhenInUse();
-        await preferences.setBool(_locationPermissionPromptRequestedKey, true);
-      }
-    } catch (e, st) {
-      _logger.w(
-        '[PERMISSION_RESUME] location prompt skipped',
-        error: e,
-        stackTrace: st,
-      );
+    final gps = await tryGetGpsSnapshot(ref, forceFresh: true);
+    if (gps == null) {
+      return;
     }
 
+    _lastForegroundRecalculationAt = now;
     try {
-      final notificationSettings = await FirebaseMessaging.instance
-          .getNotificationSettings();
-      if (notificationSettings.authorizationStatus ==
-          AuthorizationStatus.notDetermined) {
-        await ref.read(notificationPermissionServiceProvider).request();
-      }
-    } catch (e, st) {
-      _logger.w(
-        '[PERMISSION_RESUME] notification prompt skipped',
-        error: e,
-        stackTrace: st,
-      );
+      await ref
+          .read(notificationServiceProvider)
+          .requestGeofenceRecalculation(
+            latitude: gps.latitude,
+            longitude: gps.longitude,
+            occurredAt: gps.occurredAt,
+            course: gps.course,
+          );
+    } catch (e) {
+      _logger.w('[GEOFENCE_RECALCULATE_SKIP] foreground refresh failed: $e');
     }
   }
 
@@ -261,14 +251,33 @@ class _AppState extends ConsumerState<App>
     });
   }
 
-  /// iOS 푸시 액션 버튼 탭 이벤트를 처리합니다.
+  /// 네이티브 푸시 액션 버튼 탭 이벤트를 처리합니다.
   ///
   /// 처리 규칙:
+  /// - OPEN       -> 상세 화면 이동
   /// - COMPLETE   -> NOTI-02 actionType=COMPLETE
   /// - SNOOZE_60  -> NOTI-02 actionType=SNOOZE, snoozeMinutes=60
   /// - geofence 슬롯 반영은 백엔드 outbox->consumer->SSE signal 경로에 위임
   Future<void> _handlePushActionEvent(Map<String, String> event) async {
     final actionId = event['actionId'] ?? '';
+    if (actionId == 'OPEN') {
+      final todoId = int.tryParse(event['todoId'] ?? '');
+      if (todoId == null) {
+        _logger.w('[PUSH_ACTION_OPEN_SKIP] invalid todoId event=$event');
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        context.push('/todos/$todoId');
+      });
+      return;
+    }
+
     final notificationId = int.tryParse(event['notificationId'] ?? '');
     if (notificationId == null) {
       _logger.w('[PUSH_ACTION_SKIP] invalid notificationId event=$event');

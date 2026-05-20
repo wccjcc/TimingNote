@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-/// iOS 네이티브(AppDelegate)에서 전달한 푸시 액션 탭 이벤트를 수신하는 브리지입니다.
+/// 네이티브(iOS/Android)에서 전달한 푸시 액션 탭 이벤트를 수신하는 브리지입니다.
 ///
 /// 채널 규약:
 /// - channel: timing_note/push_actions
@@ -11,7 +11,9 @@ import 'package:flutter/services.dart';
 class PushActionBridge {
   PushActionBridge();
 
-  static const MethodChannel _channel = MethodChannel('timing_note/push_actions');
+  static const MethodChannel _channel = MethodChannel(
+    'timing_note/push_actions',
+  );
 
   final StreamController<Map<String, String>> _eventsController =
       StreamController<Map<String, String>>.broadcast();
@@ -46,5 +48,10 @@ class PushActionBridge {
     });
 
     _initialized = true;
+    try {
+      await _channel.invokeMethod<void>('drainPendingActions');
+    } on MissingPluginException {
+      // iOS는 네이티브에서 Dart로만 이벤트를 보내므로 별도 drain 구현이 없어도 된다.
+    }
   }
 }
