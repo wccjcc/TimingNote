@@ -6,6 +6,7 @@ public interface PushNotificationSender {
 
     boolean send(
             String token,
+            String platform,
             String type,
             String title,
             String body,
