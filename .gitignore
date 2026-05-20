@@ -37,12 +37,15 @@ desktop.ini
 **/ios/Flutter/ephemeral/
 **/macos/Pods/
 **/macos/Flutter/ephemeral/
+# Xcode Organizer export folders, e.g. "Runner 2026-05-10 19-27-33"
+TimingNote_FE/Runner\ 20??-??-??\ ??-??-??/
 
 # Linux / Windows Flutter ephemeral artifacts
 **/linux/flutter/ephemeral/
 **/windows/flutter/ephemeral/
 
 # Environment files
+**/.venv
 **/.env
 **/.env.*
 !**/.env.example
@@ -50,3 +53,23 @@ desktop.ini
 
 # 정우주 개인 prd 문서
 **/documents/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Postgres volume data
+**/infra/postgres/data/
+
+# codex 스킬 관련 파일
+.codex/
+.claude/
+
+# claude 스킬 관련 파일
+.claude/
+
+# google service account 관련
+TimingNote_BE/secrets/
+
+# http 폴더
+TimingNote_BE/http/

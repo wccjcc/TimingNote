@@ -1,0 +1,51 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+  # Local development convenience mode:
+  # entity changes are reflected automatically without migration SQL.
+  flyway:
+    enabled: false
+
+  # local 프로파일에서는 호스트의 9200 포트로 직접 접근.
+  # .env의 ELASTICSEARCH_HOST=elasticsearch는 docker-compose.app.yml 컨테이너와 통신용이라
+  # 호스트에서 직접 bootRun 시 hostname 'elasticsearch'가 풀리지 않음 → 강제 오버라이드.
+  elasticsearch:
+    uris: http://localhost:9200
+
+  # Redis도 같은 이유로 강제 오버라이드.
+  # .env의 REDIS_HOST=redis는 docker network DNS 이름이라 호스트 bootRun에서 풀리지 않음.
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  # Hikari 커넥션 풀: 로컬은 동시 호출 거의 없으므로 풀을 작게.
+  # leak-detection-threshold: 트랜잭션이 풀에서 N ms 이상 떼어진 채로 있으면 누수 의심 로그. 개발 중 connection 누수 빠르게 잡기.
+  # 로컬 bootRun 좀비가 누적돼 Postgres max_connections(100)을 다 잡아먹는 사고 재발 방지용 사이즈 제한.
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      idle-timeout: 60000
+      max-lifetime: 600000
+      leak-detection-threshold: 30000
+
+# 로컬 개발 편의: 앱 패키지는 DEBUG, 외부 라이브러리 noise는 그대로 INFO.
+# application.yml의 환경변수 디폴트보다 프로파일 yml이 우선이라 LOG_LEVEL_APP 설정 없이도 DEBUG 적용됨.
+logging:
+  level:
+    com.timingnote: DEBUG
+    org.springframework.web: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

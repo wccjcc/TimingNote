@@ -35,3 +35,6 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# local gradle cache for this workspace
+.gradle-local/

@@ -5,6 +5,8 @@
 
 services:
   # Redis Stack: Redis 서버 + Redis Insight UI (8001 포트) 포함
+  # maxmemory 512MB + allkeys-lru: 캐시 한도 도달 시 가장 오래 안 쓴 key 자동 삭제 → OOM 방지.
+  # places:* 캐시 예상 사용량(DAU 1만 기준 ~100MB) 대비 5배 여유.
   redis:
     image: redis/redis-stack:latest
     container_name: timingnote-redis
@@ -12,7 +14,7 @@ services:
       - "6379:6379" # Redis 서버 포트
       - "8001:8001" # Redis Insight UI 포트
     environment:
-      REDIS_ARGS: --appendonly yes
+      REDIS_ARGS: --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
     restart: always
@@ -31,7 +33,55 @@ services:
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     restart: always
+  # PostgreSQL 17 (pgvector 포함) + PostGIS 설치 환경
+  db:
+    build: ./infra/postgres  # Dockerfile이 있는 경로로 수정
+    container_name: timingnote-db
+    ports:
+      - "${DB_PORT}:5432"
+    # 기본 max_connections(100)은 좀비 bootRun 누적 시 쉽게 고갈됨. 로컬은 넉넉히 200으로.
+    # superuser_reserved_connections를 5로 늘려 pgAdmin·docker exec psql용 여유 확보.
+    command: >
+      postgres
+      -c max_connections=200
+      -c superuser_reserved_connections=5
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      # 현재 폴더(루트) 기준 infra/postgres/data 폴더에 저장
+      - ./infra/postgres/data:/var/lib/postgresql/data
+      - ./infra/postgres/initdb.d:/docker-entrypoint-initdb.d
+    restart: always
+
+  # Elasticsearch 8.14.3 + Nori (한국어 형태소 분석) - 할 일 검색용
+  elasticsearch:
+    build:
+      context: ./infra/elasticsearch
+      dockerfile: Dockerfile
+    container_name: timingnote-elasticsearch-local
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      bootstrap.memory_lock: "false"   # ulimits/memlock 환경 차이 흡수 (single-node 안정성)
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    restart: always
 
 volumes:
   redis-data:
   rabbitmq-data:
+  postgres-data:
+  elasticsearch-data:
+
