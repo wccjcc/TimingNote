@@ -1,6 +1,7 @@
 package com.timingnote.api.infra.security;
 
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Base64;
 import javax.crypto.Mac;
@@ -17,9 +18,11 @@ public class DeviceSecretManager {
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final int SECRET_BYTE_LENGTH = 32;
     private final SecureRandom secureRandom = new SecureRandom();
+    private final String pepper;
 
-    @Value("${security.device-secret.pepper}")
-    private String pepper;
+    public DeviceSecretManager(@Value("${security.device-secret.pepper}") String pepper) {
+        this.pepper = pepper;
+    }
 
     // 클라이언트에게 1회 전달할 평문 시크릿 생성
     public String generateRawSecret() {
@@ -35,7 +38,7 @@ public class DeviceSecretManager {
             mac.init(new SecretKeySpec(pepper.getBytes(StandardCharsets.UTF_8), HMAC_ALGORITHM));
             byte[] digest = mac.doFinal(rawSecret.getBytes(StandardCharsets.UTF_8));
             return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
-        } catch (Exception ex) {
+        } catch (GeneralSecurityException ex) {
             throw new IllegalStateException("deviceSecret hash 생성에 실패했습니다.", ex);
         }
     }
