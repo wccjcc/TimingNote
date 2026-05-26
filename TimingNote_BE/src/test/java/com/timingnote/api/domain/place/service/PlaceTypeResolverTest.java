@@ -46,53 +46,53 @@ class PlaceTypeResolverTest {
     }
 
     @Test
-    void resolve_returnsGeneric_whenOnlyRelatedCandidateContainsPlaceText() {
+    void resolve_returnsSpecific_whenOnlyRelatedCandidateContainsPlaceText_andResultsCountIsOne() {
         List<PlaceSearchItemResponse> items = List.of(
-                place("1", "광주수완도서관 주차장"),
-                place("2", "광주수완도서관 공원")
+                place("1", "광주수완도서관 주차장")
         );
 
+        // 결과가 1개뿐이므로 SPECIFIC으로 승격됨
         PlaceTypeResolver.Result result = resolver.resolve("광주수완도서관", items);
 
-        assertThat(result.placeType()).isEqualTo(AiPlaceType.GENERIC);
-        assertThat(result.items()).hasSize(2);
+        assertThat(result.placeType()).isEqualTo(AiPlaceType.SPECIFIC);
+        assertThat(result.items()).hasSize(1);
     }
 
     @Test
-    void resolve_returnsGeneric_whenBranchSuffixOrRegionWordWouldRequireRelaxedMatching() {
+    void resolve_returnsSpecific_whenResultCountIsOne_evenIfSuffixDiffers() {
         PlaceTypeResolver.Result result = resolver.resolve(
                 "롯데마트 수완",
                 List.of(place("1", "롯데마트 광주 수완점"))
         );
 
-        assertThat(result.placeType()).isEqualTo(AiPlaceType.GENERIC);
+        // 이전에는 GENERIC이었으나, 이제 결과가 1개면 SPECIFIC
+        assertThat(result.placeType()).isEqualTo(AiPlaceType.SPECIFIC);
         assertThat(result.items()).hasSize(1);
     }
 
     @Test
-    void resolve_returnsSpecific_whenOnlyBranchSuffixDiffers() {
-        PlaceTypeResolver.Result result = resolver.resolve(
-                "롯데마트 수완",
-                List.of(place("1", "롯데마트 수완점"))
-        );
-
-        assertThat(result.placeType()).isEqualTo(AiPlaceType.SPECIFIC);
-        assertThat(result.items())
-                .hasSize(1)
-                .first()
-                .extracting(PlaceSearchItemResponse::getId)
-                .isEqualTo("1");
-    }
-
-    @Test
-    void resolve_keepsStoreNounSuffix_whenNameEndsWithBookstoreOrKiosk() {
+    void resolve_returnsSpecific_whenNameEndsWithBookstoreOrKiosk_andResultIsUnique() {
         PlaceTypeResolver.Result result = resolver.resolve(
                 "교보문고",
                 List.of(place("1", "교보문고 서점"))
         );
 
-        assertThat(result.placeType()).isEqualTo(AiPlaceType.GENERIC);
+        // 결과가 1개면 SPECIFIC
+        assertThat(result.placeType()).isEqualTo(AiPlaceType.SPECIFIC);
         assertThat(result.items()).hasSize(1);
+    }
+
+    @Test
+    void resolve_returnsGeneric_whenResultsAreMultiple_andNoExactMatchExists() {
+        List<PlaceSearchItemResponse> items = List.of(
+                place("1", "교보문고 광화문점"),
+                place("2", "교보문고 강남점")
+        );
+
+        PlaceTypeResolver.Result result = resolver.resolve("교보문고", items);
+
+        assertThat(result.placeType()).isEqualTo(AiPlaceType.GENERIC);
+        assertThat(result.items()).hasSize(2);
     }
 
     private PlaceSearchItemResponse place(String id, String placeName) {

@@ -69,7 +69,15 @@ public class PlaceTypeResolver {
             return new Result(AiPlaceType.SPECIFIC, List.of(matched));
         }
 
-        // 3. 후보는 있지만 exact match가 없으면 기존 알림 효율을 유지하기 위해 GENERIC 후보 풀로 둔다.
+        // 3. 결과가 단 1개뿐이라면 SPECIFIC으로 간주 (완전 일치하지 않더라도 특정 장소일 확률 높음)
+        if (items.size() == 1) {
+            PlaceSearchItemResponse single = items.get(0);
+            log.info("[PLACE_TYPE] SPECIFIC — 검색 결과 유니크 (placeText='{}', matched='{}')",
+                    placeText, single.getPlaceName());
+            return new Result(AiPlaceType.SPECIFIC, items);
+        }
+
+        // 4. 후보는 있지만 exact match가 없으면 기존 알림 효율을 유지하기 위해 GENERIC 후보 풀로 둔다.
         log.info("[PLACE_TYPE] GENERIC — exact match 없음 (placeText='{}', count={})",
                 placeText, items.size());
         return new Result(AiPlaceType.GENERIC, items);
