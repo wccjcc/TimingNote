@@ -107,6 +107,20 @@ public class Place {
 
     // ── 도메인 메서드 ─────────────────────────────────────────────────────────
 
+    /**
+     * 카카오 검색 결과 등으로 들어온 최신 정보로 기본 필드들을 동기화한다.
+     */
+    public void updateBasicInfo(
+            String name, String categoryName, String address,
+            String roadAddress, String phone, String placeUrl) {
+        this.name = name;
+        this.categoryName = categoryName;
+        this.address = address;
+        this.roadAddress = roadAddress;
+        this.phone = phone;
+        this.placeUrl = placeUrl;
+    }
+
     public void enrichGoogleData(String googlePlaceId, String regularHoursRaw, String businessStatus) {
         this.googlePlaceId = googlePlaceId;
         this.regularHoursRaw = regularHoursRaw;

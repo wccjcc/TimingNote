@@ -49,7 +49,8 @@ class GeofenceRecalculateServiceImplTest {
         verify(refreshService).refresh(
                 userId,
                 requestDto.getLatitude(),
-                requestDto.getLongitude()
+                requestDto.getLongitude(),
+                requestDto.getCourse()
         );
         verify(outboxService).enqueue(
                 userId,

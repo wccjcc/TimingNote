@@ -159,6 +159,32 @@ class PlaceSearchCacheTest {
     }
 
     @Test
+    void getOrLoadSearch_bypassesCache_whenLockAcquireFails() {
+        // given
+        when(valueOperations.get(SEARCH_KEY)).thenReturn(null);
+        when(valueOperations.setIfAbsent(eq(SEARCH_LOCK_KEY), anyString(), eq(Duration.ofSeconds(5))))
+                .thenThrow(new RedisConnectionFailureException("redis down"));
+        AtomicBoolean loaderCalled = new AtomicBoolean(false);
+
+        // when
+        List<PlaceSearchItemResponse> result = cache.getOrLoadSearch(
+                "약국", 35.1483, 126.9156,
+                () -> {
+                    loaderCalled.set(true);
+                    return List.of();
+                }
+        );
+
+        // then
+        assertThat(result).isEmpty();
+        assertThat(loaderCalled).isTrue();
+        assertThat(counter("place.cache.search.redis.error")).isEqualTo(1.0);
+        assertThat(counter("place.cache.search.miss")).isZero();
+        assertThat(counter("place.cache.search.lock.acquired")).isZero();
+        verify(valueOperations, never()).set(eq(SEARCH_KEY), eq("[]"), any(Duration.class));
+    }
+
+    @Test
     void getOrLoadSearch_bypassesCache_whenRedisGetFails() {
         // given
         when(valueOperations.get(SEARCH_KEY)).thenThrow(new RedisConnectionFailureException("redis down"));

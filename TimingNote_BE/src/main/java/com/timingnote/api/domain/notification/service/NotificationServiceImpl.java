@@ -27,6 +27,7 @@ import com.timingnote.api.domain.todo.enums.ConditionType;
 import com.timingnote.api.domain.todo.enums.TodoStatus;
 import com.timingnote.api.domain.todo.repository.TodoRepository;
 import com.timingnote.api.domain.todo.repository.TodoTimeConditionRepository;
+import com.timingnote.api.domain.user.entity.UserPlace;
 import com.timingnote.api.domain.user.repository.UserPlaceRepository;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -398,7 +399,7 @@ public class NotificationServiceImpl implements NotificationService {
                             todo.getUserId(),
                             slot.getPlaceId()
                     )
-                    .map(userPlace -> userPlace.getAliasName())
+                    .map(UserPlace::getAliasName)
                     .filter(alias -> !alias.isBlank())
                     .orElse(null);
             if (aliasName != null) {

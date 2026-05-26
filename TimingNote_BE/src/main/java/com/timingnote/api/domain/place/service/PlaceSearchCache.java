@@ -10,12 +10,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -127,11 +123,11 @@ public class PlaceSearchCache {
         String lockKey = buildSearchLockKey(key);
         String token = UUID.randomUUID().toString();
 
-        Boolean lockAcquired = acquireSearchLock(lockKey, token);
-        if (lockAcquired == null) {
+        SearchLockState lockState = acquireSearchLock(lockKey, token);
+        if (lockState == SearchLockState.UNAVAILABLE) {
             return loadSearchWithoutCache(key, loader);
         }
-        if (lockAcquired) {
+        if (lockState == SearchLockState.ACQUIRED) {
             metrics.searchLockAcquired();
             try {
                 metrics.searchMiss();
@@ -230,14 +226,15 @@ public class PlaceSearchCache {
         return loader.get();
     }
 
-    private Boolean acquireSearchLock(String lockKey, String token) {
+    private SearchLockState acquireSearchLock(String lockKey, String token) {
         try {
-            return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(lockKey, token, SEARCH_LOCK_TTL));
+            boolean acquired = Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(lockKey, token, SEARCH_LOCK_TTL));
+            return acquired ? SearchLockState.ACQUIRED : SearchLockState.BUSY;
         } catch (RuntimeException e) {
             metrics.searchRedisError();
             log.warn("[PLACE_CACHE][SEARCH][LOCK_ACQUIRE_FAIL] keyHash={} err={}",
                     keyFingerprint(lockKey), e.getMessage());
-            return null;
+            return SearchLockState.UNAVAILABLE;
         }
     }
 
@@ -277,6 +274,12 @@ public class PlaceSearchCache {
         boolean hit() {
             return result != null;
         }
+    }
+
+    private enum SearchLockState {
+        ACQUIRED,
+        BUSY,
+        UNAVAILABLE
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -329,6 +332,12 @@ public class PlaceSearchCache {
         return fresh;
     }
 
+    /**
+     * 캐시 만료 시간(TTL)에 지터(Jitter)를 추가하여 대량 만료로 인한 Cache Stampede 현상을 방지한다.
+     * <p>이 난수는 보안 목적(비밀번호, 토큰 등)이 아닌 성능 최적화를 위한 것이므로
+     * 성능상 이점이 큰 ThreadLocalRandom을 사용한다.</p>
+     */
+    @SuppressWarnings("java:S2245")
     private Duration withJitter(Duration baseTtl) {
         long baseSeconds = baseTtl.toSeconds();
         long jitterSeconds = baseSeconds * TTL_JITTER_PERCENT / 100;
@@ -340,13 +349,7 @@ public class PlaceSearchCache {
     }
 
     private static String keyFingerprint(String key) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(key.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest, 0, 8);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest unavailable", e);
-        }
+        return Integer.toUnsignedString(key.hashCode(), 16);
     }
 
     // ─────────────────────────────────────────────────────────────────

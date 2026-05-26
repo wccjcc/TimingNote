@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,48 +64,74 @@ public class GenericCandidateRefreshServiceImpl implements GenericCandidateRefre
                 .collect(Collectors.groupingBy(Todo::getResolvedPlaceLabel));
 
         for (Map.Entry<String, List<Todo>> entry : todosByLabel.entrySet()) {
-            String placeLabel = entry.getKey();
-            List<Todo> todosForLabel = entry.getValue();
-            // 3. HTTP 호출 — 트랜잭션 없음 (커넥션 점유 없음).
-            // 등록 흐름(AI)과 동일한 searchAndStoreAll 사용 — 좌표만, radius/sort 미지정, Redis 캐시 경유.
-            // 같은 grid·키워드는 카카오 호출 0건으로 흡수된다 (1km grid, 7일 TTL).
-
-            if (!shouldRefreshByForwardCoverage(todosForLabel, now, lat, lon, course)) {
-                continue;
-            }
-
-            List<Place> newPlaces;
-            try {
-                PlaceService.SearchResult sr = placeService.searchAndStoreAll(placeLabel, lat, lon);
-                newPlaces = sr.storedPlaces();
-                log.info("[포괄장소 후보 재계산 실행] userId={} placeLabel='{}' storedPlaces={}",
-                        userId, placeLabel, newPlaces.size());
-
-            } catch (Exception e) {
-                log.warn("[GenericRefresh] Kakao 검색 실패 — 스킵: placeLabel='{}' error={}",
-                        placeLabel, e.getMessage());
-                continue;
-            }
-
-            // Kakao 결과가 비면 기존 후보를 유지 (API 오류를 빈 결과로 신뢰하면 전체 만료 위험)
-            if (newPlaces.isEmpty()) {
-                log.warn("[GenericRefresh] 재검색 결과 없음 — 기존 후보 유지: placeLabel='{}'", placeLabel);
-                continue;
-            }
-
-            // 4. DB 갱신 — 투두별 짧은 쓰기 트랜잭션으로 위임
-            for (Todo todo : todosForLabel) {
-                try {
-                    genericCandidatePersister.persistOneTodo(todo, newPlaces, lat, lon, now);
-                } catch (Exception e) {
-                    log.warn("[GenericRefresh] 투두 후보 갱신 실패 — 스킵: todoId={} error={}",
-                            todo.getId(), e.getMessage());
-                }
-            }
+            refreshLabelGroup(userId, entry.getKey(), entry.getValue(), now, lat, lon, course);
         }
 
         log.info("[GenericRefresh] 완료: userId={} genericTodos={} uniqueLabels={}",
                 userId, genericTodos.size(), todosByLabel.size());
+    }
+
+    private void refreshLabelGroup(
+            Long userId,
+            String placeLabel,
+            List<Todo> todosForLabel,
+            OffsetDateTime now,
+            double lat,
+            double lon,
+            BigDecimal course
+    ) {
+        // 3. HTTP 호출 — 트랜잭션 없음 (커넥션 점유 없음).
+        // 등록 흐름(AI)과 동일한 searchAndStoreAll 사용 — 좌표만, radius/sort 미지정, Redis 캐시 경유.
+        // 같은 grid·키워드는 카카오 호출 0건으로 흡수된다 (1km grid, 7일 TTL).
+        if (!shouldRefreshByForwardCoverage(todosForLabel, now, lat, lon, course)) {
+            return;
+        }
+
+        Optional<List<Place>> searchedPlaces = searchCandidates(userId, placeLabel, lat, lon);
+        if (searchedPlaces.isEmpty()) {
+            return;
+        }
+
+        List<Place> newPlaces = searchedPlaces.get();
+        // Kakao 결과가 비면 기존 후보를 유지 (API 오류를 빈 결과로 신뢰하면 전체 만료 위험)
+        if (newPlaces.isEmpty()) {
+            log.warn("[GenericRefresh] 재검색 결과 없음 — 기존 후보 유지: placeLabel='{}'", placeLabel);
+            return;
+        }
+
+        // 4. DB 갱신 — 투두별 짧은 쓰기 트랜잭션으로 위임
+        persistCandidates(todosForLabel, newPlaces, lat, lon, now);
+    }
+
+    private Optional<List<Place>> searchCandidates(Long userId, String placeLabel, double lat, double lon) {
+        try {
+            PlaceService.SearchResult searchResult = placeService.searchAndStoreAll(placeLabel, lat, lon);
+            List<Place> newPlaces = searchResult.storedPlaces();
+            log.info("[포괄장소 후보 재계산 실행] userId={} placeLabel='{}' storedPlaces={}",
+                    userId, placeLabel, newPlaces.size());
+            return Optional.of(newPlaces);
+        } catch (Exception e) {
+            log.warn("[GenericRefresh] Kakao 검색 실패 — 스킵: placeLabel='{}' error={}",
+                    placeLabel, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private void persistCandidates(
+            List<Todo> todosForLabel,
+            List<Place> newPlaces,
+            double lat,
+            double lon,
+            OffsetDateTime now
+    ) {
+        for (Todo todo : todosForLabel) {
+            try {
+                genericCandidatePersister.persistOneTodo(todo, newPlaces, lat, lon, now);
+            } catch (Exception e) {
+                log.warn("[GenericRefresh] 투두 후보 갱신 실패 — 스킵: todoId={} error={}",
+                        todo.getId(), e.getMessage());
+            }
+        }
     }
 
     private boolean shouldRefreshByForwardCoverage(

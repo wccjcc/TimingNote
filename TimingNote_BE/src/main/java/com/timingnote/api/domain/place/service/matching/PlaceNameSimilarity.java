@@ -1,6 +1,7 @@
 package com.timingnote.api.domain.place.service.matching;
 
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -53,11 +54,54 @@ public final class PlaceNameSimilarity {
      * 한글/영문/숫자만 보존.
      */
     private static String normalize(String s) {
-        return s.toLowerCase()
-                .replaceAll("\\s+", "")
-                .replaceAll("(점|지점|본점|店|branch)$", "")
-                .replaceAll("\\d+호점$", "")
-                .replaceAll("[^가-힣a-z0-9]", "");
+        String compact = keepSearchNameCharacters(s.toLowerCase(Locale.ROOT));
+        return removeStoreSuffix(compact);
+    }
+
+    private static String keepSearchNameCharacters(String value) {
+        StringBuilder result = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (isSearchNameCharacter(ch)) {
+                result.append(ch);
+            }
+        }
+        return result.toString();
+    }
+
+    private static boolean isSearchNameCharacter(char ch) {
+        return ('가' <= ch && ch <= '힣')
+                || ('a' <= ch && ch <= 'z')
+                || ('0' <= ch && ch <= '9');
+    }
+
+    private static String removeStoreSuffix(String value) {
+        String withoutNumberedBranch = removeNumberedBranchSuffix(value);
+        if (withoutNumberedBranch.endsWith("branch")) {
+            return withoutNumberedBranch.substring(0, withoutNumberedBranch.length() - "branch".length());
+        }
+        if (withoutNumberedBranch.endsWith("지점") || withoutNumberedBranch.endsWith("본점")) {
+            return withoutNumberedBranch.substring(0, withoutNumberedBranch.length() - 2);
+        }
+        if (withoutNumberedBranch.endsWith("점")) {
+            return withoutNumberedBranch.substring(0, withoutNumberedBranch.length() - 1);
+        }
+        return withoutNumberedBranch;
+    }
+
+    private static String removeNumberedBranchSuffix(String value) {
+        String suffix = "호점";
+        if (!value.endsWith(suffix)) {
+            return value;
+        }
+
+        int digitStart = value.length() - suffix.length();
+        while (digitStart > 0 && Character.isDigit(value.charAt(digitStart - 1))) {
+            digitStart--;
+        }
+        return digitStart == value.length() - suffix.length()
+                ? value
+                : value.substring(0, digitStart);
     }
 
     private static Set<String> bigrams(String s) {
