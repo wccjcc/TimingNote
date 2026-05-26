@@ -20,7 +20,7 @@ public class TodoSearchRequest {
     @NotBlank
     private String q;
 
-    /** 옵션: ACTIVE | DONE. 미지정 시 DELETED 제외 전체. */
+    /** 옵션: ACTIVE | DONE. 미지정 시 ACTIVE. */
     private String status;
 
     /** 옵션: DINE | ACQUIRE | HEALTH | SERVICE. */
