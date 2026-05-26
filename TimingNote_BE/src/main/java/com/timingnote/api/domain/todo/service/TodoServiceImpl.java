@@ -175,17 +175,7 @@ public class TodoServiceImpl implements TodoService {
                 .map(GeofenceSlot::getTodoId)
                 .collect(Collectors.toSet());
 
-        List<TodoListItemResponse> items = page.stream()
-                .map(t -> {
-                    Place place = t.getPrimaryPlaceId() != null
-                            ? placeMap.get(t.getPrimaryPlaceId())
-                            : null;
-                    Double lat = place != null ? place.getLatitude() : null;
-                    Double lng = place != null ? place.getLongitude() : null;
-                    boolean activeSlot = activeTodoIds.contains(t.getId());
-                    return TodoListItemResponse.from(t, thumbnailMap.get(t.getId()), lat, lng, activeSlot);
-                })
-                .toList();
+        List<TodoListItemResponse> items = buildTodoListItems(page, thumbnailMap, placeMap, activeTodoIds);
 
         return TodoListResponse.builder()
                 .items(items)
@@ -193,15 +183,41 @@ public class TodoServiceImpl implements TodoService {
                 .build();
     }
 
+    private List<TodoListItemResponse> buildTodoListItems(
+            List<Todo> todos,
+            Map<Long, String> thumbnailMap,
+            Map<Long, Place> placeMap,
+            Set<Long> activeTodoIds
+    ) {
+        return todos.stream()
+                .map(todo -> toTodoListItem(todo, thumbnailMap, placeMap, activeTodoIds))
+                .toList();
+    }
+
+    private TodoListItemResponse toTodoListItem(
+            Todo todo,
+            Map<Long, String> thumbnailMap,
+            Map<Long, Place> placeMap,
+            Set<Long> activeTodoIds
+    ) {
+        Place place = todo.getPrimaryPlaceId() != null
+                ? placeMap.get(todo.getPrimaryPlaceId())
+                : null;
+        Double lat = place != null ? place.getLatitude() : null;
+        Double lng = place != null ? place.getLongitude() : null;
+        return TodoListItemResponse.from(
+                todo,
+                thumbnailMap.get(todo.getId()),
+                lat,
+                lng,
+                activeTodoIds.contains(todo.getId())
+        );
+    }
+
     @Override
     @Transactional(readOnly = true)
     public TodoDetailResponse getTodoDetail(Long userId, Long todoId) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
-        }
-        return assembleTodoDetail(todo);
+        return assembleTodoDetail(getOwnedTodo(userId, todoId));
     }
 
     // ── 수정 ─────────────────────────────────────────────────────────────────
@@ -209,55 +225,18 @@ public class TodoServiceImpl implements TodoService {
     @Override
     @Transactional
     public TodoDetailResponse updateTodo(Long userId, Long todoId, TodoUpdateRequest request) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
-        }
+        Todo todo = getOwnedTodo(userId, todoId);
 
-        if (StringUtils.hasText(request.getContent())) {
-            todo.updateContent(request.getContent());
-        }
-        if (request.getCategory() != null) {
-            todo.updateCategory(request.getCategory().isEmpty() ? null : request.getCategory());
-        }
+        applyBasicUpdates(todo, request);
         if (request.getPlaceText() != null) {
             applyPlaceTextUpdate(todo, todoId, request);
             // 장소 텍스트 변경 → 슬롯 재계산 outbox enqueue (Kakao 재검색은 방금 완료)
             enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
                     request.getCourse(), request.getOccurredAt());
         }
-        if (request.getTimeConditions() != null) {
-            todoTimeConditionRepository.deleteAllByTodo_Id(todoId);
-            if (!request.getTimeConditions().isEmpty()) {
-                todoTimeConditionRepository.saveAll(
-                        request.getTimeConditions().stream()
-                                .map(tc -> buildTimeCondition(todo, tc))
-                                .toList());
-            }
-        }
-        if (request.getImageUrls() != null) {
-            todoInputRepository.deleteAllByTodo_IdAndImageUrlIsNotNull(todoId);
-            if (!request.getImageUrls().isEmpty()) {
-                // 수정 완료 시점에 temp 이미지 키를 최종 original 키로 확정
-                List<String> finalizedImageKeys = imageFinalizeService.finalizeImageKeys(todoId, request.getImageUrls());
-                todoInputRepository.save(TodoInput.builder()
-                        .todo(todo)
-                        .inputType(InputType.IMAGE)
-                        .imageUrl(finalizedImageKeys)
-                        .build());
-            }
-        }
-        if (request.getSharedUrl() != null) {
-            todoInputRepository.deleteAllByTodo_IdAndSharedUrlIsNotNull(todoId);
-            if (!request.getSharedUrl().isEmpty()) {
-                todoInputRepository.save(TodoInput.builder()
-                        .todo(todo)
-                        .inputType(InputType.LINK)
-                        .sharedUrl(request.getSharedUrl())
-                        .build());
-            }
-        }
+        applyTimeConditionUpdates(todo, todoId, request.getTimeConditions());
+        applyImageUpdates(todo, todoId, request.getImageUrls());
+        applySharedUrlUpdates(todo, todoId, request.getSharedUrl());
 
         todoIndexer.scheduleAfterCommit(todoId);
 
@@ -265,14 +244,66 @@ public class TodoServiceImpl implements TodoService {
         return assembleTodoDetail(todo);
     }
 
+    private void applyBasicUpdates(Todo todo, TodoUpdateRequest request) {
+        if (StringUtils.hasText(request.getContent())) {
+            todo.updateContent(request.getContent());
+        }
+        if (request.getCategory() != null) {
+            todo.updateCategory(request.getCategory().isEmpty() ? null : request.getCategory());
+        }
+    }
+
+    private void applyTimeConditionUpdates(
+            Todo todo,
+            Long todoId,
+            List<TodoTimeConditionRequest> timeConditions
+    ) {
+        if (timeConditions == null) {
+            return;
+        }
+        todoTimeConditionRepository.deleteAllByTodo_Id(todoId);
+        if (!timeConditions.isEmpty()) {
+            todoTimeConditionRepository.saveAll(
+                    timeConditions.stream()
+                            .map(tc -> buildTimeCondition(todo, tc))
+                            .toList());
+        }
+    }
+
+    private void applyImageUpdates(Todo todo, Long todoId, List<String> imageUrls) {
+        if (imageUrls == null) {
+            return;
+        }
+        todoInputRepository.deleteAllByTodo_IdAndImageUrlIsNotNull(todoId);
+        if (!imageUrls.isEmpty()) {
+            // 수정 완료 시점에 temp 이미지 키를 최종 original 키로 확정
+            List<String> finalizedImageKeys = imageFinalizeService.finalizeImageKeys(todoId, imageUrls);
+            todoInputRepository.save(TodoInput.builder()
+                    .todo(todo)
+                    .inputType(InputType.IMAGE)
+                    .imageUrl(finalizedImageKeys)
+                    .build());
+        }
+    }
+
+    private void applySharedUrlUpdates(Todo todo, Long todoId, String sharedUrl) {
+        if (sharedUrl == null) {
+            return;
+        }
+        todoInputRepository.deleteAllByTodo_IdAndSharedUrlIsNotNull(todoId);
+        if (!sharedUrl.isEmpty()) {
+            todoInputRepository.save(TodoInput.builder()
+                    .todo(todo)
+                    .inputType(InputType.LINK)
+                    .sharedUrl(sharedUrl)
+                    .build());
+        }
+    }
+
     @Override
     @Transactional
     public void updateAlert(Long userId, Long todoId, TodoAlertUpdateRequest request) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
-        }
+        Todo todo = getOwnedTodo(userId, todoId);
         todo.updateAlertEnabled(request.getAlertEnabled());
         // 알림 on/off → recalculateSlots의 hard rule(alertEnabled) 필터 변경되므로 슬롯 재계산
         enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
@@ -282,11 +313,7 @@ public class TodoServiceImpl implements TodoService {
     @Override
     @Transactional
     public void updateStatus(Long userId, Long todoId, TodoStatusUpdateRequest request) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
-        }
+        Todo todo = getOwnedTodo(userId, todoId);
         todo.updateStatus(request.getStatus());
         // DONE↔ACTIVE 전환 시 monitoring 쿼리(status='ACTIVE') 필터가 바뀌므로 슬롯 재계산
         enqueueSlotRecalculate(userId, request.getLatitude(), request.getLongitude(),
@@ -306,45 +333,12 @@ public class TodoServiceImpl implements TodoService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR);
         }
 
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
-        }
-
-        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+        Todo todo = getOwnedTodo(userId, todoId);
 
         if (hasAlias) {
-            UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(req.getUserPlaceId(), userId)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
-            Place place = userPlace.getPlace();
-
-            todo.updateTodoType(TodoType.ALIAS.name());
-            todo.updatePrimaryPlaceId(place.getId());
-            todo.updateResolvedPlaceLabel(userPlace.getAliasName());
-            saveSingleCandidate(todo, place);
-
-            log.info("[Todo/Place] todoId={} → ALIAS placeId={} alias='{}'",
-                    todoId, place.getId(), userPlace.getAliasName());
+            applyAliasPlace(userId, todo, todoId, req.getUserPlaceId());
         } else {
-            TodoPlaceSetRequest.ExternalPlaceInfo ext = req.getExternalPlace();
-            Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
-                    ext.getKakaoPlaceId(), ext.getPlaceName(),
-                    ext.getAddressName(), ext.getRoadAddressName(),
-                    ext.getCategoryGroupCode(), ext.getCategoryGroupName(),
-                    ext.getPhone(), ext.getPlaceUrl(),
-                    ext.getLongitude(), ext.getLatitude()));
-
-            String label = StringUtils.hasText(ext.getRoadAddressName())
-                    ? ext.getRoadAddressName() : ext.getPlaceName();
-
-            todo.updateTodoType(TodoType.SPECIFIC.name());
-            todo.updatePrimaryPlaceId(place.getId());
-            todo.updateResolvedPlaceLabel(label);
-            saveSingleCandidate(todo, place);
-
-            log.info("[Todo/Place] todoId={} → SPECIFIC placeId={} label='{}'",
-                    todoId, place.getId(), label);
+            applyExternalPlace(todo, todoId, req.getExternalPlace());
         }
 
         // 장소 설정 → 슬롯 재계산 outbox enqueue (후보는 이미 저장됨)
@@ -358,19 +352,48 @@ public class TodoServiceImpl implements TodoService {
         return assembleTodoDetail(todo);
     }
 
+    private void applyAliasPlace(Long userId, Todo todo, Long todoId, Long userPlaceId) {
+        UserPlace userPlace = userPlaceRepository.findByIdAndUser_Id(userPlaceId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_PLACE_NOT_FOUND));
+        Place place = userPlace.getPlace();
+
+        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+        todo.updateTodoType(TodoType.ALIAS.name());
+        todo.updatePrimaryPlaceId(place.getId());
+        todo.updateResolvedPlaceLabel(userPlace.getAliasName());
+        saveSingleCandidate(todo, place);
+
+        log.info("[Todo/Place] todoId={} → ALIAS placeId={} alias='{}'",
+                todo.getId(), place.getId(), userPlace.getAliasName());
+    }
+
+    private void applyExternalPlace(Todo todo, Long todoId, TodoPlaceSetRequest.ExternalPlaceInfo ext) {
+        Place place = placeService.saveUserSelectedPlace(PlaceUpsertCommand.of(
+                ext.getKakaoPlaceId(), ext.getPlaceName(),
+                ext.getAddressName(), ext.getRoadAddressName(),
+                ext.getCategoryGroupCode(), ext.getCategoryGroupName(),
+                ext.getPhone(), ext.getPlaceUrl(),
+                ext.getLongitude(), ext.getLatitude()));
+
+        String label = StringUtils.hasText(ext.getRoadAddressName())
+                ? ext.getRoadAddressName() : ext.getPlaceName();
+
+        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+        todo.updateTodoType(TodoType.SPECIFIC.name());
+        todo.updatePrimaryPlaceId(place.getId());
+        todo.updateResolvedPlaceLabel(label);
+        saveSingleCandidate(todo, place);
+
+        log.info("[Todo/Place] todoId={} → SPECIFIC placeId={} label='{}'",
+                todo.getId(), place.getId(), label);
+    }
+
     @Override
     @Transactional
     public TodoDetailResponse removeTodoPlace(Long userId, Long todoId) {
-        Todo todo = todoRepository.findById(todoId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
-        if (!todo.getUserId().equals(userId)) {
-            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
-        }
+        Todo todo = getOwnedTodo(userId, todoId);
 
-        todo.updateTodoType(TodoType.GENERAL.name());
-        todo.updatePrimaryPlaceId(null);
-        todo.updateResolvedPlaceLabel(null);
-        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+        clearPlaceAssignment(todo, todoId);
 
         // 장소 제거 → 좌표 없으면 enqueue 스킵 (다음 액션에서 자연 복구).
         // 좌표 없이 호출하므로 메모 모드/권한 거부 사용자 보호 가드에 의해 스킵됨.
@@ -381,6 +404,15 @@ public class TodoServiceImpl implements TodoService {
 
         log.info("[Todo/Place] todoId={} 장소 연결 해제", todoId);
         return assembleTodoDetail(todo);
+    }
+
+    private Todo getOwnedTodo(Long userId, Long todoId) {
+        Todo todo = todoRepository.findById(todoId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TODO_NOT_FOUND));
+        if (!todo.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.TODO_FORBIDDEN);
+        }
+        return todo;
     }
 
     // ── 삭제 ─────────────────────────────────────────────────────────────────
@@ -470,28 +502,43 @@ public class TodoServiceImpl implements TodoService {
                 todoCandidatePlaceRepository.findAllWithPlaceByTodoId(todo.getId());
         if (candidates.isEmpty()) return List.of();
 
-        Set<Long> activePlaceIds = geofenceSlotRepository
-                .findByUserIdAndActiveTrue(todo.getUserId())
-                .stream()
-                .filter(s -> todo.getId().equals(s.getTodoId()))
-                .map(GeofenceSlot::getPlaceId)
-                .collect(Collectors.toSet());
+        List<TodoCandidatePlace> activeCandidates = filterActiveCandidates(candidates);
+        if (activeCandidates.isEmpty()) return List.of();
 
-        // 정렬: 활성 슬롯 우선 → 그 안에서 거리 오름차순.
-        // FE가 상위 N개를 미리보기로 띄울 때 "지금 알림 감지중인 후보"가 먼저 보이도록 한다.
-        Comparator<TodoCandidatePlace> byActiveFirst =
-                Comparator.comparing((TodoCandidatePlace c) ->
-                        activePlaceIds.contains(c.getPlace().getId()) ? 0 : 1);
-        Comparator<TodoCandidatePlace> byDistanceAsc =
-                Comparator.comparing(TodoCandidatePlace::getDistanceM,
-                        Comparator.nullsLast(Comparator.naturalOrder()));
+        Set<Long> activePlaceIds = fetchActivePlaceIds(todo);
 
-        return candidates.stream()
-                .filter(c -> c.getExpiresAt() == null)
-                .sorted(byActiveFirst.thenComparing(byDistanceAsc))
+        return activeCandidates.stream()
+                .sorted(candidateResponseOrder(activePlaceIds))
                 .map(c -> CandidatePlaceResponse.from(
                         c, activePlaceIds.contains(c.getPlace().getId())))
                 .toList();
+    }
+
+    private List<TodoCandidatePlace> filterActiveCandidates(List<TodoCandidatePlace> candidates) {
+        return candidates.stream()
+                .filter(candidate -> candidate.getExpiresAt() == null)
+                .toList();
+    }
+
+    private Set<Long> fetchActivePlaceIds(Todo todo) {
+        return geofenceSlotRepository
+                .findByUserIdAndActiveTrue(todo.getUserId())
+                .stream()
+                .filter(slot -> todo.getId().equals(slot.getTodoId()))
+                .map(GeofenceSlot::getPlaceId)
+                .collect(Collectors.toSet());
+    }
+
+    private Comparator<TodoCandidatePlace> candidateResponseOrder(Set<Long> activePlaceIds) {
+        // 정렬: 활성 슬롯 우선 → 그 안에서 거리 오름차순.
+        // FE가 상위 N개를 미리보기로 띄울 때 "지금 알림 감지중인 후보"가 먼저 보이도록 한다.
+        Comparator<TodoCandidatePlace> byActiveFirst =
+                Comparator.comparing((TodoCandidatePlace candidate) ->
+                        activePlaceIds.contains(candidate.getPlace().getId()) ? 0 : 1);
+        Comparator<TodoCandidatePlace> byDistanceAsc =
+                Comparator.comparing(TodoCandidatePlace::getDistanceM,
+                        Comparator.nullsLast(Comparator.naturalOrder()));
+        return byActiveFirst.thenComparing(byDistanceAsc);
     }
 
     // ── AI 분석 트리거 ────────────────────────────────────────────────────────
@@ -541,10 +588,7 @@ public class TodoServiceImpl implements TodoService {
      */
     private void applyPlaceTextUpdate(Todo todo, Long todoId, TodoUpdateRequest request) {
         if (request.getPlaceText().isEmpty()) {
-            todo.updateResolvedPlaceLabel(null);
-            todo.updatePrimaryPlaceId(null);
-            todo.updateTodoType(TodoType.GENERAL.name());
-            todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
+            clearPlaceAssignment(todo, todoId);
         } else {
             todo.updateResolvedPlaceLabel(request.getPlaceText());
             todo.updatePrimaryPlaceId(null);
@@ -553,6 +597,13 @@ public class TodoServiceImpl implements TodoService {
             resolveAndSaveGenericCandidates(todo, request.getPlaceText(),
                     request.getLatitude(), request.getLongitude());
         }
+    }
+
+    private void clearPlaceAssignment(Todo todo, Long todoId) {
+        todo.updateResolvedPlaceLabel(null);
+        todo.updatePrimaryPlaceId(null);
+        todo.updateTodoType(TodoType.GENERAL.name());
+        todoCandidatePlaceRepository.deleteAllByTodo_Id(todoId);
     }
 
     /**
