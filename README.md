@@ -139,7 +139,7 @@ Elasticsearch를 이용해 할 일 전문 검색을 제공합니다.
 - 다운로드 URL 발급
 
 ## 서비스 구조
-
+<img width="7085" height="2940" alt="Image" src="https://github.com/user-attachments/assets/5939e8f5-9934-4c91-967f-de76b2916363" />
 
 
 ## 기술 스택 및 선택 이유
